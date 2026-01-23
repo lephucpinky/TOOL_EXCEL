@@ -205,3 +205,61 @@ export const buildSalesPicker = (rows: ExcelRow[]) => {
     },
   }
 }
+
+/** lấy monthStr = "MM/YYYY" từ cột Ngày tháng/Ngày phát sinh trong salesRows của dealer */
+export const pickMonthStrFromSalesRows = (
+  salesRows: ExcelRow[],
+  picker: ReturnType<typeof buildSalesPicker>,
+  dealerPicked: string
+) => {
+  const dealerKey = picker.H.DAILY || "Tên đại lý"
+  const dateKey = picker.H.NGAY || "Ngày tháng"
+
+  // lấy ngày đầu tiên hợp lệ của dealer
+  for (const r of salesRows) {
+    const dn = String((r as any)[dealerKey] ?? "").trim()
+    if (dn !== dealerPicked) continue
+
+    const raw =
+      (r as any)[dateKey] ??
+      (r as any)["Ngày tháng"] ??
+      (r as any)["Ngày phát sinh"]
+    if (raw == null || raw === "") continue
+
+    // raw có thể là Date | number (excel serial) | string
+    let d: Date | null = null
+
+    if (raw instanceof Date) {
+      d = raw
+    } else if (typeof raw === "number") {
+      const dc = XLSX.SSF.parse_date_code(raw)
+      if (dc) d = new Date(dc.y, dc.m - 1, dc.d)
+    } else {
+      const s = String(raw).trim()
+
+      // dd/mm/yyyy hoặc d/m/yyyy
+      const m1 = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/)
+      if (m1) {
+        const dd = Number(m1[1])
+        const mm = Number(m1[2])
+        let yy = Number(m1[3])
+        if (yy < 100) yy += 2000
+        d = new Date(yy, mm - 1, dd)
+      } else {
+        // fallback: Date.parse
+        const t = Date.parse(s)
+        if (!Number.isNaN(t)) d = new Date(t)
+      }
+    }
+
+    if (!d || Number.isNaN(d.getTime())) continue
+
+    const mm = String(d.getMonth() + 1).padStart(2, "0")
+    const yyyy = String(d.getFullYear())
+    return `${mm}/${yyyy}`
+  }
+
+  // fallback nếu không tìm được ngày
+  const now = new Date()
+  return `${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`
+}

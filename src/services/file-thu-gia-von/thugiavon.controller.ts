@@ -17,6 +17,7 @@ import {
   formatExcelDate,
   mapTemplateCols,
   num,
+  pickMonthStrFromSalesRows,
   setCellRC,
 } from "./thugiavon.excel"
 import { applyHcmDateNow, applyThuGiaVonStyles } from "./thugiavon.style"
@@ -41,6 +42,7 @@ export function buildThuGiaVonSheetForDealer(args: {
   }
 
   const picker = buildSalesPicker(salesRows)
+  const monthStr = pickMonthStrFromSalesRows(salesRows, picker, dealerPicked)
 
   // group rows by category for chosen dealer
   const groups = new Map<string, ExcelRow[]>()
@@ -212,7 +214,7 @@ export function buildThuGiaVonSheetForDealer(args: {
     COL,
     lastCol,
     dealerName: dealerPicked,
-    monthStr: "01/2026",
+    monthStr,
     maDaiLy,
   })
 
