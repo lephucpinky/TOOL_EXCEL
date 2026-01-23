@@ -15,3 +15,28 @@ export const COL_HOA_HONG = {
   CHENH_TT: 13, // N
   GHICHU: 14, // O (text)
 } as const
+
+export const NUM_PARENS_FMT = "#,##0;(#,##0);0"
+
+export const BLUE_LIGHT = { patternType: "solid", fgColor: { rgb: "D9EAF7" } }
+export const BLUE_DARK = { patternType: "solid", fgColor: { rgb: "9DC3E6" } }
+export const RED_FONT = { color: { rgb: "FF0000" }, bold: true }
+export const YELLOW_BG = { patternType: "solid", fgColor: { rgb: "FFFF00" } }
+
+export const BORDER_THIN = {
+  top: { style: "thin", color: { rgb: "000000" } },
+  bottom: { style: "thin", color: { rgb: "000000" } },
+  left: { style: "thin", color: { rgb: "000000" } },
+  right: { style: "thin", color: { rgb: "000000" } },
+} as const
+
+export const BORDER_THICK = {
+  top: { style: "medium", color: { rgb: "000000" } },
+  bottom: { style: "medium", color: { rgb: "000000" } },
+  left: { style: "medium", color: { rgb: "000000" } },
+  right: { style: "medium", color: { rgb: "000000" } },
+} as const
+
+export const HOA_HONG_COL_WIDTHS = [
+  4, 10, 14, 28, 22, 32, 14, 12, 12, 10, 14, 14, 14, 14, 12,
+]
