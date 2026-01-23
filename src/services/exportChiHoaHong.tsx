@@ -12,6 +12,7 @@ import {
   unmergeInRange,
 } from "../utils/excel"
 import {
+  addLogoToA1_OOXML,
   addLogoToA1ExcelJS,
   downloadArrayBuffer,
   fetchPngAsBase64,
@@ -1125,8 +1126,15 @@ export async function exportChiHoaHongXlsx(args: ExportArgs) {
     bookType: "xlsx",
     type: "array",
   }) as ArrayBuffer
+  // 2) load logo PNG từ public -> base64
   const logoBase64 = await fetchPngAsBase64("/images/logo_minvoice.png")
-  const finalBuf = await addLogoToA1ExcelJS(xlsxBuf, realName, logoBase64)
 
+  // 3) patch OOXML để nhét ảnh mà KHÔNG rewrite styles (giữ format)
+  const finalBuf = await addLogoToA1_OOXML(xlsxBuf, realName, logoBase64, {
+    widthPx: 150,
+    heightPx: 85,
+  })
+
+  // 4) download
   downloadArrayBuffer(finalBuf, fileName)
 }

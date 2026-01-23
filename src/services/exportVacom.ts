@@ -21,6 +21,7 @@ import {
 } from "../utils/excel"
 import { BORDER_THIN_VACOM, COL_VACOM, COL_WCH_VACOM } from "@/constants/vacom"
 import {
+  addLogoToA1_OOXML,
   addLogoToA1ExcelJS,
   downloadArrayBuffer,
   fetchPngAsBase64,
@@ -866,13 +867,16 @@ export async function exportVacomHdXlsx(args: ExportArgs) {
       type: "array",
     }) as ArrayBuffer
 
-    // 2) load logo PNG từ public (bạn đặt file ở /public/logo_minvoice.png)
+    // 2) load logo PNG từ public -> base64
     const logoBase64 = await fetchPngAsBase64("/images/logo_minvoice.png")
 
-    // 3) chèn logo vào A1 bằng ExcelJS
-    const finalBuf = await addLogoToA1ExcelJS(xlsxBuf, realName, logoBase64)
+    // 3) patch OOXML để nhét ảnh mà KHÔNG rewrite styles (giữ format)
+    const finalBuf = await addLogoToA1_OOXML(xlsxBuf, realName, logoBase64, {
+      widthPx: 150,
+      heightPx: 85,
+    })
 
-    // 4) download file
+    // 4) download
     downloadArrayBuffer(finalBuf, filename)
   }
 }

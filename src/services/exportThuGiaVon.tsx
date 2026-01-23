@@ -10,6 +10,7 @@ import {
   unmergeInRange,
 } from "@/utils/excel"
 import {
+  addLogoToA1_OOXML,
   addLogoToA1ExcelJS,
   downloadArrayBuffer,
   fetchPngAsBase64,
@@ -699,15 +700,18 @@ export async function exportThuGiaVonXlsx({
     type: "array",
   }) as ArrayBuffer
 
-  // 2) load logo PNG từ public (bạn đặt file ở /public/logo_minvoice.png)
+  // 2) load logo PNG từ public -> base64
   const logoBase64 = await fetchPngAsBase64("/images/logo_minvoice.png")
 
-  // 3) chèn logo vào A1 bằng ExcelJS
+  // 3) patch OOXML: add logo vào A1 cho TỪNG sheet nhưng KHÔNG rewrite styles
   let buf = xlsxBuf
-
   for (const sn of appendedSheetNames) {
-    buf = await addLogoToA1ExcelJS(buf, sn, logoBase64)
+    buf = await addLogoToA1_OOXML(buf, sn, logoBase64, {
+      widthPx: 150,
+      heightPx: 85,
+    })
   }
 
+  // 4) download
   downloadArrayBuffer(buf, fileName)
 }
