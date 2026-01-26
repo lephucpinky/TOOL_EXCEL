@@ -86,7 +86,11 @@ export function buildVacomHdSheetForDealer(args: {
     "Tổng tiền xuất HD"
   )
   const H_HH = pick("TỶ LỆ HOA HỒNG", "% Hoa hồng")
-  const H_HH5 = pick("Hoa hồng thưởng dạt doanh số 5%")
+  const H_HH5 = pick(
+    "Hoa hồng thưởng đạt doanh số 5%",
+    "Hoa hồng thưởng dạt doanh số 5%"
+  )
+
   const H_DEALER = pick("Tên đại lý", "Đại lý", "Dealer")
   const H_CATEGORY =
     pick("Loại sản phẩm", "Danh mục", "Category") || productTypeCol
@@ -263,6 +267,15 @@ export function buildVacomHdSheetForDealer(args: {
       })
 
       setRowFormulas(newWs, r0, COL_VACOM)
+
+      // ✅ FIX: Đại lý còn phải thanh toán (K) = Tổng giá trị (F) - Tổng trích (J)
+      const addrTien = XLSX.utils.encode_cell({ r: r0, c: COL_VACOM.TIEN })
+      const addrTongTrich = XLSX.utils.encode_cell({
+        r: r0,
+        c: COL_VACOM.TONGTRICH,
+      })
+      setFormula(newWs, r0, COL_VACOM.CONPHAITT, `${addrTien}-${addrTongTrich}`)
+
       maxR = Math.max(maxR, r0)
     }
     ensureRefIncludes(newWs, maxR, maxC)
@@ -303,6 +316,12 @@ export function buildVacomHdSheetForDealer(args: {
       titleRow0,
       COL_VACOM.DLDH,
       sumRange(COL_VACOM.DLDH, start, end)
+    )
+    setFormula(
+      newWs,
+      titleRow0,
+      COL_VACOM.HH5,
+      sumRange(COL_VACOM.HH5, start, end)
     )
     setFormula(
       newWs,
@@ -354,6 +373,12 @@ export function buildVacomHdSheetForDealer(args: {
   setFormula(
     newWs,
     rCong0,
+    COL_VACOM.HH5,
+    sumCells(sectionTitleRows, COL_VACOM.HH5)
+  )
+  setFormula(
+    newWs,
+    rCong0,
     COL_VACOM.TONGTRICH,
     sumCells(sectionTitleRows, COL_VACOM.TONGTRICH)
   )
@@ -364,24 +389,28 @@ export function buildVacomHdSheetForDealer(args: {
     sumCells(sectionTitleRows, COL_VACOM.CONPHAITT)
   )
 
-  // fix block tổng kết dưới CỘNG
-  const aoa2 = recalc()
-  const rDoanhSo0 = findRowContainsAOA(aoa2, "Doanh số Vacom HCM đạt được")
-  const rTongThucThu0 = findRowContainsAOA(aoa2, "Tổng Minvoice HCM thực thu")
+  // fix block tổng kết dưới CỘNG (KHÔNG search text để tránh nhảy nhầm)
+  const rDoanhSo0 = rCong0 + 1
+  const rThuong0 = rCong0 + 2
+  const rTongThucThu0 = rCong0 + 3
 
-  if (rDoanhSo0 !== -1) {
-    const addrCongK = XLSX.utils.encode_cell({
-      r: rCong0,
-      c: COL_VACOM.CONPHAITT,
-    })
-    const addrDoanhH = XLSX.utils.encode_cell({
-      r: rDoanhSo0,
-      c: COL_VACOM.DLDH,
-    })
-    setFormula(newWs, rDoanhSo0, COL_VACOM.DLDH, addrCongK)
-    if (rTongThucThu0 !== -1)
-      setFormula(newWs, rTongThucThu0, COL_VACOM.DLDH, addrDoanhH)
-  }
+  // Doanh số = ô CỘNG cột H
+  const addrCongDoanh = XLSX.utils.encode_cell({ r: rCong0, c: COL_VACOM.DLDH })
+  setFormula(newWs, rDoanhSo0, COL_VACOM.DLDH, addrCongDoanh)
+
+  // ✅ % thưởng = SUM các ô tổng khu của cột I (HH5) -> =SUM(I12,I16,I18,I20,I22)
+  const formulaThuong = sumCells(sectionTitleRows, COL_VACOM.HH5)
+  setFormula(newWs, rThuong0, COL_VACOM.DLDH, formulaThuong)
+
+  // Tổng thực thu = H25 + H26
+  const addrDoanhH = XLSX.utils.encode_cell({ r: rDoanhSo0, c: COL_VACOM.DLDH })
+  const addrThuongH = XLSX.utils.encode_cell({ r: rThuong0, c: COL_VACOM.DLDH })
+  setFormula(
+    newWs,
+    rTongThucThu0,
+    COL_VACOM.DLDH,
+    `${addrDoanhH}+${addrThuongH}`
+  )
 
   // style bảng tới dòng CỘNG
   ensureRefIncludes(newWs, rCong0, maxC)
@@ -396,39 +425,32 @@ export function buildVacomHdSheetForDealer(args: {
     dataEndRow0: rCong0,
   })
 
-  // apply header TOP sau cùng để “chốt” wrap/height
   const resolvedMonth = monthPicked || monthKey(filteredRows[0]?.[H_NGAY])
   applyTopHeader(newWs, dealerPicked, resolvedMonth)
   applyTailMonth(newWs, resolvedMonth)
   applyHcmDateNow(newWs, new Date())
 
-  // styles tail + sign
   styleTailBlockBold(newWs)
   styleSignArea(newWs)
 
-  // merge lại tiêu đề khu
   forceLeftTitleRow(newWs, rA2, 0, 2)
   forceLeftTitleRow(newWs, rB2, 0, 2)
   forceLeftTitleRow(newWs, rC2, 0, 2)
   forceLeftTitleRow(newWs, rE2, 0, 2)
   forceLeftTitleRow(newWs, rD3, 0, 2)
 
-  // center cột số trên hàng tổng khu
   centerTotalsOnSectionRow(newWs, rA2)
   centerTotalsOnSectionRow(newWs, rB2)
   centerTotalsOnSectionRow(newWs, rC2)
   centerTotalsOnSectionRow(newWs, rE2)
   centerTotalsOnSectionRow(newWs, rD3)
 
-  // style CỘNG cuối cùng
   styleCongRow(newWs, rCong0)
 
-  // bôi đen lại tail & sign lần cuối (y như code bạn)
   styleTailBlockBold(newWs)
   styleSignArea(newWs)
   forceCompanyHeaderLeft(newWs)
 
-  // build workbook output (1 sheet)
   const outWb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(outWb, newWs, templateSheetName)
 

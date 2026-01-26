@@ -9,7 +9,7 @@ import {
   addLogoToA1_OOXML,
 } from "@/lib/logo"
 
-import { buildVacomHdSheetForDealer } from "./vacom.controller"
+import { buildVacomHdSheetForDealer } from "./vacomcontroller"
 
 export type ExportArgs = {
   templateWorkbook: XLSX.WorkBook

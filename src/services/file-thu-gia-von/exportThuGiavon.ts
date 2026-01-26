@@ -9,7 +9,7 @@ import {
   fetchPngAsBase64,
 } from "@/lib/logo"
 
-import { buildThuGiaVonSheetForDealer } from "./thugiavon.controller"
+import { buildThuGiaVonSheetForDealer } from "./thugiavoncontroller"
 import { sanitizeSheetName, uniqueSheetName } from "./thugiavon.excel"
 
 export type ExportArgs = {

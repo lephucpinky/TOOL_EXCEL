@@ -1,6 +1,6 @@
+import { BORDER_THIN_VACOM } from "@/constants/vacom"
 import * as XLSX from "xlsx-js-style"
-
-
+const FONT_TNR = { name: "Times New Roman" }
 export type ExcelRow = Record<string, any>
 
 export const normalize = (s: any) =>
@@ -41,7 +41,6 @@ export const clearRange = (
   }
 }
 
-
 export const removeAllFormulas = (ws: XLSX.WorkSheet) => {
   for (const addr in ws) {
     if (addr.startsWith("!")) continue
@@ -59,13 +58,12 @@ export const unmergeInRange = (
   rStart0: number,
   rEnd0: number
 ) => {
-  const merges = (((ws as any)["!merges"] || []) as XLSX.Range[])
+  const merges = ((ws as any)["!merges"] || []) as XLSX.Range[]
   if (!merges.length) return
 
   // Giữ lại merge KHÔNG nằm trong range data
   const kept = merges.filter((m) => {
-    const inRowRange =
-      !(m.e.r < rStart0 || m.s.r > rEnd0) // có giao nhau theo row
+    const inRowRange = !(m.e.r < rStart0 || m.s.r > rEnd0) // có giao nhau theo row
     return !inRowRange
   })
 
@@ -76,7 +74,7 @@ export const forceLeftTitleRow = (
   ws: XLSX.WorkSheet,
   r0: number,
   startCol0 = 0, // A
-  endCol0 = 10   // K
+  endCol0 = 10 // K
 ) => {
   // 1) gom text đang nằm ở đâu đó trong hàng A..K
   let title = ""
@@ -96,7 +94,7 @@ export const forceLeftTitleRow = (
   }
 
   // 3) xoá mọi merge đụng tới row này (không chỉ s.r === r0)
-  const merges = (((ws as any)["!merges"] || []) as XLSX.Range[])
+  const merges = ((ws as any)["!merges"] || []) as XLSX.Range[]
   ;(ws as any)["!merges"] = merges.filter((m) => !(m.s.r <= r0 && m.e.r >= r0))
 
   // 4) tạo merge chuẩn A..K cho row này
@@ -111,14 +109,18 @@ export const forceLeftTitleRow = (
     t: "s",
     v: title,
     s: {
-      font: { bold: true },
+      font: { ...FONT_TNR, bold: true },
       fill: { patternType: "solid", fgColor: { rgb: "DFF3E3" } },
-      alignment: { vertical: "center", horizontal: "left", wrapText: false, indent: 0 },
+      border: BORDER_THIN_VACOM,
+      alignment: {
+        vertical: "center",
+        horizontal: "left",
+        wrapText: false,
+        indent: 0,
+      },
     },
   }
 }
-
-
 
 export const getSheetAOA = (ws: XLSX.WorkSheet) =>
   XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false }) as any[][]
@@ -126,7 +128,11 @@ export const getSheetAOA = (ws: XLSX.WorkSheet) =>
 export const deepCloneSheet = (ws: XLSX.WorkSheet) =>
   JSON.parse(JSON.stringify(ws)) as XLSX.WorkSheet
 
-export const ensureRefIncludes = (ws: XLSX.WorkSheet, maxR: number, maxC: number) => {
+export const ensureRefIncludes = (
+  ws: XLSX.WorkSheet,
+  maxR: number,
+  maxC: number
+) => {
   const ref = ws["!ref"] || "A1"
   const range = XLSX.utils.decode_range(ref)
   if (maxR > range.e.r) range.e.r = maxR
@@ -135,7 +141,11 @@ export const ensureRefIncludes = (ws: XLSX.WorkSheet, maxR: number, maxC: number
 }
 
 /** insert rows: shift tất cả cell từ startRow trở xuống */
-export const insertRows = (ws: XLSX.WorkSheet, startRow0: number, nRows: number) => {
+export const insertRows = (
+  ws: XLSX.WorkSheet,
+  startRow0: number,
+  nRows: number
+) => {
   if (nRows <= 0) return
 
   const newWs: XLSX.WorkSheet = { ...ws }
@@ -143,7 +153,10 @@ export const insertRows = (ws: XLSX.WorkSheet, startRow0: number, nRows: number)
 
   keys
     .map((addr) => ({ addr, cell: (newWs as any)[addr] }))
-    .sort((a, b) => XLSX.utils.decode_cell(b.addr).r - XLSX.utils.decode_cell(a.addr).r)
+    .sort(
+      (a, b) =>
+        XLSX.utils.decode_cell(b.addr).r - XLSX.utils.decode_cell(a.addr).r
+    )
     .forEach(({ addr, cell }) => {
       const { r, c } = XLSX.utils.decode_cell(addr)
       if (r >= startRow0) {
@@ -178,7 +191,11 @@ export const insertRows = (ws: XLSX.WorkSheet, startRow0: number, nRows: number)
 }
 
 /** tìm row section title theo text A./B./C./E./D. */
-export const findSectionTitleRow = (aoa: any[][], label: string, scanRows = 5000) => {
+export const findSectionTitleRow = (
+  aoa: any[][],
+  label: string,
+  scanRows = 5000
+) => {
   const key = normalize(label)
   for (let r = 0; r < Math.min(scanRows, aoa.length); r++) {
     const line = normalize((aoa[r] || []).map((x) => String(x ?? "")).join(" "))
@@ -322,7 +339,10 @@ export const setCell = (
   r0: number,
   c0: number,
   v: any,
-  opts?: { kind?: "stt" | "date" | "percent" | "text" | "number0"; force?: boolean }
+  opts?: {
+    kind?: "stt" | "date" | "percent" | "text" | "number0"
+    force?: boolean
+  }
 ) => {
   const addr = XLSX.utils.encode_cell({ r: r0, c: c0 })
   const existing = ws[addr] as any
@@ -403,7 +423,6 @@ export const setCell = (
   if (asText !== "" && Number.isFinite(num)) ws[addr] = { t: "n", v: num }
   else ws[addr] = { t: "s", v: String(v) }
 }
-
 
 /** ✅ Set công thức theo từng dòng */
 export const setRowFormulas = (

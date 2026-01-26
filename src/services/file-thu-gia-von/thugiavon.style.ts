@@ -4,11 +4,13 @@ import { getSheetAOA, normalize } from "@/utils/excel"
 // --------------------
 // style basics
 // --------------------
+
+const FONT_TNR = { name: "Times New Roman" }
 export const BORDER_THIN = {
-  top: { style: "thin", color: { rgb: "D0D7DE" } },
-  bottom: { style: "thin", color: { rgb: "D0D7DE" } },
-  left: { style: "thin", color: { rgb: "D0D7DE" } },
-  right: { style: "thin", color: { rgb: "D0D7DE" } },
+  top: { style: "thin", color: { rgb: "000000" } },
+  bottom: { style: "thin", color: { rgb: "000000" } },
+  left: { style: "thin", color: { rgb: "000000" } },
+  right: { style: "thin", color: { rgb: "000000" } },
 } as const
 
 export const styleCell = (
@@ -98,7 +100,7 @@ export const applyTopHeader = (
     const cell = (ws as any)[addr]
     cell.s = {
       ...(cell.s || {}),
-      font: { ...(cell.s?.font || {}), bold: true, sz },
+      font: { ...(cell.s?.font || {}), ...FONT_TNR, bold: true, sz },
       alignment: {
         ...(cell.s?.alignment || {}),
         horizontal: "center",
@@ -132,7 +134,7 @@ export const applyLeftDealerBlockFixed = (
     const cell: any = (ws as any)[a] ?? ((ws as any)[a] = { t: "s", v: "" })
     cell.s = {
       ...(cell.s || {}),
-
+      font: { ...(cell.s?.font || {}), ...FONT_TNR, bold: false },
       alignment: {
         ...(cell.s?.alignment || {}),
         horizontal: "left",
@@ -149,7 +151,7 @@ export const applyLeftDealerBlockFixed = (
     cell.v = String(value ?? "").trim()
     cell.s = {
       ...(cell.s || {}),
-
+      font: { ...(cell.s?.font || {}), ...FONT_TNR, bold: false },
       alignment: {
         ...(cell.s?.alignment || {}),
         horizontal: "left",
@@ -206,11 +208,11 @@ export function applyThuGiaVonStyles(opts: {
     [COL.MST]: { wch: 18 },
     [COL.TEN]: { wch: 44 },
     [COL.TONGTIEN]: { wch: 20 },
-    [COL.GOIHOADON]: { wch: 16 },
-    [COL.DTKHAC]: { wch: 12 },
+    [COL.GOIHOADON]: { wch: 20 },
+    [COL.DTKHAC]: { wch: 20 },
     [COL.NIEMYET]: { wch: 20 },
     [COL.GIAMINV]: { wch: 20 },
-    [COL.GHICHU]: { wch: 18 },
+    [COL.GHICHU]: { wch: 20 },
   })
   ;(ws as any)["!cols"] = cols
   // ✅ MAP + STYLE header theo text trong template (THÁNG/ĐẠI LÝ/Số)
@@ -222,7 +224,7 @@ export function applyThuGiaVonStyles(opts: {
     const cell = ws[a] ?? (ws[a] = { t: "s", v: "" })
     cell.s = {
       ...(cell.s || {}),
-      font: { ...(cell.s?.font || {}), bold: true },
+      font: { ...(cell.s?.font || {}), ...FONT_TNR, bold: true },
       alignment: {
         ...(cell.s?.alignment || {}),
         horizontal: "left",
@@ -256,7 +258,7 @@ export function applyThuGiaVonStyles(opts: {
 
     for (let c0 = cStart; c0 <= cEnd; c0++) {
       styleCell(ws, r0, c0, {
-        font: { bold: true },
+        font: { ...FONT_TNR, bold: true },
         alignment: {
           horizontal: "center",
           vertical: "center",
@@ -267,7 +269,7 @@ export function applyThuGiaVonStyles(opts: {
   }
 
   const HEADER_STYLE = {
-    font: { bold: true },
+    font: { ...FONT_TNR, bold: true },
     alignment: { vertical: "center", horizontal: "center", wrapText: true },
     fill: { patternType: "solid", fgColor: { rgb: "EEF2F7" } },
     border: BORDER_THIN,
@@ -293,6 +295,7 @@ export function applyThuGiaVonStyles(opts: {
   if (footerLabelRow0 !== -1) {
     for (let c = 0; c <= lastCol; c++) {
       styleCell(ws, footerLabelRow0, c, {
+        font: { ...FONT_TNR, bold: true },
         fill: { patternType: "solid", fgColor: { rgb: "EEF2F7" } },
         border: BORDER_THIN,
       })
@@ -315,7 +318,7 @@ export function applyThuGiaVonStyles(opts: {
     const topLeftC = m ? m.s.c : targetCol
 
     styleCell(ws, footerLabelRow0, topLeftC, {
-      font: { bold: true },
+      font: { ...FONT_TNR, bold: true },
       alignment: { vertical: "center", horizontal: "left", wrapText: true },
     })
 
@@ -323,7 +326,7 @@ export function applyThuGiaVonStyles(opts: {
     for (const c of [COL.TONGTIEN, COL.GOIHOADON, COL.DTKHAC, COL.NIEMYET]) {
       if (c !== -1) {
         styleCell(ws, footerLabelRow0, c, {
-          font: { bold: true },
+          font: { ...FONT_TNR, bold: true },
           alignment: { vertical: "center", horizontal: "right" },
         })
       }
@@ -332,7 +335,7 @@ export function applyThuGiaVonStyles(opts: {
     // GIAMINV total: CENTER + #,##0
     if (COL.GIAMINV !== -1) {
       styleCell(ws, footerLabelRow0, COL.GIAMINV, {
-        font: { bold: true },
+        font: { ...FONT_TNR, bold: true },
         alignment: { vertical: "center", horizontal: "center" },
       })
       const addr = XLSX.utils.encode_cell({
@@ -350,7 +353,7 @@ export function applyThuGiaVonStyles(opts: {
     for (let c = 0; c <= lastCol; c++) {
       // default center
       styleCell(ws, r, c, {
-        font: isSumRow ? { bold: true } : undefined,
+        font: { ...FONT_TNR, bold: false },
         alignment: { vertical: "center", horizontal: "center", wrapText: true },
         fill: isSumRow
           ? { patternType: "solid", fgColor: { rgb: "EEF2F7" } }
@@ -376,6 +379,31 @@ export function applyThuGiaVonStyles(opts: {
       if (c === COL.STT) cell.z = "0"
     }
   }
+
+  // đặt gần cuối applyThuGiaVonStyles (sau khi bạn style xong cũng được)
+  const setRowHeight = (r0: number, hpt: number) => {
+    const rows = (((ws as any)["!rows"] || []) as any[]).slice()
+    const hpx = Math.round(hpt * 1.333) // quy đổi pt -> px (ước lượng)
+    rows[r0] = { ...(rows[r0] || {}), hpt, hpx }
+    ;(ws as any)["!rows"] = rows
+  }
+
+  // 1) Header bảng (2 dòng tiêu đề cột)
+  for (let r = headerRow0; r <= headerRow0 + 1; r++) setRowHeight(r, 28)
+
+  // 3) Data rows + dòng tổng (sumRow)
+  for (let r = dataStartRow0; r <= Math.max(dataEndRow0, sumRow0); r++) {
+    // nếu cột TÊN hay xuống 2 dòng thì để cao hơn chút
+    setRowHeight(r, 26)
+  }
+  setRowHeight(sumRow0, 24)
+
+  // 4) Footer label row (GIÁ TRỊ M-INVOICE…)
+  if (footerLabelRow0 !== -1) setRowHeight(footerLabelRow0, 22)
+
+  // 5) A5..A8 (block header merge) nếu muốn cao hơn nữa
+  for (const r0 of [4, 5, 6, 7]) setRowHeight(r0, 24) // thay cho đoạn hpt:20/hpx:26 hiện tại
+
   // ✅ Footer confirm: bold + center (merge-aware)
   const styleFooterCellContains = (needleRaw: string) => {
     const needle = normalize(needleRaw)
@@ -400,7 +428,7 @@ export function applyThuGiaVonStyles(opts: {
 
         for (let cc = cStart; cc <= cStop; cc++) {
           styleCell(ws, r0, cc, {
-            font: { bold: true },
+            font: { ...FONT_TNR, bold: true },
             alignment: {
               horizontal: "center",
               vertical: "center",
@@ -467,7 +495,7 @@ export const applyHcmDateNow = (ws: XLSX.WorkSheet, d = new Date()) => {
   cell.z = keepZ
 
   styleCell(ws, hitR, topLeftC, {
-    font: { bold: true },
+    font: { ...FONT_TNR, bold: true },
     alignment: { vertical: "center", horizontal: "center", wrapText: false },
   })
 }

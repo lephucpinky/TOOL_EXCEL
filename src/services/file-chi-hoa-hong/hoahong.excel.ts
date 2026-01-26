@@ -1,11 +1,67 @@
 import * as XLSX from "xlsx-js-style"
-
-import { normalize } from "@/utils/excel" // hoặc "../utils/excel" tuỳ path bạn dùng
+import { normalize } from "@/utils/excel"
 import {
   BORDER_THICK,
   BORDER_THIN,
   HOA_HONG_COL_WIDTHS,
 } from "@/constants/Mauhoahong"
+
+let _exemptTncnSet: Set<string> | null = null
+export const extractAgencyNameFromTemplate = (ws: XLSX.WorkSheet) => {
+  const ref = (ws as any)["!ref"] || "A1"
+  const range = XLSX.utils.decode_range(ref)
+
+  const maxR = Math.min(range.e.r, range.s.r + 80)
+  const maxC = Math.min(range.e.c, range.s.c + 20)
+
+  for (let r = range.s.r; r <= maxR; r++) {
+    for (let c = range.s.c; c <= maxC; c++) {
+      const addr = XLSX.utils.encode_cell({ r, c })
+      const v = (ws as any)[addr]?.v
+      const s = normalize(v ?? "")
+      if (!s) continue
+
+      if (s.includes(normalize("BẢNG ĐỐI SOÁT ĐẠI LÝ"))) {
+        // ✅ ưu tiên lấy ô bên phải (thường là F5)
+        const rightAddr = XLSX.utils.encode_cell({ r, c: c + 1 })
+        const rightV = (ws as any)[rightAddr]?.v
+        const nameRight = String(rightV ?? "").trim()
+        if (nameRight) return nameRight
+
+        // fallback: nếu tên nằm chung 1 ô sau dấu :
+        const raw = String(v ?? "")
+        const parts = raw.split(/[:：]/)
+        return (parts[1] ?? "").trim()
+      }
+    }
+  }
+  return ""
+}
+export const getExemptTncnAgentsClient = async () => {
+  if (_exemptTncnSet) return _exemptTncnSet
+
+  const res = await fetch("/templates/DS DL KO CHỊU THUẾ TNCN.xlsx")
+  if (!res.ok)
+    throw new Error("Không tải được file DS DL KO CHỊU THUẾ TNCN.xlsx")
+
+  const ab = await res.arrayBuffer()
+  const wb = XLSX.read(ab, { type: "array" })
+  const ws = wb.Sheets[wb.SheetNames[0]]
+
+  const ref = (ws as any)["!ref"] || "A1"
+  const range = XLSX.utils.decode_range(ref)
+
+  const s = new Set<string>()
+  for (let r = range.s.r; r <= range.e.r; r++) {
+    const addr = XLSX.utils.encode_cell({ r, c: 0 }) // cột A
+    const v = (ws as any)[addr]?.v
+    const key = normalize(v ?? "")
+    if (key) s.add(key)
+  }
+
+  _exemptTncnSet = s
+  return s
+}
 
 export const addrRC = (r0: number, c0: number) =>
   XLSX.utils.encode_cell({ r: r0, c: c0 })
@@ -53,8 +109,9 @@ export const setTextKeepStyle = (
 ) => {
   const addr = addrRC(r0, c0)
   const keepS = (ws as any)[addr]?.s
+  const keepZ = (ws as any)[addr]?.z
   const old = (ws as any)[addr] || {}
-  ;(ws as any)[addr] = { ...old, t: "s", v: value, s: keepS }
+  ;(ws as any)[addr] = { ...old, t: "s", v: value, s: keepS, z: keepZ }
 }
 
 export const setFormulaKeepStyle = (
@@ -264,5 +321,18 @@ export const setRowFont = (
     const cell = ensureCell(ws, row0, c0)
     const font0 = cell.s?.font || {}
     patchCellStyle(ws, row0, c0, { font: { ...font0, ...fontPatch } })
+  }
+}
+
+// ✅ set font all cells (Times New Roman)
+export const setFontAll = (ws: XLSX.WorkSheet, name = "Times New Roman") => {
+  for (const addr of Object.keys(ws)) {
+    if (addr.startsWith("!")) continue
+    const cell: any = (ws as any)[addr]
+    const font0 = cell?.s?.font || {}
+    cell.s = {
+      ...(cell.s || {}),
+      font: { ...font0, name },
+    }
   }
 }

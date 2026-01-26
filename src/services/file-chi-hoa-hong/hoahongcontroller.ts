@@ -1,39 +1,22 @@
 import * as XLSX from "xlsx-js-style"
-import type { ExcelRow } from "@/utils/excel" // hoặc "../utils/excel"
+import type { ExcelRow } from "@/utils/excel"
 import {
   ensureRefIncludes,
   insertRows,
   normalize,
   setCell,
   unmergeInRange,
-} from "@/utils/excel" // chỉnh path theo project bạn
+} from "@/utils/excel"
 import {
   addrRC,
-  applyFillRow,
-  applyInnerThinBorders,
-  applyOuterThickBorder,
-  clearDataKeepStyle,
   copyRowStyleBlock,
-  findRowContains,
+  clearDataKeepStyle,
   findTitleRowA,
-  mergeCells,
-  patchCellStyle,
-  setFormulaKeepStyle,
-  setRowFont,
-  setTextKeepStyle,
-  setColumnWidthsHoaHong,
 } from "./hoahong.excel"
-import {
-  BLUE_DARK,
-  BLUE_LIGHT,
-  COL_HOA_HONG,
-  NUM_PARENS_FMT,
-  RED_FONT,
-  YELLOW_BG,
-} from "@/constants/Mauhoahong"
+import { COL_HOA_HONG } from "@/constants/Mauhoahong"
 
 /* -------------------------------
-   headers index
+   header index
 -------------------------------- */
 
 export const buildSalesIndex = (salesHeaders: string[]) => {
@@ -88,14 +71,17 @@ export const classifyProductToSectionHoaHong = (
     return "C"
   if (s.includes("bhxh")) return "D"
   if (s.includes("smi")) return "E"
+
   if (
     s.includes("msller") ||
     s.includes("mseller") ||
     (s.includes("pm") && s.includes("banhang"))
   )
     return "F"
+
   if (s.includes("cks") || s.includes("chukyso") || s.includes("chukiso"))
     return "G"
+
   return ""
 }
 
@@ -122,38 +108,7 @@ export const resolveTemplateRows = (ws: XLSX.WorkSheet) => {
       "❌ Không tìm thấy đủ khu A..G hoặc dòng CỘNG trong template HOA HỒNG."
     )
   }
-
   return { rA, rB, rC, rD, rE, rF, rG, rTOTAL }
-}
-
-/* -------------------------------
-   header dealer + month
--------------------------------- */
-
-export const applyHeaderDealerMonth = (
-  ws: XLSX.WorkSheet,
-  dealerName: string,
-  month?: string
-) => {
-  const rTITLE = findRowContains(ws, "BẢNG ĐỐI SOÁT ĐẠI LÝ")
-  const rMONTH = findRowContains(ws, "THÁNG")
-
-  const now = new Date()
-  const fallbackMonth = `${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`
-  const monthText = month || fallbackMonth
-  const VALUE_COL = 5 // F
-
-  if (rTITLE !== -1) setTextKeepStyle(ws, rTITLE, VALUE_COL, dealerName)
-  if (rMONTH !== -1) setTextKeepStyle(ws, rMONTH, VALUE_COL, monthText)
-  ;[rTITLE, rMONTH].forEach((r0) => {
-    if (r0 === -1) return
-    ;[4, 5].forEach((c0) => {
-      patchCellStyle(ws, r0, c0, {
-        font: { bold: true },
-        alignment: { horizontal: "left", vertical: "center", wrapText: false },
-      })
-    })
-  })
 }
 
 /* -------------------------------
@@ -202,11 +157,12 @@ export const ensureAllSectionsHaveSpace = (
 
     insertRows(ws, boundaryRow, needInsert)
 
+    // copy style from nearest existing row
     const srcStyleRow0 = Math.max(titleRow + 1, boundaryRow - 1)
     copyRowStyleBlock(ws, srcStyleRow0, boundaryRow, needInsert, 0, maxCol)
   }
 
-  // bottom-up like VACOM
+  // bottom-up
   ensureSpace("G", "G. GIÁ TRỊ CHỮ KÝ SỐ", "CỘNG", true)
   ensureSpace("F", "F. PM BÁN HÀNG", "G. GIÁ TRỊ CHỮ KÝ SỐ")
   ensureSpace("E", "E. QUẢN LÝ HÓA ĐƠN SMI", "F. PM BÁN HÀNG")
@@ -226,7 +182,7 @@ export const clearAllSectionBlocks = (
   ws: XLSX.WorkSheet,
   rows: ReturnType<typeof resolveTemplateRows>
 ) => {
-  // re-find after insert
+  // re-resolve after insert
   const rr = resolveTemplateRows(ws)
   Object.assign(rows, rr)
 
@@ -259,8 +215,7 @@ export const fillAllSections = (
   ws: XLSX.WorkSheet,
   rows: ReturnType<typeof resolveTemplateRows>,
   group: Record<"A" | "B" | "C" | "D" | "E" | "F" | "G", ExcelRow[]>,
-  H: any,
-  COL: any
+  H: any
 ) => {
   const start = {
     A: rows.rA + 1,
@@ -345,6 +300,108 @@ export const fillAllSections = (
 }
 
 /* -------------------------------
+   compact rows between sections (giống VACOM)
+-------------------------------- */
+
+const deleteRows = (ws: XLSX.WorkSheet, startRow0: number, nRows: number) => {
+  if (nRows <= 0) return
+
+  const newWs: XLSX.WorkSheet = { ...ws }
+  const keys = Object.keys(newWs).filter((k) => !k.startsWith("!"))
+
+  keys
+    .map((addr) => ({ addr, cell: (newWs as any)[addr] }))
+    .sort(
+      (a, b) =>
+        XLSX.utils.decode_cell(a.addr).r - XLSX.utils.decode_cell(b.addr).r
+    )
+    .forEach(({ addr, cell }) => {
+      const { r, c } = XLSX.utils.decode_cell(addr)
+
+      if (r >= startRow0 && r < startRow0 + nRows) {
+        delete (newWs as any)[addr]
+        return
+      }
+      if (r >= startRow0 + nRows) {
+        const newAddr = XLSX.utils.encode_cell({ r: r - nRows, c })
+        ;(newWs as any)[newAddr] = cell
+        delete (newWs as any)[addr]
+      }
+    })
+
+  // merges
+  const merges = ((newWs as any)["!merges"] || []) as XLSX.Range[]
+  const kept: XLSX.Range[] = []
+  for (const m of merges) {
+    if (m.e.r < startRow0) {
+      kept.push(m)
+      continue
+    }
+    if (m.s.r >= startRow0 + nRows) {
+      kept.push({
+        s: { r: m.s.r - nRows, c: m.s.c },
+        e: { r: m.e.r - nRows, c: m.e.c },
+      })
+      continue
+    }
+    if (m.s.r < startRow0 && m.e.r >= startRow0 + nRows) {
+      kept.push({
+        s: { r: m.s.r, c: m.s.c },
+        e: { r: m.e.r - nRows, c: m.e.c },
+      })
+      continue
+    }
+  }
+  ;(newWs as any)["!merges"] = kept
+
+  // ref
+  const ref = (newWs as any)["!ref"] || "A1"
+  const range = XLSX.utils.decode_range(ref)
+  range.e.r = Math.max(range.s.r, range.e.r - nRows)
+  ;(newWs as any)["!ref"] = XLSX.utils.encode_range(range)
+
+  Object.keys(ws).forEach((k) => delete (ws as any)[k])
+  Object.assign(ws, newWs)
+}
+
+export const compactSections = (
+  ws: XLSX.WorkSheet,
+  group: Record<"A" | "B" | "C" | "D" | "E" | "F" | "G", ExcelRow[]>
+) => {
+  // resolve current rows
+  let rows = resolveTemplateRows(ws)
+
+  const compactBetween = (
+    titleRow0: number,
+    nextTitleRow0: number,
+    dataLen: number
+  ) => {
+    const start = titleRow0 + 1 + Math.max(0, dataLen)
+    const end = nextTitleRow0 - 1
+    const nDel = Math.max(0, end - start + 1)
+    if (nDel > 0) deleteRows(ws, start, nDel)
+  }
+
+  // bottom-up (G->TOTAL, F->G,... A->B)
+  rows = resolveTemplateRows(ws)
+  compactBetween(rows.rG, rows.rTOTAL, group.G.length)
+  rows = resolveTemplateRows(ws)
+  compactBetween(rows.rF, rows.rG, group.F.length)
+  rows = resolveTemplateRows(ws)
+  compactBetween(rows.rE, rows.rF, group.E.length)
+  rows = resolveTemplateRows(ws)
+  compactBetween(rows.rD, rows.rE, group.D.length)
+  rows = resolveTemplateRows(ws)
+  compactBetween(rows.rC, rows.rD, group.C.length)
+  rows = resolveTemplateRows(ws)
+  compactBetween(rows.rB, rows.rC, group.B.length)
+  rows = resolveTemplateRows(ws)
+  compactBetween(rows.rA, rows.rB, group.A.length)
+
+  return resolveTemplateRows(ws)
+}
+
+/* -------------------------------
    sums
 -------------------------------- */
 
@@ -380,19 +437,6 @@ const setSectionSumRow = (
     const keepS = (ws as any)[addr]?.s
     ;(ws as any)[addr] = { t: "n", f: mkSum(c0), s: keepS }
   })
-
-  // % + ghi chú
-  ;(ws as any)[addrRC(titleRow0, COL_HOA_HONG.HH_PERCENT)] = {
-    t: "n",
-    v: 0,
-    z: "0%",
-    s: (ws as any)[addrRC(titleRow0, COL_HOA_HONG.HH_PERCENT)]?.s,
-  }
-  ;(ws as any)[addrRC(titleRow0, COL_HOA_HONG.GHICHU)] = {
-    t: "s",
-    v: "",
-    s: (ws as any)[addrRC(titleRow0, COL_HOA_HONG.GHICHU)]?.s,
-  }
 
   ensureRefIncludes(ws, titleRow0, COL_HOA_HONG.GHICHU)
 }
@@ -467,215 +511,3 @@ export const applyGrandTotal = (
     ;(ws as any)[addr] = { t: "n", f: mk(c0), s: keepS }
   })
 }
-
-/* -------------------------------
-   footer formulas + highlight
--------------------------------- */
-
-export const applyFooterFormulasAndHighlight = (
-  ws: XLSX.WorkSheet,
-  rTOTAL: number
-) => {
-  const FOOTER_COL0 = COL_HOA_HONG.HH_PERCENT // J
-  const addrL_Total = addrRC(rTOTAL, COL_HOA_HONG.HOA_HONG)
-  const addrF_Total = addrRC(rTOTAL, COL_HOA_HONG.TIEN)
-  const addrN_Total = addrRC(rTOTAL, COL_HOA_HONG.CHENH_TT)
-
-  let rowTongCong = -1
-  let rowThue = -1
-  let rowDlHuong = -1
-  let rowTongThanhToan = -1
-
-  for (let r0 = rTOTAL + 1; r0 <= rTOTAL + 30; r0++) {
-    const vC = (ws as any)[addrRC(r0, 2)]?.v
-    const s = normalize(vC ?? "")
-    if (s === normalize("TỔNG CỘNG HOA HỒNG CHI TRẢ TRONG THÁNG"))
-      rowTongCong = r0
-    if (s === normalize("THUẾ TNCN") || s === normalize("THUẾ TNCN"))
-      rowThue = r0
-    if (s === normalize("HOA HỒNG DL HƯỞNG")) rowDlHuong = r0
-    if (s.startsWith(normalize("TỔNG TIỀN THANH TOÁN"))) rowTongThanhToan = r0
-  }
-
-  const setFooterJ = (row0: number, formula: string) => {
-    if (row0 === -1) return
-    setFormulaKeepStyle(ws, row0, FOOTER_COL0, formula, NUM_PARENS_FMT)
-  }
-
-  setFooterJ(rowTongCong, `=${addrL_Total}`)
-  if (rowTongCong !== -1 && rowThue !== -1) {
-    setFooterJ(rowThue, `=${addrRC(rowTongCong, FOOTER_COL0)}*10%`)
-  }
-  if (rowTongCong !== -1 && rowThue !== -1 && rowDlHuong !== -1) {
-    setFooterJ(
-      rowDlHuong,
-      `=${addrRC(rowTongCong, FOOTER_COL0)}-${addrRC(rowThue, FOOTER_COL0)}`
-    )
-  }
-  if (rowTongThanhToan !== -1 && rowDlHuong !== -1) {
-    setFooterJ(
-      rowTongThanhToan,
-      `=${addrF_Total}-${addrN_Total}-${addrRC(rowDlHuong, FOOTER_COL0)}`
-    )
-  }
-
-  // highlight yellow
-  for (let r0 = rTOTAL + 1; r0 <= rTOTAL + 4; r0++) {
-    patchCellStyle(ws, r0, FOOTER_COL0, {
-      fill: YELLOW_BG,
-      alignment: { horizontal: "right", vertical: "center" },
-    })
-  }
-
-  return { rowTongCong }
-}
-
-/* -------------------------------
-   style table
--------------------------------- */
-
-export const normalizeAndBeautifyTable = (
-  ws: XLSX.WorkSheet,
-  rows: ReturnType<typeof resolveTemplateRows>
-) => {
-  const maxCol = COL_HOA_HONG.GHICHU
-  const headerRow0 = rows.rA - 1
-  const top0 = Math.max(0, headerRow0)
-  const bot0 = rows.rTOTAL
-
-  applyInnerThinBorders(ws, top0, bot0, 0, maxCol)
-  applyOuterThickBorder(ws, top0, bot0, 0, maxCol)
-
-  // header
-  applyFillRow(ws, headerRow0, 0, maxCol, BLUE_LIGHT)
-  setRowFont(ws, headerRow0, 0, maxCol, { bold: true })
-
-  // titles
-  ;[
-    rows.rA,
-    rows.rB,
-    rows.rC,
-    rows.rD,
-    rows.rE,
-    rows.rF,
-    rows.rG,
-    rows.rTOTAL,
-  ].forEach((r0) => {
-    applyFillRow(ws, r0, 0, maxCol, BLUE_LIGHT)
-    setRowFont(ws, r0, 0, maxCol, { bold: true })
-  })
-  ;[rows.rA, rows.rB, rows.rC, rows.rD, rows.rE, rows.rF, rows.rG].forEach(
-    (r0) => {
-      applyFillRow(ws, r0, 0, maxCol, BLUE_DARK)
-      setRowFont(ws, r0, 0, maxCol, { bold: true })
-      mergeCells(ws, r0, 0, 3)
-      patchCellStyle(ws, r0, COL_HOA_HONG.STT, {
-        alignment: { horizontal: "left", vertical: "center", wrapText: false },
-      })
-    }
-  )
-
-  // total red
-  setRowFont(ws, rows.rTOTAL, 0, maxCol, RED_FONT)
-}
-
-export const formatAllNumbers = (ws: XLSX.WorkSheet) => {
-  const rng = XLSX.utils.decode_range(ws["!ref"] || "A1")
-  const rEnd0 = rng.e.r
-
-  const moneyCols = [
-    COL_HOA_HONG.TIEN,
-    COL_HOA_HONG.GIAPP,
-    COL_HOA_HONG.CHENH,
-    COL_HOA_HONG.DOANHTHUKHAC,
-    COL_HOA_HONG.PHI_TRA,
-    COL_HOA_HONG.HOA_HONG,
-    COL_HOA_HONG.MI_THU,
-    COL_HOA_HONG.CHENH_TT,
-  ]
-  const intCols = [COL_HOA_HONG.STT, COL_HOA_HONG.SL]
-
-  for (let r0 = 0; r0 <= rEnd0; r0++) {
-    const dateCell: any = (ws as any)[addrRC(r0, COL_HOA_HONG.NGAY)]
-    if (dateCell) dateCell.z = "dd/mm/yyyy"
-
-    for (const c0 of intCols) {
-      const cell: any = (ws as any)[addrRC(r0, c0)]
-      if (cell) cell.z = "0"
-    }
-
-    for (const c0 of moneyCols) {
-      const cell: any = (ws as any)[addrRC(r0, c0)]
-      if (!cell) continue
-      if (cell.t !== "n" && cell.v != null && cell.v !== "") {
-        const n = Number(String(cell.v).replace(/,/g, "").trim())
-        if (!Number.isNaN(n)) {
-          cell.t = "n"
-          cell.v = n
-        }
-      }
-      cell.z = "#,##0;(#,##0)"
-    }
-  }
-}
-
-export const boldFooterBlock = (
-  ws: XLSX.WorkSheet,
-  rTOTAL: number,
-  rowTongCong: number
-) => {
-  const maxCol = COL_HOA_HONG.GHICHU
-  const startFooter0 = rowTongCong !== -1 ? rowTongCong : rTOTAL + 1
-
-  const candidates = [
-    findRowContains(ws, "Giám đốc kinh doanh", {
-      scanRows: 5000,
-      scanCols: 20,
-    }),
-    findRowContains(ws, "Người lập bảng", { scanRows: 5000, scanCols: 20 }),
-    findRowContains(ws, "NGUYỄN TRỌNG ĐỨC", { scanRows: 8000, scanCols: 20 }),
-    findRowContains(ws, "ONG NGỌC BÍCH", { scanRows: 8000, scanCols: 20 }),
-  ].filter((x) => x !== -1)
-
-  const endFooter0 = candidates.length
-    ? Math.max(...candidates)
-    : startFooter0 + 15
-
-  for (let r0 = startFooter0; r0 <= endFooter0; r0++) {
-    setRowFont(ws, r0, 0, maxCol, { bold: true })
-  }
-  // ✅ CĂN GIỮA các dòng như trong hình
-  const centerCellContains = (row0: number, text: string) => {
-    const target = normalize(text)
-    for (let c0 = 0; c0 <= maxCol; c0++) {
-      const v = (ws as any)[addrRC(row0, c0)]?.v
-      if (normalize(v ?? "") === target) {
-        patchCellStyle(ws, row0, c0, {
-          alignment: {
-            horizontal: "center",
-            vertical: "center",
-            wrapText: false,
-          },
-        })
-        break
-      }
-    }
-  }
-
-  const toCenter = [
-    "Giám đốc kinh doanh",
-    "Người lập bảng",
-    "NGUYỄN TRỌNG ĐỨC",
-    "ONG NGỌC BÍCH",
-  ]
-
-  for (const t of toCenter) {
-    const r0 = findRowContains(ws, t, { scanRows: 9000, scanCols: 40 })
-    if (r0 !== -1) centerCellContains(r0, t)
-  }
-
-  ensureRefIncludes(ws, endFooter0, maxCol)
-}
-
-// re-export widths helper
-export { setColumnWidthsHoaHong }

@@ -3,6 +3,7 @@ import * as XLSX from "xlsx-js-style"
 import { BORDER_THIN_VACOM, COL_WCH_VACOM, COL_VACOM } from "@/constants/vacom"
 import { styleCell } from "./vacom.excel"
 import { getSheetAOA, normalize } from "@/utils/excel"
+const FONT_TNR = { name: "Times New Roman" }
 
 /** format theo cột */
 export const applyColumnFormats = (
@@ -32,22 +33,69 @@ export const applyVacomHdStyles = (
 
   ;(ws as any)["!cols"] = COL_WCH_VACOM.map((wch) => ({ wch }))
 
+  const safeStart = Math.max(0, dataStartRow0)
+  const safeEnd = Math.max(safeStart, dataEndRow0)
+
   // row heights
   const rows = (((ws as any)["!rows"] || []) as any[]).slice()
+
+  // set các dòng đặc biệt trước (nếu bạn vẫn cần)
   const setH = (r0: number, h: number) => {
     rows[r0] = { ...(rows[r0] || {}), hpt: h }
   }
-  setH(3, 22)
+  setH(3, 30)
   headerRows0.forEach((r0) => setH(r0, 30))
-  sectionTitleRows0.forEach((r0) => setH(r0, 20))
+  sectionTitleRows0.forEach((r0) => setH(r0, 30))
+
+  // ✅ data rows height = 16
+  for (let r0 = safeStart; r0 <= safeEnd; r0++) {
+    if (headerRows0.includes(r0)) continue
+    if (sectionTitleRows0.includes(r0)) continue
+    rows[r0] = { ...(rows[r0] || {}), hpt: 30 }
+  }
+
   ;(ws as any)["!rows"] = rows
+  // ✅ tăng height khu cuối (Doanh số / % thưởng / Tổng thực thu / ký tên) = 30
+  {
+    const aoa = getSheetAOA(ws)
+
+    const findRowContains = (text: string) => {
+      const needle = normalize(text)
+      for (let r = 0; r < aoa.length; r++) {
+        for (let c = 0; c < (aoa[r] || []).length; c++) {
+          const v = aoa[r]?.[c]
+          if (v == null || v === "") continue
+          if (normalize(String(v)).includes(needle)) return r
+        }
+      }
+      return -1
+    }
+
+    const rDoanh0 = findRowContains("Doanh số Vacom HCM đạt được")
+    const rXacNhan0 = findRowContains("Xác nhận đại lý")
+    const rMinv0 = findRowContains("M-INVOICE HCM")
+
+    // ưu tiên lấy tới dòng M-INVOICE, nếu không có thì tới Xác nhận
+    const start = rDoanh0 !== -1 ? rDoanh0 : -1
+    const end = rMinv0 !== -1 ? rMinv0 : rXacNhan0 !== -1 ? rXacNhan0 : -1
+
+    if (start !== -1 && end !== -1) {
+      const s = Math.min(start, end)
+      const e = Math.max(start, end)
+      const rows2 = (((ws as any)["!rows"] || []) as any[]).slice()
+      for (let r0 = s; r0 <= e; r0++) {
+        rows2[r0] = { ...(rows2[r0] || {}), hpt: 30 }
+      }
+      ;(ws as any)["!rows"] = rows2
+    }
+  }
 
   // header style
   headerRows0.forEach((r0) => {
     for (let c0 = 0; c0 <= 10; c0++) {
       const isCHeaderTop3 = (r0 === 0 || r0 === 1 || r0 === 2) && c0 === 2
       styleCell(ws, r0, c0, {
-        font: { bold: true },
+        font: { ...FONT_TNR, bold: true },
         alignment: isCHeaderTop3
           ? { vertical: "center", horizontal: "left", wrapText: false }
           : { vertical: "center", horizontal: "center", wrapText: true },
@@ -58,17 +106,17 @@ export const applyVacomHdStyles = (
   })
 
   // section title style
+
   sectionTitleRows0.forEach((r0) => {
     for (let c0 = 0; c0 <= 10; c0++) {
-      const isTitleTextArea = c0 <= 2
       styleCell(ws, r0, c0, {
-        font: { bold: true },
+        font: { ...FONT_TNR, bold: true },
         fill: { patternType: "solid", fgColor: { rgb: "DFF3E3" } },
         border: BORDER_THIN_VACOM,
         alignment: {
           vertical: "center",
-          horizontal: isTitleTextArea ? "left" : "center",
-          wrapText: true,
+          horizontal: "left", // ✅ left tất cả
+          wrapText: false,
         },
       })
 
@@ -82,18 +130,16 @@ export const applyVacomHdStyles = (
     }
   })
 
-  const safeStart = Math.max(0, dataStartRow0)
-  const safeEnd = Math.max(safeStart, dataEndRow0)
-
   // data grid style
   for (let r0 = safeStart; r0 <= safeEnd; r0++) {
     for (let c0 = 0; c0 <= 10; c0++) {
       const isNameCol = c0 === 2
       styleCell(ws, r0, c0, {
+        font: { ...FONT_TNR },
         alignment: {
           vertical: "center",
           horizontal: isNameCol ? "left" : "center",
-          wrapText: !isNameCol,
+          wrapText: false, // ✅ không bung height
         },
         border: BORDER_THIN_VACOM,
       })
@@ -106,7 +152,7 @@ export const applyVacomHdStyles = (
 export const styleCongRow = (ws: XLSX.WorkSheet, r0: number) => {
   for (let c0 = 0; c0 <= 10; c0++) {
     styleCell(ws, r0, c0, {
-      font: { bold: true },
+      font: { ...FONT_TNR, bold: true },
       fill: { patternType: "solid", fgColor: { rgb: "DFF3E3" } },
       border: BORDER_THIN_VACOM,
       alignment: {
@@ -123,7 +169,7 @@ export const styleCongRow = (ws: XLSX.WorkSheet, r0: number) => {
 export const centerTotalsOnSectionRow = (ws: XLSX.WorkSheet, r0: number) => {
   for (let c0 = 3; c0 <= 10; c0++) {
     styleCell(ws, r0, c0, {
-      font: { bold: true },
+      font: { ...FONT_TNR, bold: true },
       fill: { patternType: "solid", fgColor: { rgb: "DFF3E3" } },
       border: BORDER_THIN_VACOM,
       alignment: { vertical: "center", horizontal: "center", wrapText: true },
@@ -166,9 +212,8 @@ export const styleTailBlockBold = (ws: XLSX.WorkSheet) => {
         (!isNaN(Number(cellValue)) && String(cellValue).trim() !== "")
 
       styleCell(ws, r0, c0, {
-        font: { bold: true },
-        border: BORDER_THIN_VACOM,
-        fill: { patternType: "solid", fgColor: { rgb: "FFFFFF" } },
+        font: { ...FONT_TNR, bold: true },
+
         alignment: {
           vertical: "center",
           horizontal: isNumber ? "center" : "left",
@@ -232,7 +277,7 @@ export const styleSignArea = (ws: XLSX.WorkSheet) => {
   for (const r0 of targets) {
     for (let c0 = 0; c0 <= 10; c0++) {
       styleCell(ws, r0, c0, {
-        font: { bold: true },
+        font: { ...FONT_TNR, bold: true },
         alignment: { vertical: "center", horizontal: "center", wrapText: true },
       })
     }
@@ -288,7 +333,7 @@ export const applyTopHeader = (
     const cell = (ws as any)[addr]
     cell.s = {
       ...(cell.s || {}),
-      font: { ...(cell.s?.font || {}), bold: true, sz },
+      font: { ...(cell.s?.font || {}), ...FONT_TNR, bold: true, sz },
       alignment: {
         ...(cell.s?.alignment || {}),
         horizontal: "center",
@@ -307,8 +352,8 @@ export const applyTopHeader = (
 
   styleHeaderCell(title, 18, 30)
   styleHeaderCell(addrThang, 18, 30)
-  styleHeaderCell(addrDaiLy, 13, 20)
-  styleHeaderCell(addrSo, 13, 20)
+  styleHeaderCell(addrDaiLy, 13, 30)
+  styleHeaderCell(addrSo, 13, 30)
 }
 
 /** map tháng cho dòng "Doanh số Vacom ... trong tháng ..." giống THÁNG: MM/YYYY */
@@ -439,7 +484,7 @@ export const forceCompanyHeaderLeft = (ws: XLSX.WorkSheet) => {
         vertical: "center",
         wrapText: false,
       },
-      font: { ...(cell.s?.font || {}), bold: true },
+      font: { ...(cell.s?.font || {}), ...FONT_TNR, bold: true },
     }
   }
 

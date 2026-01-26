@@ -1,10 +1,10 @@
-export const COL_WCH_VACOM = [6, 22, 66, 14, 10, 20, 10, 18, 18, 18, 24] // A..K
+export const COL_WCH_VACOM = [6, 22, 66, 14, 18, 18, 18, 18, 18, 18, 18] // A..K
 
 export const BORDER_THIN_VACOM = {
-  top: { style: "thin", color: { rgb: "D0D7DE" } },
-  bottom: { style: "thin", color: { rgb: "D0D7DE" } },
-  left: { style: "thin", color: { rgb: "D0D7DE" } },
-  right: { style: "thin", color: { rgb: "D0D7DE" } },
+  top: { style: "thin", color: { rgb: "000000" } },
+  bottom: { style: "thin", color: { rgb: "000000" } },
+  left: { style: "thin", color: { rgb: "000000" } },
+  right: { style: "thin", color: { rgb: "000000" } },
 } as const
 
 export const COL_VACOM = {

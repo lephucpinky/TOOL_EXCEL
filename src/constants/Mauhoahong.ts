@@ -15,7 +15,7 @@ export const COL_HOA_HONG = {
   CHENH_TT: 13, // N
   GHICHU: 14, // O (text)
 } as const
-
+export const FONT_TNR = { name: "Times New Roman" }
 export const NUM_PARENS_FMT = "#,##0;(#,##0);0"
 
 export const BLUE_LIGHT = { patternType: "solid", fgColor: { rgb: "D9EAF7" } }
@@ -38,5 +38,5 @@ export const BORDER_THICK = {
 } as const
 
 export const HOA_HONG_COL_WIDTHS = [
-  4, 10, 14, 28, 22, 32, 14, 12, 12, 10, 14, 14, 14, 14, 12,
+  5, 10, 14, 70, 27, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20,
 ]

@@ -14,22 +14,32 @@ import {
   findSheetName,
   normalize,
 } from "@/utils/excel"
+
 import {
-  applyAllSectionSums,
-  applyFooterFormulasAndHighlight,
-  applyGrandTotal,
-  applyHeaderDealerMonth,
-  boldFooterBlock,
   buildSalesIndex,
-  clearAllSectionBlocks,
-  ensureAllSectionsHaveSpace,
-  fillAllSections,
-  formatAllNumbers,
-  normalizeAndBeautifyTable,
   pickHeaderFromIndex,
   resolveTemplateRows,
+  ensureAllSectionsHaveSpace,
+  clearAllSectionBlocks,
+  fillAllSections,
+  compactSections,
+  applyAllSectionSums,
+  applyGrandTotal,
+} from "./hoahongcontroller"
+
+import {
+  applyHeaderDealerMonth,
+  applyFooterFormulasAndHighlight,
+  applyHoaHongTableStyle,
+  formatAllNumbers,
+  boldFooterBlock,
+} from "./hoahong.style"
+
+import {
+  extractAgencyNameFromTemplate,
+  getExemptTncnAgentsClient,
   setColumnWidthsHoaHong,
-} from "./hoahong.controller"
+} from "./hoahong.excel"
 
 export type ExportArgs = {
   templateWorkbook: XLSX.WorkBook
@@ -110,7 +120,7 @@ export async function exportChiHoaHongXlsx(args: ExportArgs) {
   // 3) filter rows
   const wantedDealer = normalize(filter.dealerName || "")
   const wantedCategory = normalize(filter.category || "")
-  const filteredRows = salesRows.filter((row) => {
+  const filteredRows = salesRows.filter((row: any) => {
     if (normalize(row[H.DEALER]) !== wantedDealer) return false
     if (!wantedCategory) return true
     return normalize(row[H.CATEGORY]) === wantedCategory
@@ -125,30 +135,37 @@ export async function exportChiHoaHongXlsx(args: ExportArgs) {
   const ws = deepCloneSheet(templateWs)
   setColumnWidthsHoaHong(ws)
 
-  // 5) locate section rows
-  const rows = resolveTemplateRows(ws)
+  // 5) locate rows
+  let rows = resolveTemplateRows(ws)
 
-  // 6) write top header (dealer + month)
+  // 6) header dealer + month
   applyHeaderDealerMonth(ws, filter.dealerName, filter.month)
 
-  // 7) ensure space bottom-up like VACOM
+  // 7) ensure space bottom-up
   const grouped = ensureAllSectionsHaveSpace(ws, rows, filteredRows, H.LOAI)
 
   // 8) clear placeholders (keep style) + unmerge
   clearAllSectionBlocks(ws, rows)
 
   // 9) fill data
-  fillAllSections(ws, rows, grouped, H, COL_HOA_HONG)
+  fillAllSections(ws, rows, grouped, H)
+
+  // ✅ 9.5) compact xoá dòng trống giữa khu (giống VACOM)
+  rows = compactSections(ws, grouped)
 
   // 10) sums
   applyAllSectionSums(ws, rows, grouped)
   applyGrandTotal(ws, rows)
-
+  const agencyName = extractAgencyNameFromTemplate(ws)
+  const exemptSet = await getExemptTncnAgentsClient()
+  const isTncnExempt = exemptSet.has(normalize(agencyName))
   // 11) footer formulas + yellow highlight
-  const { rowTongCong } = applyFooterFormulasAndHighlight(ws, rows.rTOTAL)
+  const { rowTongCong } = applyFooterFormulasAndHighlight(ws, rows.rTOTAL, {
+    isTncnExempt,
+  })
 
-  // 12) normalize table style
-  normalizeAndBeautifyTable(ws, rows)
+  // 12) style table + numbers + footer bold
+  applyHoaHongTableStyle(ws, rows)
   formatAllNumbers(ws)
   boldFooterBlock(ws, rows.rTOTAL, rowTongCong)
 
