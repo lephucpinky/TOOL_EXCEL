@@ -236,40 +236,21 @@ export default function HomePage() {
   async function onExport() {
     if (!canExport || !templateWb) return
 
-    const runOne = (pickedDealer: string) => {
-      const commonArgs = {
-        templateWorkbook: templateWb,
-        salesHeaders,
-        salesRows,
-        filter: {
-          dealerName: pickedDealer,
-          category: category || undefined,
-          month: month || undefined,
-        },
-      }
-
-      if (templateKey === "vacom-hd") exportVacomHdXlsx(commonArgs as any)
-      else if (templateKey === "chi-hoa-hong")
-        exportChiHoaHongXlsx(commonArgs as any)
-      else exportThuGiaVonXlsx(commonArgs as any)
+    const commonArgs = {
+      templateWorkbook: templateWb,
+      salesHeaders,
+      salesRows,
+      filter: {
+        dealerName, // ✅ "__ALL__" hoặc 1 dealer
+        category: category || undefined,
+        month: month || undefined,
+      },
     }
 
-    // ✅ nếu chọn "Tất cả" => mỗi đại lý 1 file riêng
-    if (dealerName === ALL_VALUE) {
-      if (!dealers.length) throw new Error("Chưa có danh sách đại lý")
-
-      // lặp từng đại lý và trigger download
-      for (const d of dealers) {
-        runOne(d)
-
-        // ✅ giúp trình duyệt kịp trigger download từng file (tránh dồn 1 lúc)
-        await new Promise((r) => setTimeout(r, 200))
-      }
-      return
-    }
-
-    // ✅ 1 đại lý
-    runOne(dealerName)
+    if (templateKey === "vacom-hd") await exportVacomHdXlsx(commonArgs as any)
+    else if (templateKey === "chi-hoa-hong")
+      await exportChiHoaHongXlsx(commonArgs as any)
+    else await exportThuGiaVonXlsx(commonArgs as any)
   }
 
   return (

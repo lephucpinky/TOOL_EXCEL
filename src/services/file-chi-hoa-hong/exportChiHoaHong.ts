@@ -1,11 +1,12 @@
 "use client"
 
+import JSZip from "jszip"
 import * as XLSX from "xlsx-js-style"
 
 import {
-  downloadArrayBuffer,
   fetchPngAsBase64,
   addLogoToA1_OOXML,
+  downloadArrayBuffer, // vẫn dùng cho file lẻ
 } from "@/lib/logo"
 import { COL_HOA_HONG } from "@/constants/Mauhoahong"
 import {
@@ -50,6 +51,15 @@ export type ExportArgs = {
   onLog?: (msg: string, ...rest: any[]) => void
 }
 
+const downloadBlob = (blob: Blob, name: string) => {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = name
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export async function exportChiHoaHongXlsx(args: ExportArgs) {
   const { templateWorkbook, salesHeaders, salesRows, filter } = args
   const log = args.onLog || (() => {})
@@ -64,7 +74,6 @@ export async function exportChiHoaHongXlsx(args: ExportArgs) {
     args.sheetName && templateWorkbook.SheetNames.includes(args.sheetName)
       ? args.sheetName
       : findSheetName(templateWorkbook, "MẪU CHI HOA HỒNG")
-
   if (!realName) throw new Error("❌ Không tìm thấy sheet: MẪU CHI HOA HỒNG")
 
   const templateWs = templateWorkbook.Sheets[realName]
@@ -119,79 +128,142 @@ export async function exportChiHoaHongXlsx(args: ExportArgs) {
   if (missing.length)
     throw new Error("❌ Thiếu cột trong file doanh thu: " + missing.join(", "))
 
-  // 3) filter rows
-  const wantedDealer = normalize(filter.dealerName || "")
-  const wantedCategory = normalize(filter.category || "")
-  const filteredRows = salesRows.filter((row: any) => {
-    if (normalize(row[H.DEALER]) !== wantedDealer) return false
-    if (!wantedCategory) return true
-    return normalize(row[H.CATEGORY]) === wantedCategory
-  })
-  if (!filteredRows.length) {
-    throw new Error(
-      `❌ Không có dữ liệu sau lọc: dealer="${filter.dealerName}" category="${filter.category ?? ""}"`
-    )
-  }
+  // ✅ xác định ALL
+  const dealerPickedRaw = String(filter.dealerName ?? "").trim()
+  const isAll =
+    dealerPickedRaw === "__ALL__" ||
+    normalize(dealerPickedRaw) === normalize("tất cả")
 
-  // 4) clone sheet
-  const ws = deepCloneSheet(templateWs)
-  setColumnWidthsHoaHong(ws)
+  const dealers: string[] = isAll
+    ? Array.from(
+        new Set(
+          salesRows
+            .map((r: any) => String(r[H.DEALER] ?? "").trim())
+            .filter(Boolean)
+        )
+      ).sort((a, b) => a.localeCompare(b, "vi"))
+    : [dealerPickedRaw]
 
-  // 5) locate rows
-  let rows = resolveTemplateRows(ws)
+  if (!dealers.length)
+    throw new Error("❌ Không tìm được danh sách đại lý để xuất")
 
-  // 6) header dealer + month
-  applyHeaderDealerMonth(ws, filter.dealerName, filter.month)
+  // ✅ load logo 1 lần + exempt set 1 lần
+  const [logoBase64, exemptSet] = await Promise.all([
+    fetchPngAsBase64("/images/logo_minvoice.png"),
+    getExemptTncnAgentsClient(),
+  ])
 
-  // 7) ensure space bottom-up
-  const grouped = ensureAllSectionsHaveSpace(ws, rows, filteredRows, H.LOAI)
-
-  // 8) clear placeholders (keep style) + unmerge
-  clearAllSectionBlocks(ws, rows)
-
-  // 9) fill data
-  fillAllSections(ws, rows, grouped, H)
-
-  // ✅ 9.5) compact xoá dòng trống giữa khu (giống VACOM)
-  rows = compactSections(ws, grouped)
-
-  // 10) sums
-  applyAllSectionSums(ws, rows, grouped)
-  applyGrandTotal(ws, rows)
-  const agencyName = extractAgencyNameFromTemplate(ws)
-  const exemptSet = await getExemptTncnAgentsClient()
-  const isTncnExempt = exemptSet.has(normalize(agencyName))
-  // 11) footer formulas + yellow highlight
-  const { rowTongCong } = applyFooterFormulasAndHighlight(ws, rows.rTOTAL, {
-    isTncnExempt,
-  })
-
-  // 12) style table + numbers + footer bold
-  applyHoaHongTableStyle(ws, rows)
-  formatAllNumbers(ws)
-  boldFooterBlock(ws, rows.rTOTAL, rowTongCong)
-
-  // 13) output + logo + download
-  const outWb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(outWb, ws, realName)
+  const zip = isAll ? new JSZip() : null
+  let zipCount = 0
+  const errors: string[] = []
 
   const now = new Date()
   const timestamp = now.toISOString().slice(0, 10).replace(/-/g, "")
-  const safeDealer = String(filter.dealerName)
-    .replace(/[\\/:*?"<>|]+/g, "-")
-    .trim()
-  const fileName = `CHI-HOA-HONG-${safeDealer}-${timestamp}.xlsx`
 
-  const xlsxBuf = XLSX.write(outWb, {
-    bookType: "xlsx",
-    type: "array",
-  }) as ArrayBuffer
-  const logoBase64 = await fetchPngAsBase64("/images/logo_minvoice.png")
-  const finalBuf = await addLogoToA1_OOXML(xlsxBuf, realName, logoBase64, {
-    widthPx: 150,
-    heightPx: 85,
-  })
+  // ✅ helper export 1 dealer -> ArrayBuffer (final)
+  const exportOneDealer = async (dealerName: string) => {
+    // 3) filter rows
+    const wantedDealer = normalize(dealerName)
+    const wantedCategory = normalize(filter.category || "")
+    const filteredRows = salesRows.filter((row: any) => {
+      if (normalize(row[H.DEALER]) !== wantedDealer) return false
+      if (!wantedCategory) return true
+      return normalize(row[H.CATEGORY]) === wantedCategory
+    })
+    if (!filteredRows.length) {
+      throw new Error(
+        `Không có dữ liệu sau lọc: dealer="${dealerName}" category="${filter.category ?? ""}"`
+      )
+    }
 
-  downloadArrayBuffer(finalBuf, fileName)
-  log("✅ Export OK", { fileName, rows: filteredRows.length })
+    // 4) clone sheet
+    const ws = deepCloneSheet(templateWs)
+    setColumnWidthsHoaHong(ws)
+
+    // 5) locate rows
+    let rows = resolveTemplateRows(ws)
+
+    // 6) header dealer + month
+    applyHeaderDealerMonth(ws, dealerName, filter.month)
+
+    // 7) ensure space bottom-up
+    const grouped = ensureAllSectionsHaveSpace(ws, rows, filteredRows, H.LOAI)
+
+    // 8) clear placeholders (keep style) + unmerge
+    clearAllSectionBlocks(ws, rows)
+
+    // 9) fill data
+    fillAllSections(ws, rows, grouped, H)
+
+    // 9.5) compact
+    rows = compactSections(ws, grouped)
+
+    // 10) sums + total
+    applyAllSectionSums(ws, rows, grouped)
+    applyGrandTotal(ws, rows)
+
+    // 11) footer formulas
+    const agencyName = extractAgencyNameFromTemplate(ws)
+    const isTncnExempt = exemptSet.has(normalize(agencyName))
+    const { rowTongCong } = applyFooterFormulasAndHighlight(ws, rows.rTOTAL, {
+      isTncnExempt,
+    })
+
+    // 12) style table + numbers + footer bold
+    applyHoaHongTableStyle(ws, rows)
+    formatAllNumbers(ws)
+    boldFooterBlock(ws, rows.rTOTAL, rowTongCong)
+
+    // 13) output workbook
+    const outWb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(outWb, ws, realName)
+
+    const safeDealer = String(dealerName)
+      .replace(/[\\/:*?"<>|]+/g, "-")
+      .trim()
+    const fileName = `CHI-HOA-HONG-${safeDealer}-${timestamp}.xlsx`
+
+    const xlsxBuf = XLSX.write(outWb, {
+      bookType: "xlsx",
+      type: "array",
+    }) as ArrayBuffer
+    const finalBuf = await addLogoToA1_OOXML(xlsxBuf, realName, logoBase64, {
+      widthPx: 150,
+      heightPx: 85,
+    })
+
+    return { finalBuf, fileName, rowCount: filteredRows.length }
+  }
+
+  for (const dealer of dealers) {
+    try {
+      const { finalBuf, fileName, rowCount } = await exportOneDealer(dealer)
+
+      if (zip) {
+        zip.file(fileName, finalBuf)
+        zipCount++
+      } else {
+        downloadArrayBuffer(finalBuf, fileName)
+      }
+
+      log("✅ Export OK", { fileName, rows: rowCount })
+    } catch (e: any) {
+      errors.push(`[${dealer}] ${e?.message ?? String(e)}`)
+    }
+  }
+
+  // ✅ download zip 1 lần
+  if (zip) {
+    if (!zipCount) {
+      const detail = errors.length
+        ? `\n\nChi tiết:\n- ${errors.join("\n- ")}`
+        : ""
+      throw new Error(`❌ Không có file hợp lệ để nén.${detail}`)
+    }
+    if (errors.length) log("⚠️ Some dealers failed:", errors)
+
+    const zipName = `CHI-HOA-HONG-ALL-${timestamp}.zip`
+    const blob = await zip.generateAsync({ type: "blob" })
+    downloadBlob(blob, zipName)
+  }
 }

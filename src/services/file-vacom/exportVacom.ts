@@ -1,6 +1,7 @@
 "use client"
 
 import * as XLSX from "xlsx-js-style"
+import JSZip from "jszip"
 import type { ExcelRow } from "../../utils/excel"
 import { findSheetName, normalize, monthKey } from "../../utils/excel"
 import {
@@ -42,8 +43,6 @@ export async function exportVacomHdXlsx(args: ExportArgs) {
   const dealerPickedRaw = String(args.filter?.dealerName ?? "").trim()
   const exportAllDealers = !dealerPickedRaw || dealerPickedRaw === "__ALL__"
 
-  // build header index 1 lần cho toàn bộ export
-  // NOTE: builder sẽ tự pickHeader theo index
   const dealers = exportAllDealers
     ? Array.from(
         new Set(
@@ -61,6 +60,10 @@ export async function exportVacomHdXlsx(args: ExportArgs) {
 
   // load logo 1 lần
   const logoBase64 = await fetchPngAsBase64("/images/logo_minvoice.png")
+
+  // ✅ nếu ALL => tạo zip và add file vào zip
+  const zip = exportAllDealers ? new JSZip() : null
+  let zipCount = 0
 
   for (const dealerPicked of dealers) {
     const built = buildVacomHdSheetForDealer({
@@ -90,6 +93,26 @@ export async function exportVacomHdXlsx(args: ExportArgs) {
       heightPx: 85,
     })
 
-    downloadArrayBuffer(finalBuf, filename)
+    if (zip) {
+      // ✅ add vào zip thay vì download lẻ
+      zip.file(filename, finalBuf)
+      zipCount++
+    } else {
+      // ✅ 1 đại lý: giữ hành vi cũ
+      downloadArrayBuffer(finalBuf, filename)
+    }
+  }
+
+  // ✅ cuối cùng: download zip 1 lần
+  if (zip) {
+    if (!zipCount)
+      throw new Error("❌ Không có file hợp lệ để nén (tất cả bị SKIP)")
+    const ym = (args.filter?.month || "").trim()
+    const zipName = `VACOM_HD_${ym ? monthKey(ym) : "ALL"}_${new Date()
+      .toISOString()
+      .slice(0, 10)}.zip`
+
+    const zipBuf = await zip.generateAsync({ type: "arraybuffer" })
+    downloadArrayBuffer(zipBuf, zipName)
   }
 }

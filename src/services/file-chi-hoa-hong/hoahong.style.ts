@@ -380,7 +380,7 @@ export const applyHoaHongTableStyle = (
   setColAlignmentMergeAware(ws, top0, bot0, COL_HOA_HONG.TEN, {
     horizontal: "left",
     vertical: "center",
-    wrapText: false,
+    wrapText: true,
   })
 
   setRowHeight(ws, headerRow0, 55)

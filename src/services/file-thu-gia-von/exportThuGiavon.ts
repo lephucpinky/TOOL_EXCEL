@@ -1,13 +1,9 @@
 "use client"
-
+import JSZip from "jszip"
 import * as XLSX from "xlsx-js-style"
 import type { ExcelRow } from "@/utils/excel"
 import { normalize } from "@/utils/excel"
-import {
-  addLogoToA1_OOXML,
-  downloadArrayBuffer,
-  fetchPngAsBase64,
-} from "@/lib/logo"
+import { addLogoToA1_OOXML, fetchPngAsBase64 } from "@/lib/logo"
 
 import { buildThuGiaVonSheetForDealer } from "./thugiavoncontroller"
 import { sanitizeSheetName, uniqueSheetName } from "./thugiavon.excel"
@@ -22,6 +18,15 @@ export type ExportArgs = {
 }
 
 const SHEET_TEMPLATE_NAME = "MẪU THU GIÁ VỐN"
+
+const downloadBlob = (blob: Blob, name: string) => {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = name
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 export async function exportThuGiaVonXlsx({
   templateWorkbook,
@@ -57,11 +62,15 @@ export async function exportThuGiaVonXlsx({
 
   if (!dealers.length) throw new Error("Bạn chưa chọn đại lý")
 
-  const outWb = XLSX.utils.book_new()
+  // load logo 1 lần
+  const logoBase64 = await fetchPngAsBase64("/images/logo_minvoice.png")
 
-  let appended = 0
+  const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, "")
+
+  // ✅ ALL => ZIP nhiều file, 1 dealer => tải lẻ
+  const zip = isAll ? new JSZip() : null
+  let zipCount = 0
   const errors: string[] = []
-  const appendedSheetNames: string[] = []
 
   for (const dealerPicked of dealers) {
     try {
@@ -76,57 +85,63 @@ export async function exportThuGiaVonXlsx({
 
       if (!built) continue
 
-      const outSheetName = uniqueSheetName(outWb, built.outSheetNameBase)
-      XLSX.utils.book_append_sheet(outWb, built.ws, outSheetName)
+      // ✅ tạo workbook riêng cho dealer
+      const wb = XLSX.utils.book_new()
+      ;(wb as any).Workbook = (wb as any).Workbook || {}
+      ;(wb as any).Workbook.CalcPr = { fullCalcOnLoad: true }
 
-      appendedSheetNames.push(outSheetName)
-      appended++
+      const outSheetName = uniqueSheetName(wb, built.outSheetNameBase)
+      XLSX.utils.book_append_sheet(wb, built.ws, outSheetName)
+
+      const filename = `MAU-THU-GIA-VON-${sanitizeSheetName(dealerPicked)}-${timestamp}.xlsx`
+
+      // write workbook
+      const xlsxBuf = XLSX.write(wb, {
+        bookType: "xlsx",
+        type: "array",
+      }) as ArrayBuffer
+
+      // add logo for sheet
+      const finalBuf = await addLogoToA1_OOXML(
+        xlsxBuf,
+        outSheetName,
+        logoBase64,
+        {
+          widthPx: 150,
+          heightPx: 85,
+        }
+      )
+
+      if (zip) {
+        zip.file(filename, finalBuf)
+        zipCount++
+      } else {
+        // tải lẻ (1 dealer)
+        downloadBlob(
+          new Blob([finalBuf], {
+            type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          }),
+          filename
+        )
+      }
     } catch (e: any) {
       errors.push(`[${dealerPicked}] ${e?.message ?? String(e)}`)
     }
   }
 
-  if (appended === 0) {
-    const detail = errors.length
-      ? `\n\nChi tiết:\n- ${errors.join("\n- ")}`
-      : ""
-    throw new Error(
-      isAll
-        ? `Không có dữ liệu để xuất cho bất kỳ đại lý nào.${detail}`
-        : `Không có dữ liệu cho đại lý "${dealers[0]}"${
-            categoryPicked ? ` với danh mục "${categoryPicked}"` : ""
-          }.${detail}`
-    )
+  if (zip) {
+    if (!zipCount) {
+      const detail = errors.length
+        ? `\n\nChi tiết:\n- ${errors.join("\n- ")}`
+        : ""
+      throw new Error(
+        `Không có dữ liệu để xuất cho bất kỳ đại lý nào.${detail}`
+      )
+    }
+    if (errors.length) log("⚠️ Some dealers failed:", errors)
+
+    const zipName = `MAU-THU-GIA-VON-ALL-${timestamp}.zip`
+    const blob = await zip.generateAsync({ type: "blob" })
+    downloadBlob(blob, zipName)
   }
-
-  if (isAll && errors.length) log("⚠️ Some dealers failed:", errors)
-
-  const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, "")
-  ;(outWb as any).Workbook = (outWb as any).Workbook || {}
-  ;(outWb as any).Workbook.CalcPr = { fullCalcOnLoad: true }
-
-  const fileName = isAll
-    ? `MAU-THU-GIA-VON-ALL-${timestamp}.xlsx`
-    : `MAU-THU-GIA-VON-${sanitizeSheetName(dealers[0])}-${timestamp}.xlsx`
-
-  // 1) write workbook
-  const xlsxBuf = XLSX.write(outWb, {
-    bookType: "xlsx",
-    type: "array",
-  }) as ArrayBuffer
-
-  // 2) load logo
-  const logoBase64 = await fetchPngAsBase64("/images/logo_minvoice.png")
-
-  // 3) patch OOXML add logo for EACH sheet
-  let buf = xlsxBuf
-  for (const sn of appendedSheetNames) {
-    buf = await addLogoToA1_OOXML(buf, sn, logoBase64, {
-      widthPx: 150,
-      heightPx: 85,
-    })
-  }
-
-  // 4) download
-  downloadArrayBuffer(buf, fileName)
 }
