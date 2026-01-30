@@ -28,11 +28,11 @@ import {
 } from "./hoahongcontroller"
 
 import {
-  applyHeaderDealerMonth,
   applyFooterFormulasAndHighlight,
   applyHoaHongTableStyle,
   formatAllNumbers,
   boldFooterBlock,
+  applyHeaderDealerMonth,
 } from "./hoahong.style"
 
 import {
@@ -79,6 +79,7 @@ export async function exportChiHoaHongXlsx(args: ExportArgs) {
     NGAY: pick("Ngày tháng", "Ngày phát sinh"),
     MST: pick("MST"),
     TEN: pick("Tên công ty", "Tên khách hàng", "Tên Khách hàng"),
+    LOAIHD: pick("Loại hợp đồng", "Loại HĐ"),
     SL: pick("SL phát hành", "Số lượng phát hành"),
     TIEN: pick("Tổng tiền xuất HD"),
     GIAPP: pick("GIÁ PP ( TIỀN GỐC)", "GIÁ PP (TIỀN GỐC)", "GIÁ PP"),
@@ -100,6 +101,7 @@ export async function exportChiHoaHongXlsx(args: ExportArgs) {
     ["Ngày tháng/Ngày phát sinh", H.NGAY],
     ["MST", H.MST],
     ["Tên công ty", H.TEN],
+    ["Loại hợp đồng", H.LOAIHD],
     ["SL phát hành", H.SL],
     ["Tổng tiền xuất HD", H.TIEN],
     ["GIÁ PP", H.GIAPP],

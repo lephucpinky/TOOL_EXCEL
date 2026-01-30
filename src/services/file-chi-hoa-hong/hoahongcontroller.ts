@@ -246,6 +246,10 @@ export const fillAllSections = (
         kind: "text",
         force: true,
       })
+      setCell(ws, r0, COL_HOA_HONG.LOAIHD, row[H.LOAIHD], {
+        kind: "text",
+        force: true,
+      })
 
       setCell(ws, r0, COL_HOA_HONG.SL, row[H.SL], {
         kind: "number0",

@@ -1,31 +1,23 @@
 "use client"
-
 import { useEffect, useMemo, useState } from "react"
 import * as XLSX from "xlsx-js-style"
-import type { ExcelRow } from "@/utils/excel"
-
+import { normalize, type ExcelRow } from "@/utils/excel"
 import { exportChiHoaHongXlsx } from "@/services/file-chi-hoa-hong/exportChiHoaHong"
-
 import { exportVacomHdXlsx } from "@/services/file-vacom/exportVacom"
 import { exportThuGiaVonXlsx } from "@/services/file-thu-gia-von/exportThuGiavon"
+import { SearchableSelect } from "@/components/select/SearchableSelect"
 
 const TEMPLATE_URL = "/templates/cac_mau_doi_soat_v3.xlsx"
 
 type TemplateKey = "vacom-hd" | "chi-hoa-hong" | "thu-gia-von"
 const ALL_VALUE = "__ALL__"
 
-// -------- helpers: parse sales + detect columns ----------
-const norm = (s: any) =>
-  String(s ?? "")
-    .trim()
-    .toLowerCase()
-
 function pickKeyFromRow(row: Record<string, any>, aliases: string[]) {
   const keys = Object.keys(row || {})
   const map = new Map<string, string>()
-  for (const k of keys) map.set(norm(k), k)
+  for (const k of keys) map.set(normalize(k), k)
   for (const a of aliases) {
-    const found = map.get(norm(a))
+    const found = map.get(normalize(a))
     if (found) return found
   }
   return ""
@@ -143,6 +135,13 @@ export default function HomePage() {
   const [templateWb, setTemplateWb] = useState<XLSX.WorkBook | null>(null)
   const [templateKey, setTemplateKey] = useState<TemplateKey>("vacom-hd")
   const [loadingTemplate, setLoadingTemplate] = useState(false)
+  const dealerOptions = useMemo(
+    () => [
+      { value: ALL_VALUE, label: "Tất cả" },
+      ...dealers.map((d) => ({ value: d, label: d })),
+    ],
+    [dealers]
+  )
 
   // load template (fix cứng)
   useEffect(() => {
@@ -200,7 +199,7 @@ export default function HomePage() {
 
     // auto chọn "Tất cả" nếu muốn, hoặc dealer đầu tiên
     // setDealerName(ALL_VALUE)
-    if (dls.length) setDealerName(dls[0])
+    setDealerName(ALL_VALUE) // hoặc: if (dls.length) setDealerName(dls[0])
   }
 
   // categories filtered by selected dealer (nếu ALL => trả categoriesAll)
@@ -365,21 +364,17 @@ export default function HomePage() {
               <div className="text-sm font-semibold text-slate-700">
                 Tên đại lý (bắt buộc)
               </div>
-              <select
-                className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm"
-                value={dealerName}
-                onChange={(e) => setDealerName(e.target.value)}
-                disabled={!dealers.length}
-              >
-                {/* ✅ thêm option ALL */}
-                <option value={ALL_VALUE}>Tất cả</option>
-
-                {dealers.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
+              <div className="mt-1">
+                <SearchableSelect
+                  options={dealerOptions}
+                  value={dealerName || undefined}
+                  onChange={(v) => setDealerName(v)}
+                  placeholder="Chọn đại lý..."
+                  searchPlaceholder="Tìm đại lý..."
+                  emptyText="Không tìm thấy đại lý"
+                  disabled={!dealers.length}
+                />
+              </div>
 
               {!dealers.length && (
                 <div className="mt-1 text-xs text-slate-500">

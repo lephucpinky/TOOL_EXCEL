@@ -66,7 +66,14 @@ export const setCellRC = (
   }
 
   const isNum = typeof v === "number"
-  ;(ws as any)[addr] = { ...cur, t: isNum ? "n" : "s", v }
+  const next: any = { ...cur, t: isNum ? "n" : "s", v }
+
+  // ✅ QUAN TRỌNG: xoá công thức mẫu nếu cell trước đó có
+  delete next.f
+  delete next.F
+  delete next.w
+  delete next.vt
+  ;(ws as any)[addr] = next
 }
 
 // --------------------
@@ -113,6 +120,9 @@ export const mapTemplateCols = (aoa: any[][], finalHeaderRow0: number) => {
   const MST = findCol(["mã số thuế", "mst"])
   const TEN = findCol(["tên đơn vị", "tên công ty"])
 
+  // ✅ chỉ dùng Loại hợp đồng, KHÔNG có Loại tài liệu
+  const LOAIHD = findCol(["loại hợp đồng", "loại hđ"])
+
   let TONGTIEN = findCol(["tổng tiền xuất hóa đơn", "tổng tiền xuất hd"])
   let GOIHOADON = findCol(["gói hóa đơn"])
   let DTKHAC = findCol(["dt khác", "doanh thu khác"])
@@ -120,7 +130,9 @@ export const mapTemplateCols = (aoa: any[][], finalHeaderRow0: number) => {
   let GIAMINV = findCol(["giá minv thu về (xuất hóa đơn)", "hoa hồng"])
   let GHICHU = findCol(["ghi chú", "ghi chu"])
 
-  const base = TEN !== -1 ? TEN + 1 : 4
+  // ✅ base: sau cột LOẠI HỢP ĐỒNG nếu có, không thì sau TEN
+  const base = (LOAIHD !== -1 ? LOAIHD : TEN !== -1 ? TEN : 4) + 1
+
   if (TONGTIEN === -1) TONGTIEN = base + 0
   if (GOIHOADON === -1) GOIHOADON = base + 1
   if (DTKHAC === -1) DTKHAC = base + 2
@@ -129,6 +141,8 @@ export const mapTemplateCols = (aoa: any[][], finalHeaderRow0: number) => {
   if (GHICHU === -1) GHICHU = base + 5
 
   const STT2 = STT !== -1 ? STT : 0
+
+  // tránh overlap
   if (GOIHOADON === TONGTIEN) GOIHOADON = TONGTIEN + 1
 
   const lastCol = Math.max(
@@ -136,6 +150,7 @@ export const mapTemplateCols = (aoa: any[][], finalHeaderRow0: number) => {
     NGAY,
     MST,
     TEN,
+    LOAIHD,
     TONGTIEN,
     GOIHOADON,
     DTKHAC,
@@ -150,6 +165,7 @@ export const mapTemplateCols = (aoa: any[][], finalHeaderRow0: number) => {
       NGAY,
       MST,
       TEN,
+      LOAIHD,
       TONGTIEN,
       GOIHOADON,
       DTKHAC,
@@ -196,6 +212,10 @@ export const buildSalesPicker = (rows: ExcelRow[]) => {
       MST: pick("Mã số thuế", "MST"),
       MA_DAI_LY: pick("Mã đại lý", "Ma dai ly", "MADAILY", "MA DAI LY"),
       TEN: pick("Tên đơn vị", "Tên công ty"),
+
+      // ✅ chỉ Loại hợp đồng
+      LOAIHD: pick("Loại hợp đồng", "Loại HĐ"),
+
       TONGTIEN: pick("TỔNG TIỀN XUẤT HÓA ĐƠN", "Tổng tiền xuất HD"),
       GOI: pick("GÓI HÓA ĐƠN", "SL phát hành"),
       DTKHAC: pick("DT khác", "Doanh thu khác"),
@@ -215,7 +235,6 @@ export const pickMonthStrFromSalesRows = (
   const dealerKey = picker.H.DAILY || "Tên đại lý"
   const dateKey = picker.H.NGAY || "Ngày tháng"
 
-  // lấy ngày đầu tiên hợp lệ của dealer
   for (const r of salesRows) {
     const dn = String((r as any)[dealerKey] ?? "").trim()
     if (dn !== dealerPicked) continue
@@ -226,7 +245,6 @@ export const pickMonthStrFromSalesRows = (
       (r as any)["Ngày phát sinh"]
     if (raw == null || raw === "") continue
 
-    // raw có thể là Date | number (excel serial) | string
     let d: Date | null = null
 
     if (raw instanceof Date) {
@@ -236,8 +254,6 @@ export const pickMonthStrFromSalesRows = (
       if (dc) d = new Date(dc.y, dc.m - 1, dc.d)
     } else {
       const s = String(raw).trim()
-
-      // dd/mm/yyyy hoặc d/m/yyyy
       const m1 = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/)
       if (m1) {
         const dd = Number(m1[1])
@@ -246,7 +262,6 @@ export const pickMonthStrFromSalesRows = (
         if (yy < 100) yy += 2000
         d = new Date(yy, mm - 1, dd)
       } else {
-        // fallback: Date.parse
         const t = Date.parse(s)
         if (!Number.isNaN(t)) d = new Date(t)
       }
@@ -259,7 +274,6 @@ export const pickMonthStrFromSalesRows = (
     return `${mm}/${yyyy}`
   }
 
-  // fallback nếu không tìm được ngày
   const now = new Date()
   return `${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`
 }

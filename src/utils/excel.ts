@@ -396,7 +396,7 @@ export const setCell = (
     return
   }
 
-  // ---- NUMBER0: rỗng => 0 (dùng cho SL, TIỀN, HH5...) ----
+  // ---- NUMBER0: rỗng => 0 (dùng cho SL, TIỀN, HH_THUONG_5...) ----
   if (opts?.kind === "number0") {
     if (v === null || v === undefined || v === "") {
       ws[addr] = { t: "n", v: 0 }
@@ -429,35 +429,35 @@ export const setRowFormulas = (
   ws: XLSX.WorkSheet,
   r0: number,
   col: {
-    TIEN: number
-    HH: number
-    DLDH: number
-    HH5: number
-    TONGTRICH: number
-    CONPHAITT: number
+    TONG_GIA_TRI: number
+    PHAN_TRAM_HH: number
+    DAI_LY_DUOC_HUONG: number
+    HH_THUONG_5: number
+    TONG_TRICH_DAI_LY: number
+    CON_PHAI_THANH_TOAN: number
   }
 ) => {
   const r1 = r0 + 1 // excel 1-index
-  const F = XLSX.utils.encode_col(col.TIEN)
-  const G = XLSX.utils.encode_col(col.HH)
-  const H = XLSX.utils.encode_col(col.DLDH)
-  const I = XLSX.utils.encode_col(col.HH5)
-  const J = XLSX.utils.encode_col(col.TONGTRICH)
+  const F = XLSX.utils.encode_col(col.TONG_GIA_TRI)
+  const G = XLSX.utils.encode_col(col.PHAN_TRAM_HH)
+  const H = XLSX.utils.encode_col(col.DAI_LY_DUOC_HUONG)
+  const I = XLSX.utils.encode_col(col.HH_THUONG_5)
+  const J = XLSX.utils.encode_col(col.TONG_TRICH_DAI_LY)
 
   // H = F * G  (Đại lý được hưởng)
-  ws[XLSX.utils.encode_cell({ r: r0, c: col.DLDH })] = {
+  ws[XLSX.utils.encode_cell({ r: r0, c: col.DAI_LY_DUOC_HUONG })] = {
     t: "n",
     f: `${F}${r1}*${G}${r1}`,
   }
 
   // J = H + I  (Tổng trích đại lý)
-  ws[XLSX.utils.encode_cell({ r: r0, c: col.TONGTRICH })] = {
+  ws[XLSX.utils.encode_cell({ r: r0, c: col.TONG_TRICH_DAI_LY })] = {
     t: "n",
     f: `${H}${r1}+${I}${r1}`,
   }
 
   // ✅ K = J  (Còn phải TT = Tổng trích đại lý)
-  ws[XLSX.utils.encode_cell({ r: r0, c: col.CONPHAITT })] = {
+  ws[XLSX.utils.encode_cell({ r: r0, c: col.CON_PHAI_THANH_TOAN })] = {
     t: "n",
     f: `${J}${r1}`,
   }

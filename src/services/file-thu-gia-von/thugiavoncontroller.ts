@@ -1,13 +1,11 @@
 import * as XLSX from "xlsx-js-style"
 import {
   ExcelRow,
-  normalize,
   getSheetAOA,
   deepCloneSheet,
   insertRows,
   ensureRefIncludes,
   unmergeInRange,
-  monthKey,
 } from "@/utils/excel"
 
 import {
@@ -142,6 +140,14 @@ export function buildThuGiaVonSheetForDealer(args: {
           r0,
           COL.TEN,
           String(row[picker.H.TEN] ?? row["Tên công ty"] ?? "").trim()
+        )
+
+      if (COL.LOAIHD !== -1)
+        setCellRC(
+          ws,
+          r0,
+          COL.LOAIHD,
+          String(row[picker.H.LOAIHD] ?? row["Loại hợp đồng"] ?? "").trim()
         )
 
       setCellRC(ws, r0, COL.TONGTIEN, num(row[picker.H.TONGTIEN]))

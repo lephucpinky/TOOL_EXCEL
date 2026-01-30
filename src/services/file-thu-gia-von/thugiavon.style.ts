@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx-js-style"
-import { getSheetAOA, normalize } from "@/utils/excel"
+import { getSheetAOA, normalize, ensureRefIncludes } from "@/utils/excel"
 
 // --------------------
 // style basics
@@ -12,6 +12,49 @@ export const BORDER_THIN = {
   left: { style: "thin", color: { rgb: "000000" } },
   right: { style: "thin", color: { rgb: "000000" } },
 } as const
+
+const mergeRowRangeSafe = (
+  ws: XLSX.WorkSheet,
+  row0: number,
+  startCol0: number,
+  endCol0: number
+) => {
+  const merges = (((ws as any)["!merges"] || []) as XLSX.Range[]).slice()
+
+  // remove merges intersecting this row & range to avoid overlap
+  const filtered = merges.filter((m) => {
+    const sameRow = row0 >= m.s.r && row0 <= m.e.r
+    const colOverlap = !(endCol0 < m.s.c || startCol0 > m.e.c)
+    return !(sameRow && colOverlap)
+  })
+
+  filtered.push({ s: { r: row0, c: startCol0 }, e: { r: row0, c: endCol0 } })
+  ;(ws as any)["!merges"] = filtered
+}
+
+export const widenCompanyHeaderThuGiaVon = (
+  ws: XLSX.WorkSheet,
+  setRowHeightFn: (r0: number, hpt: number) => void
+) => {
+  const rows0 = [0, 1, 2] // C1..C3 => row0 0..2
+  const startCol0 = 2 // C
+  const endCol0 = 5 // ✅
+
+  ensureRefIncludes(ws, 2, endCol0)
+
+  for (const r0 of rows0) {
+    mergeRowRangeSafe(ws, r0, startCol0, endCol0)
+
+    styleCell(ws, r0, startCol0, {
+      font: { ...FONT_TNR, bold: true, sz: r0 === 14 },
+      alignment: { horizontal: "left", vertical: "center", wrapText: false },
+    })
+  }
+
+  setRowHeightFn(0, 25)
+  setRowHeightFn(1, 25)
+  setRowHeightFn(2, 25)
+}
 
 export const styleCell = (
   ws: XLSX.WorkSheet,
@@ -96,11 +139,21 @@ export const applyTopHeader = (
   }
 
   const styleHeaderCell = (addr: string, sz: number, hpt?: number) => {
-    if (!addr || !(ws as any)[addr]) return
-    const cell = (ws as any)[addr]
+    if (!addr) return
+    const pos = XLSX.utils.decode_cell(addr)
+    const m = getMergeRangeContainingCell(ws, pos.r, pos.c)
+
+    // ✅ style vào top-left của merge (nếu có merge)
+    const r0 = m ? m.s.r : pos.r
+    const c0 = m ? m.s.c : pos.c
+    const tlAddr = XLSX.utils.encode_cell({ r: r0, c: c0 })
+
+    const cell: any =
+      (ws as any)[tlAddr] ?? ((ws as any)[tlAddr] = { t: "s", v: "" })
+
     cell.s = {
       ...(cell.s || {}),
-      font: { ...(cell.s?.font || {}), ...FONT_TNR, bold: true, sz },
+      font: { ...(cell.s?.font || {}), ...FONT_TNR, bold: true, sz }, // ✅ sz
       alignment: {
         ...(cell.s?.alignment || {}),
         horizontal: "center",
@@ -110,7 +163,6 @@ export const applyTopHeader = (
     }
 
     if (hpt != null) {
-      const r0 = XLSX.utils.decode_cell(addr).r
       const rows = (((ws as any)["!rows"] || []) as any[]).slice()
       rows[r0] = { ...(rows[r0] || {}), hpt }
       ;(ws as any)["!rows"] = rows
@@ -119,53 +171,58 @@ export const applyTopHeader = (
 
   styleHeaderCell(title, 18, 30)
   styleHeaderCell(addrThang, 18, 30)
-  styleHeaderCell(addrDaiLy, 13, 20)
-  styleHeaderCell(addrSo, 13, 20)
+  styleHeaderCell(addrDaiLy, 18, 30) // ✅ đổi 13 -> 18
+  styleHeaderCell(addrSo, 18, 30) // ✅ đổi 13 -> 18
 }
 
 export const applyLeftDealerBlockFixed = (
   ws: XLSX.WorkSheet,
   dealerName: string,
-  maDaiLy: string
+  diaChi: string,
+  mst: string
 ) => {
-  // label cells (để chắc chắn bold/left như template)
-  const labelAddrs = ["F3", "F4", "F5"]
-  for (const a of labelAddrs) {
-    const cell: any = (ws as any)[a] ?? ((ws as any)[a] = { t: "s", v: "" })
-    cell.s = {
-      ...(cell.s || {}),
-      font: { ...(cell.s?.font || {}), ...FONT_TNR, bold: false },
-      alignment: {
-        ...(cell.s?.alignment || {}),
-        horizontal: "left",
-        vertical: "center",
-        wrapText: false,
-      },
-    }
-  }
+  // ✅ G = 6, H = 7
+  const COL_G = 6
+  const COL_H = 7
 
-  const setVal = (addr: string, value: string) => {
+  const setSameCellLabelValue = (
+    addrG: string,
+    label: string,
+    value: string
+  ) => {
+    const pos = XLSX.utils.decode_cell(addrG)
+    const r0 = pos.r
+
+    // ✅ merge G..H cho dòng này
+    ensureRefIncludes(ws, r0, COL_H)
+    mergeRowRangeSafe(ws, r0, COL_G, COL_H)
+
     const cell: any =
-      (ws as any)[addr] ?? ((ws as any)[addr] = { t: "s", v: "" })
-    cell.t = "s"
-    cell.v = String(value ?? "").trim()
-    cell.s = {
-      ...(cell.s || {}),
-      font: { ...(cell.s?.font || {}), ...FONT_TNR, bold: false },
-      alignment: {
-        ...(cell.s?.alignment || {}),
-        horizontal: "left",
-        vertical: "center",
-        wrapText: false,
-      },
+      (ws as any)[addrG] ?? ((ws as any)[addrG] = { t: "s", v: "" })
+
+    const cur = String(cell.v ?? "").trim()
+
+    // nếu ô đang có sẵn label "Tên đại lý:" thì thay phần sau dấu ":"
+    let next = ""
+    if (cur.includes(":")) {
+      next = `${cur.split(":")[0].trim()}: ${String(value ?? "").trim()}`
+    } else {
+      next = `${label}: ${String(value ?? "").trim()}`
     }
+
+    cell.t = "s"
+    cell.v = next
+
+    // style
+    styleCell(ws, r0, COL_G, {
+      font: { ...FONT_TNR, bold: true, sz: 11 },
+      alignment: { horizontal: "left", vertical: "center", wrapText: false },
+    })
   }
 
-  // ✅ đúng: Tên đại lý ở G3
-  setVal("G1", dealerName)
-
-  // ✅ đúng: Mã đại lý (bạn đang gọi là MST) ở G5
-  setVal("G3", maDaiLy)
+  setSameCellLabelValue("G1", "Tên đại lý", dealerName)
+  setSameCellLabelValue("G2", "ĐC", diaChi)
+  setSameCellLabelValue("G3", "MST", mst)
 }
 
 export function applyThuGiaVonStyles(opts: {
@@ -207,6 +264,7 @@ export function applyThuGiaVonStyles(opts: {
     [COL.NGAY]: { wch: 16 },
     [COL.MST]: { wch: 18 },
     [COL.TEN]: { wch: 44 },
+    [COL.LOAIHD]: { wch: 20 },
     [COL.TONGTIEN]: { wch: 20 },
     [COL.GOIHOADON]: { wch: 20 },
     [COL.DTKHAC]: { wch: 20 },
@@ -217,7 +275,7 @@ export function applyThuGiaVonStyles(opts: {
   ;(ws as any)["!cols"] = cols
   // ✅ MAP + STYLE header theo text trong template (THÁNG/ĐẠI LÝ/Số)
   applyTopHeader(ws, dealerName, monthStr)
-  applyLeftDealerBlockFixed(ws, dealerName, maDaiLy)
+  applyLeftDealerBlockFixed(ws, dealerName, "", maDaiLy)
 
   // C1:C3 bold left no wrap
   for (const a of ["C1", "C2", "C3"]) {
@@ -258,7 +316,7 @@ export function applyThuGiaVonStyles(opts: {
 
     for (let c0 = cStart; c0 <= cEnd; c0++) {
       styleCell(ws, r0, c0, {
-        font: { ...FONT_TNR, bold: true },
+        font: { ...FONT_TNR, bold: true, sz: 18 }, // ✅ thêm sz
         alignment: {
           horizontal: "center",
           vertical: "center",
@@ -404,13 +462,12 @@ export function applyThuGiaVonStyles(opts: {
   // 5) A5..A8 (block header merge) nếu muốn cao hơn nữa
   for (const r0 of [4, 5, 6, 7]) setRowHeight(r0, 24) // thay cho đoạn hpt:20/hpx:26 hiện tại
 
-  // ✅ Footer confirm: bold + center (merge-aware)
-  const styleFooterCellContains = (needleRaw: string) => {
+  // ✅ Footer confirm: bold + center (merge-aware) + sz14 + taller rows
+  const styleFooterCellContains = (needleRaw: string, hpt = 45) => {
     const needle = normalize(needleRaw)
 
-    // scan rộng phần cuối sheet
     const rng = XLSX.utils.decode_range((ws as any)["!ref"] || "A1")
-    const rStart = Math.max(0, rng.e.r - 60) // 60 dòng cuối
+    const rStart = Math.max(0, rng.e.r - 60)
     const rEnd = rng.e.r
     const cEnd = Math.min(rng.e.c, Math.max(lastCol, 30))
 
@@ -421,6 +478,9 @@ export function applyThuGiaVonStyles(opts: {
         if (v == null || String(v).trim() === "") continue
         if (!normalize(String(v)).includes(needle)) continue
 
+        // ✅ tăng height cho đúng dòng (kể cả nằm trong merge)
+        setRowHeight(r0, hpt)
+
         // nếu nằm trong merge -> style toàn vùng merge
         const m = getMergeRangeContainingCell(ws, r0, c0)
         const cStart = m ? m.s.c : c0
@@ -428,7 +488,7 @@ export function applyThuGiaVonStyles(opts: {
 
         for (let cc = cStart; cc <= cStop; cc++) {
           styleCell(ws, r0, cc, {
-            font: { ...FONT_TNR, bold: true },
+            font: { ...FONT_TNR, bold: true, sz: 14 }, // ✅ sz 14
             alignment: {
               horizontal: "center",
               vertical: "center",
@@ -441,8 +501,10 @@ export function applyThuGiaVonStyles(opts: {
     }
   }
 
-  styleFooterCellContains("Xác nhận đại lý")
-  styleFooterCellContains("Xác nhận M-invoice")
+  widenCompanyHeaderThuGiaVon(ws, setRowHeight)
+  styleFooterCellContains("Xác nhận đại lý", 28)
+  styleFooterCellContains("Xác nhận M-invoice", 28)
+  styleFooterCellContains("HCM, ngày", 28)
 }
 /** map ngày hiện tại vào dòng "HCM, ngày ... tháng ... năm ..." */
 export const applyHcmDateNow = (ws: XLSX.WorkSheet, d = new Date()) => {

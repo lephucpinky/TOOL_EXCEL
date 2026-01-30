@@ -28,15 +28,14 @@ import {
   setFormula,
 } from "./vacom.excel"
 import {
-  applyVacomHdStyles,
+  applyHcmDateNow,
+  applyTailMonth,
   applyTopHeader,
+  applyVacomHdStyles,
   centerTotalsOnSectionRow,
   styleCongRow,
   styleSignArea,
   styleTailBlockBold,
-  applyTailMonth,
-  applyHcmDateNow,
-  forceCompanyHeaderLeft,
 } from "./vacom.style"
 import { ExcelRow } from "@/utils/excel"
 
@@ -79,6 +78,7 @@ export function buildVacomHdSheetForDealer(args: {
   // map headers
   const H_MST = pick("MST")
   const H_TEN = pick("Tên hợp đồng", "Tên công ty")
+  const H_LOAIHD = pick("Loại hợp đồng")
   const H_NGAY = pick("Thời gian kích hoạt", "Ngày tháng", "Ngày phát sinh")
   const H_SL = pick("SLHĐ", "SL phát hành")
   const H_TIEN = pick(
@@ -209,7 +209,7 @@ export function buildVacomHdSheetForDealer(args: {
   const startE = rE2 + 1
   const startD = rD3 + 1
 
-  const maxC = COL_VACOM.CONPHAITT
+  const maxC = COL_VACOM.CON_PHAI_THANH_TOAN
 
   // clear placeholders
   clearRange(newWs, startA, rB2 - 1, 0, maxC)
@@ -241,11 +241,15 @@ export function buildVacomHdSheetForDealer(args: {
         kind: "text",
         force: true,
       })
-      setCell(newWs, r0, COL_VACOM.TEN, row[H_TEN], {
+      setCell(newWs, r0, COL_VACOM.TEN_HD, row[H_TEN], {
         kind: "text",
         force: true,
       })
-      setCell(newWs, r0, COL_VACOM.NGAY, row[H_NGAY], {
+      setCell(newWs, r0, COL_VACOM.LOAI_HD, H_LOAIHD ? row[H_LOAIHD] : "", {
+        kind: "text",
+        force: true,
+      })
+      setCell(newWs, r0, COL_VACOM.NGAY_KICH_HOAT, row[H_NGAY], {
         kind: "date",
         force: true,
       })
@@ -253,15 +257,15 @@ export function buildVacomHdSheetForDealer(args: {
         kind: "number0",
         force: true,
       })
-      setCell(newWs, r0, COL_VACOM.TIEN, row[H_TIEN], {
+      setCell(newWs, r0, COL_VACOM.TONG_GIA_TRI, row[H_TIEN], {
         kind: "number0",
         force: true,
       })
-      setCell(newWs, r0, COL_VACOM.HH, row[H_HH], {
+      setCell(newWs, r0, COL_VACOM.PHAN_TRAM_HH, row[H_HH], {
         kind: "percent",
         force: true,
       })
-      setCell(newWs, r0, COL_VACOM.HH5, H_HH5 ? row[H_HH5] : 0, {
+      setCell(newWs, r0, COL_VACOM.HH_THUONG_5, H_HH5 ? row[H_HH5] : 0, {
         kind: "number0",
         force: true,
       })
@@ -269,12 +273,20 @@ export function buildVacomHdSheetForDealer(args: {
       setRowFormulas(newWs, r0, COL_VACOM)
 
       // ✅ FIX: Đại lý còn phải thanh toán (K) = Tổng giá trị (F) - Tổng trích (J)
-      const addrTien = XLSX.utils.encode_cell({ r: r0, c: COL_VACOM.TIEN })
+      const addrTien = XLSX.utils.encode_cell({
+        r: r0,
+        c: COL_VACOM.TONG_GIA_TRI,
+      })
       const addrTongTrich = XLSX.utils.encode_cell({
         r: r0,
-        c: COL_VACOM.TONGTRICH,
+        c: COL_VACOM.TONG_TRICH_DAI_LY,
       })
-      setFormula(newWs, r0, COL_VACOM.CONPHAITT, `${addrTien}-${addrTongTrich}`)
+      setFormula(
+        newWs,
+        r0,
+        COL_VACOM.CON_PHAI_THANH_TOAN,
+        `${addrTien}-${addrTongTrich}`
+      )
 
       maxR = Math.max(maxR, r0)
     }
@@ -308,32 +320,32 @@ export function buildVacomHdSheetForDealer(args: {
     setFormula(
       newWs,
       titleRow0,
-      COL_VACOM.TIEN,
-      sumRange(COL_VACOM.TIEN, start, end)
+      COL_VACOM.TONG_GIA_TRI,
+      sumRange(COL_VACOM.TONG_GIA_TRI, start, end)
     )
     setFormula(
       newWs,
       titleRow0,
-      COL_VACOM.DLDH,
-      sumRange(COL_VACOM.DLDH, start, end)
+      COL_VACOM.DAI_LY_DUOC_HUONG,
+      sumRange(COL_VACOM.DAI_LY_DUOC_HUONG, start, end)
     )
     setFormula(
       newWs,
       titleRow0,
-      COL_VACOM.HH5,
-      sumRange(COL_VACOM.HH5, start, end)
+      COL_VACOM.HH_THUONG_5,
+      sumRange(COL_VACOM.HH_THUONG_5, start, end)
     )
     setFormula(
       newWs,
       titleRow0,
-      COL_VACOM.TONGTRICH,
-      sumRange(COL_VACOM.TONGTRICH, start, end)
+      COL_VACOM.TONG_TRICH_DAI_LY,
+      sumRange(COL_VACOM.TONG_TRICH_DAI_LY, start, end)
     )
     setFormula(
       newWs,
       titleRow0,
-      COL_VACOM.CONPHAITT,
-      sumRange(COL_VACOM.CONPHAITT, start, end)
+      COL_VACOM.CON_PHAI_THANH_TOAN,
+      sumRange(COL_VACOM.CON_PHAI_THANH_TOAN, start, end)
     )
   }
 
@@ -361,32 +373,32 @@ export function buildVacomHdSheetForDealer(args: {
   setFormula(
     newWs,
     rCong0,
-    COL_VACOM.TIEN,
-    sumCells(sectionTitleRows, COL_VACOM.TIEN)
+    COL_VACOM.TONG_GIA_TRI,
+    sumCells(sectionTitleRows, COL_VACOM.TONG_GIA_TRI)
   )
   setFormula(
     newWs,
     rCong0,
-    COL_VACOM.DLDH,
-    sumCells(sectionTitleRows, COL_VACOM.DLDH)
+    COL_VACOM.DAI_LY_DUOC_HUONG,
+    sumCells(sectionTitleRows, COL_VACOM.DAI_LY_DUOC_HUONG)
   )
   setFormula(
     newWs,
     rCong0,
-    COL_VACOM.HH5,
-    sumCells(sectionTitleRows, COL_VACOM.HH5)
+    COL_VACOM.HH_THUONG_5,
+    sumCells(sectionTitleRows, COL_VACOM.HH_THUONG_5)
   )
   setFormula(
     newWs,
     rCong0,
-    COL_VACOM.TONGTRICH,
-    sumCells(sectionTitleRows, COL_VACOM.TONGTRICH)
+    COL_VACOM.TONG_TRICH_DAI_LY,
+    sumCells(sectionTitleRows, COL_VACOM.TONG_TRICH_DAI_LY)
   )
   setFormula(
     newWs,
     rCong0,
-    COL_VACOM.CONPHAITT,
-    sumCells(sectionTitleRows, COL_VACOM.CONPHAITT)
+    COL_VACOM.CON_PHAI_THANH_TOAN,
+    sumCells(sectionTitleRows, COL_VACOM.CON_PHAI_THANH_TOAN)
   )
 
   // fix block tổng kết dưới CỘNG (KHÔNG search text để tránh nhảy nhầm)
@@ -395,20 +407,29 @@ export function buildVacomHdSheetForDealer(args: {
   const rTongThucThu0 = rCong0 + 3
 
   // Doanh số = ô CỘNG cột H
-  const addrCongDoanh = XLSX.utils.encode_cell({ r: rCong0, c: COL_VACOM.DLDH })
-  setFormula(newWs, rDoanhSo0, COL_VACOM.DLDH, addrCongDoanh)
+  const addrCongDoanh = XLSX.utils.encode_cell({
+    r: rCong0,
+    c: COL_VACOM.CON_PHAI_THANH_TOAN,
+  })
+  setFormula(newWs, rDoanhSo0, COL_VACOM.DAI_LY_DUOC_HUONG, addrCongDoanh)
 
   // ✅ % thưởng = SUM các ô tổng khu của cột I (HH5) -> =SUM(I12,I16,I18,I20,I22)
-  const formulaThuong = sumCells(sectionTitleRows, COL_VACOM.HH5)
-  setFormula(newWs, rThuong0, COL_VACOM.DLDH, formulaThuong)
+  const formulaThuong = sumCells(sectionTitleRows, COL_VACOM.HH_THUONG_5)
+  setFormula(newWs, rThuong0, COL_VACOM.DAI_LY_DUOC_HUONG, formulaThuong)
 
   // Tổng thực thu = H25 + H26
-  const addrDoanhH = XLSX.utils.encode_cell({ r: rDoanhSo0, c: COL_VACOM.DLDH })
-  const addrThuongH = XLSX.utils.encode_cell({ r: rThuong0, c: COL_VACOM.DLDH })
+  const addrDoanhH = XLSX.utils.encode_cell({
+    r: rDoanhSo0,
+    c: COL_VACOM.DAI_LY_DUOC_HUONG,
+  })
+  const addrThuongH = XLSX.utils.encode_cell({
+    r: rThuong0,
+    c: COL_VACOM.DAI_LY_DUOC_HUONG,
+  })
   setFormula(
     newWs,
     rTongThucThu0,
-    COL_VACOM.DLDH,
+    COL_VACOM.DAI_LY_DUOC_HUONG,
     `${addrDoanhH}+${addrThuongH}`
   )
 
@@ -430,26 +451,15 @@ export function buildVacomHdSheetForDealer(args: {
   applyTailMonth(newWs, resolvedMonth)
   applyHcmDateNow(newWs, new Date())
 
-  styleTailBlockBold(newWs)
-  styleSignArea(newWs)
-
-  forceLeftTitleRow(newWs, rA2, 0, 2)
-  forceLeftTitleRow(newWs, rB2, 0, 2)
-  forceLeftTitleRow(newWs, rC2, 0, 2)
-  forceLeftTitleRow(newWs, rE2, 0, 2)
-  forceLeftTitleRow(newWs, rD3, 0, 2)
-
-  centerTotalsOnSectionRow(newWs, rA2)
-  centerTotalsOnSectionRow(newWs, rB2)
-  centerTotalsOnSectionRow(newWs, rC2)
-  centerTotalsOnSectionRow(newWs, rE2)
-  centerTotalsOnSectionRow(newWs, rD3)
+  const sectionRows = [rA2, rB2, rC2, rE2, rD3]
+  for (const r0 of sectionRows) {
+    forceLeftTitleRow(newWs, r0, 0, 2)
+    centerTotalsOnSectionRow(newWs, r0)
+  }
 
   styleCongRow(newWs, rCong0)
-
   styleTailBlockBold(newWs)
   styleSignArea(newWs)
-  forceCompanyHeaderLeft(newWs)
 
   const outWb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(outWb, newWs, templateSheetName)

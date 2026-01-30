@@ -21,11 +21,35 @@ import {
   setFontAll,
   ensureCell,
 } from "./hoahong.excel"
-// ✅ helper set row height (hpt)
-const setRowHeight = (ws: XLSX.WorkSheet, r0: number, hpt: number) => {
-  const rows = (((ws as any)["!rows"] || []) as any[]).slice()
+
+/* ----------------------------- basic helpers ----------------------------- */
+
+const getRefRange = (ws: XLSX.WorkSheet) => {
+  const ref = (ws as any)["!ref"]
+  if (!ref) return null
+  return XLSX.utils.decode_range(ref)
+}
+
+export const setFontSizeAll = (ws: XLSX.WorkSheet, sz: number) => {
+  const rng = getRefRange(ws)
+  if (!rng) return
+
+  for (let r = rng.s.r; r <= rng.e.r; r++) {
+    for (let c = rng.s.c; c <= rng.e.c; c++) {
+      const addr = XLSX.utils.encode_cell({ r, c })
+      const cell: any = (ws as any)[addr]
+      if (!cell) continue
+      cell.s = cell.s || {}
+      cell.s.font = { ...(cell.s.font || {}), sz }
+    }
+  }
+}
+
+const getRowsArr = (ws: XLSX.WorkSheet) =>
+  (((ws as any)["!rows"] || []) as any[]).slice()
+
+const setRowHeightAt = (rows: any[], r0: number, hpt: number) => {
   rows[r0] = { ...(rows[r0] || {}), hpt }
-  ;(ws as any)["!rows"] = rows
 }
 
 const setRowHeightRange = (
@@ -35,149 +59,15 @@ const setRowHeightRange = (
   hpt: number
 ) => {
   if (rEnd0 < rStart0) return
-  const rows = (((ws as any)["!rows"] || []) as any[]).slice()
-  for (let r0 = rStart0; r0 <= rEnd0; r0++) {
-    rows[r0] = { ...(rows[r0] || {}), hpt }
-  }
+  const rows = getRowsArr(ws)
+  for (let r0 = rStart0; r0 <= rEnd0; r0++) setRowHeightAt(rows, r0, hpt)
   ;(ws as any)["!rows"] = rows
 }
 
-/** header dealer + month */
-export const applyHeaderDealerMonth = (
-  ws: XLSX.WorkSheet,
-  dealerName: string,
-  month?: string
-) => {
-  const rTITLE = findRowContains(ws, "BẢNG ĐỐI SOÁT ĐẠI LÝ", {
-    scanRows: 5000,
-    scanCols: 50,
-  })
-  const rMONTH = findRowContains(ws, "THÁNG", { scanRows: 5000, scanCols: 50 })
+const setRowHeight = (ws: XLSX.WorkSheet, r0: number, hpt: number) =>
+  setRowHeightRange(ws, r0, r0, hpt)
 
-  const now = new Date()
-  const fallbackMonth = `${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`
-  const monthText = month || fallbackMonth
-  const VALUE_COL = 5 // F
-
-  if (rTITLE !== -1) setTextKeepStyle(ws, rTITLE, VALUE_COL, dealerName)
-  if (rMONTH !== -1) setTextKeepStyle(ws, rMONTH, VALUE_COL, monthText)
-  ;[rTITLE, rMONTH].forEach((r0) => {
-    if (r0 === -1) return
-    ;[4, 5].forEach((c0) => {
-      patchCellStyle(ws, r0, c0, {
-        font: { bold: true },
-        alignment: { horizontal: "left", vertical: "center", wrapText: false },
-      })
-    })
-  })
-}
-
-/** footer formulas + yellow highlight */
-export const applyFooterFormulasAndHighlight = (
-  ws: XLSX.WorkSheet,
-  rTOTAL: number,
-  opts?: { isTncnExempt?: boolean }
-) => {
-  const isTncnExempt = !!opts?.isTncnExempt
-  const FOOTER_COL0 = COL_HOA_HONG.HH_PERCENT // J
-  const addrL_Total = addrRC(rTOTAL, COL_HOA_HONG.HOA_HONG)
-  const addrF_Total = addrRC(rTOTAL, COL_HOA_HONG.TIEN)
-  const addrN_Total = addrRC(rTOTAL, COL_HOA_HONG.CHENH_TT)
-
-  let rowTongCong = -1
-  let rowThue = -1
-  let rowDlHuong = -1
-  let rowTongThanhToan = -1
-
-  for (let r0 = rTOTAL + 1; r0 <= rTOTAL + 30; r0++) {
-    const vC = (ws as any)[addrRC(r0, 2)]?.v
-    const s = normalize(vC ?? "")
-    if (s === normalize("TỔNG CỘNG HOA HỒNG CHI TRẢ TRONG THÁNG"))
-      rowTongCong = r0
-    if (s === normalize("THUẾ TNCN") || s === normalize("THUẾ TNCN"))
-      rowThue = r0
-    if (s === normalize("HOA HỒNG DL HƯỞNG")) rowDlHuong = r0
-    if (s.startsWith(normalize("TỔNG TIỀN THANH TOÁN"))) rowTongThanhToan = r0
-  }
-
-  const setFooterJ = (row0: number, formula: string) => {
-    if (row0 === -1) return
-    setFormulaKeepStyle(ws, row0, FOOTER_COL0, formula, NUM_PARENS_FMT)
-  }
-
-  setFooterJ(rowTongCong, `=${addrL_Total}`)
-  // ✅ THUẾ TNCN: nếu đại lý miễn => 0
-  if (rowTongCong !== -1 && rowThue !== -1) {
-    setFooterJ(
-      rowThue,
-      isTncnExempt ? `=0` : `=${addrRC(rowTongCong, FOOTER_COL0)}*10%`
-    )
-  }
-  if (rowTongCong !== -1 && rowThue !== -1 && rowDlHuong !== -1) {
-    setFooterJ(
-      rowDlHuong,
-      `=${addrRC(rowTongCong, FOOTER_COL0)}-${addrRC(rowThue, FOOTER_COL0)}`
-    )
-  }
-  if (rowTongThanhToan !== -1 && rowDlHuong !== -1) {
-    setFooterJ(
-      rowTongThanhToan,
-      `=${addrF_Total}-${addrN_Total}-${addrRC(rowDlHuong, FOOTER_COL0)}`
-    )
-  }
-  if (rowTongThanhToan !== -1) {
-    // ✅ Merge label từ C đến I
-    mergeCells(ws, rowTongThanhToan, 2, 8)
-
-    // ✅ Set đúng full text (giữ style)
-    setTextKeepStyle(
-      ws,
-      rowTongThanhToan,
-      2,
-      "TỔNG TIỀN THANH TOÁN (Số tiền âm là Minvoice chi, Số dương là Minvoice thu)"
-    )
-
-    // ✅ Canh trái cho dễ đọc (tuỳ bạn có thể bỏ nếu đang OK)
-    patchCellStyle(ws, rowTongThanhToan, 2, {
-      alignment: { horizontal: "left", vertical: "center", wrapText: false },
-    })
-  }
-
-  // highlight yellow (block 4 dòng sau TOTAL)
-  for (let r0 = rTOTAL + 1; r0 <= rTOTAL + 4; r0++) {
-    patchCellStyle(ws, r0, FOOTER_COL0, {
-      fill: YELLOW_BG,
-      alignment: { horizontal: "right", vertical: "center", wrapText: false },
-    })
-  }
-
-  return { rowTongCong }
-}
-export const setAlignmentRange = (
-  ws: XLSX.WorkSheet,
-  rStart0: number,
-  rEnd0: number,
-  cStart0: number,
-  cEnd0: number,
-  align: {
-    horizontal?: "left" | "center" | "right"
-    vertical?: "top" | "center" | "bottom"
-    wrapText?: boolean
-  }
-) => {
-  for (let r0 = rStart0; r0 <= rEnd0; r0++) {
-    for (let c0 = cStart0; c0 <= cEnd0; c0++) {
-      patchCellStyle(ws, r0, c0, {
-        alignment: {
-          ...(ensureCell(ws, r0, c0).s?.alignment || {}),
-          vertical: align.vertical ?? "center",
-          horizontal: align.horizontal ?? "center",
-          wrapText: align.wrapText ?? false,
-        },
-      })
-    }
-  }
-}
+/* ---------------------------- merge-aware align --------------------------- */
 
 export const getTopLeftOfMerge = (
   ws: XLSX.WorkSheet,
@@ -214,14 +104,254 @@ export const setColAlignmentMergeAware = (
   alignment: any
 ) => {
   for (let r = rStart0; r <= rEnd0; r++) {
-    // chỉ set nếu trong row đó có cell tồn tại (giảm tạo cell rác)
+    // tránh tạo cell rác
     const addr = XLSX.utils.encode_cell({ r, c: c0 })
     if (!(ws as any)[addr]) continue
     setAlignmentCellMergeAware(ws, r, c0, alignment)
   }
 }
 
-/** style bảng: border + fills + title merge + left title */
+export const setAlignmentRange = (
+  ws: XLSX.WorkSheet,
+  rStart0: number,
+  rEnd0: number,
+  cStart0: number,
+  cEnd0: number,
+  align: {
+    horizontal?: "left" | "center" | "right"
+    vertical?: "top" | "center" | "bottom"
+    wrapText?: boolean
+  }
+) => {
+  for (let r0 = rStart0; r0 <= rEnd0; r0++) {
+    for (let c0 = cStart0; c0 <= cEnd0; c0++) {
+      const cell = ensureCell(ws, r0, c0)
+      patchCellStyle(ws, r0, c0, {
+        alignment: {
+          ...(cell.s?.alignment || {}),
+          vertical: align.vertical ?? "center",
+          horizontal: align.horizontal ?? "center",
+          wrapText: align.wrapText ?? false,
+        },
+      })
+    }
+  }
+}
+
+/* -------------------------- header company block -------------------------- */
+
+export const applyTopCompanyHeaderHeight = (ws: XLSX.WorkSheet) => {
+  const rCompany = findRowContains(ws, "CÔNG TY", {
+    scanRows: 200,
+    scanCols: 50,
+  })
+  if (rCompany === -1) return
+
+  const rStart = rCompany
+  const rEnd = rCompany + 2
+
+  setRowHeightRange(ws, rStart, rEnd, 28)
+
+  // patch style cho cell tồn tại để tránh tạo cell rác
+  for (let r0 = rStart; r0 <= rEnd; r0++) {
+    for (let c0 = 0; c0 <= 20; c0++) {
+      const addr = XLSX.utils.encode_cell({ r: r0, c: c0 })
+      if (!(ws as any)[addr]) continue
+      patchCellStyle(ws, r0, c0, {
+        alignment: { vertical: "center", wrapText: false },
+        font: { bold: true },
+      })
+    }
+  }
+}
+
+/* ----------------------- header dealer + month row ------------------------ */
+
+export const applyHeaderDealerMonth = (
+  ws: XLSX.WorkSheet,
+  dealerName: string,
+  month?: string
+) => {
+  const rTITLE = findRowContains(ws, "BẢNG ĐỐI SOÁT ĐẠI LÝ", {
+    scanRows: 5000,
+    scanCols: 50,
+  })
+  const rMONTH = findRowContains(ws, "THÁNG", { scanRows: 5000, scanCols: 50 })
+
+  const now = new Date()
+  const fallbackMonth = `${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`
+  const monthText = month || fallbackMonth
+
+  const COL_F = 5 // F
+
+  const writeLabelValueSameCell = (
+    r0: number,
+    label: string,
+    value: string
+  ) => {
+    if (r0 === -1) return
+
+    const isMonthRow = normalize(label) === normalize("THÁNG")
+    if (isMonthRow) mergeCells(ws, r0, COL_F, 7) // F..H
+
+    const tl = getTopLeftOfMerge(ws, r0, COL_F)
+    const addr = XLSX.utils.encode_cell({ r: tl.r, c: tl.c })
+    const cell: any =
+      (ws as any)[addr] || ((ws as any)[addr] = { t: "s", v: "" })
+
+    const cur = String(cell.v ?? "")
+    const curNorm = normalize(cur)
+    const labelNorm = normalize(label)
+
+    const next = curNorm.includes(labelNorm)
+      ? cur.includes(":")
+        ? `${cur.split(":")[0].trim()}: ${value}`
+        : `${label}: ${value}`
+      : `${label}: ${value}`
+
+    setTextKeepStyle(ws, tl.r, tl.c, next)
+
+    patchCellStyle(ws, tl.r, tl.c, {
+      font: { bold: true, sz: 18 },
+      alignment: {
+        horizontal: isMonthRow ? "center" : "left",
+        vertical: "center",
+        wrapText: false,
+      },
+    })
+
+    if (isMonthRow) {
+      setAlignmentCellMergeAware(ws, tl.r, tl.c, {
+        horizontal: "center",
+        vertical: "center",
+        wrapText: false,
+      })
+    }
+
+    setRowHeight(ws, r0, 30)
+  }
+
+  writeLabelValueSameCell(rTITLE, "BẢNG ĐỐI SOÁT ĐẠI LÝ", dealerName)
+  writeLabelValueSameCell(rMONTH, "THÁNG", monthText)
+}
+
+/* --------------------- footer formulas + highlight ------------------------ */
+
+export const applyFooterFormulasAndHighlight = (
+  ws: XLSX.WorkSheet,
+  rTOTAL: number,
+  opts?: { isTncnExempt?: boolean }
+) => {
+  const isTncnExempt = !!opts?.isTncnExempt
+  const FOOTER_COL0 = COL_HOA_HONG.HH_PERCENT // J
+
+  const addrL_Total = addrRC(rTOTAL, COL_HOA_HONG.HOA_HONG)
+  const addrF_Total = addrRC(rTOTAL, COL_HOA_HONG.TIEN)
+  const addrN_Total = addrRC(rTOTAL, COL_HOA_HONG.CHENH_TT)
+
+  // scan 30 dòng sau TOTAL
+  let rowTongCong = -1
+  let rowThue = -1
+  let rowDlHuong = -1
+  let rowTongThanhToan = -1
+
+  const N_TONGCONG = normalize("TỔNG CỘNG HOA HỒNG CHI TRẢ TRONG THÁNG")
+  const N_THUE1 = normalize("THUẾ TNCN")
+  const N_THUE2 = normalize("THUẾ TNCN")
+  const N_DLHUONG = normalize("HOA HỒNG DL HƯỞNG")
+  const N_TONGTT = normalize("TỔNG TIỀN THANH TOÁN")
+
+  for (let r0 = rTOTAL + 1; r0 <= rTOTAL + 30; r0++) {
+    const vC = (ws as any)[addrRC(r0, 2)]?.v
+    const s = normalize(vC ?? "")
+
+    if (s === N_TONGCONG) rowTongCong = r0
+    if (s === N_THUE1 || s === N_THUE2) rowThue = r0
+    if (s === N_DLHUONG) rowDlHuong = r0
+    if (s.startsWith(N_TONGTT)) rowTongThanhToan = r0
+  }
+
+  const setFooterJ = (row0: number, formula: string) => {
+    if (row0 === -1) return
+    setFormulaKeepStyle(ws, row0, FOOTER_COL0, formula, NUM_PARENS_FMT)
+  }
+
+  // formulas
+  setFooterJ(rowTongCong, `=${addrL_Total}`)
+
+  if (rowTongCong !== -1 && rowThue !== -1) {
+    setFooterJ(
+      rowThue,
+      isTncnExempt ? `=0` : `=${addrRC(rowTongCong, FOOTER_COL0)}*10%`
+    )
+  }
+
+  if (rowTongCong !== -1 && rowThue !== -1 && rowDlHuong !== -1) {
+    setFooterJ(
+      rowDlHuong,
+      `=${addrRC(rowTongCong, FOOTER_COL0)}-${addrRC(rowThue, FOOTER_COL0)}`
+    )
+  }
+
+  if (rowTongThanhToan !== -1 && rowDlHuong !== -1) {
+    setFooterJ(
+      rowTongThanhToan,
+      `=${addrF_Total}-${addrN_Total}-${addrRC(rowDlHuong, FOOTER_COL0)}`
+    )
+  }
+
+  // label row: merge + text
+  if (rowTongThanhToan !== -1) {
+    mergeCells(ws, rowTongThanhToan, 2, COL_HOA_HONG.HH_PERCENT - 1) // C..I
+    setTextKeepStyle(
+      ws,
+      rowTongThanhToan,
+      2,
+      "TỔNG TIỀN THANH TOÁN (Số tiền âm là Minvoice chi, Số dương là Minvoice thu)"
+    )
+    patchCellStyle(ws, rowTongThanhToan, 2, {
+      alignment: { horizontal: "left", vertical: "center", wrapText: false },
+    })
+  }
+
+  // highlight vàng 4 dòng sau TOTAL
+  for (let r0 = rTOTAL + 1; r0 <= rTOTAL + 4; r0++) {
+    patchCellStyle(ws, r0, FOOTER_COL0, {
+      fill: YELLOW_BG,
+      alignment: { horizontal: "right", vertical: "center", wrapText: false },
+    })
+  }
+
+  const alignFooterLabel = (row0: number) => {
+    if (row0 === -1) return
+
+    // label bắt đầu ở C (2)
+    setAlignmentCellMergeAware(ws, row0, 2, {
+      horizontal: "left",
+      vertical: "center",
+      wrapText: false,
+    })
+
+    // set vertical center cho C..I (merge rồi thì TL là đủ, nhưng vẫn ok)
+    for (let c0 = 2; c0 <= COL_HOA_HONG.HH_PERCENT - 1; c0++) {
+      const addr = XLSX.utils.encode_cell({ r: row0, c: c0 })
+      if (!(ws as any)[addr]) continue // tránh tạo cell rác
+      setAlignmentCellMergeAware(ws, row0, c0, { vertical: "center" })
+    }
+
+    setRowHeight(ws, row0, 35)
+  }
+
+  alignFooterLabel(rowTongCong)
+  alignFooterLabel(rowThue)
+  alignFooterLabel(rowDlHuong)
+  alignFooterLabel(rowTongThanhToan)
+
+  return { rowTongCong }
+}
+
+/* --------------------------- table style block --------------------------- */
+
 export const applyHoaHongTableStyle = (
   ws: XLSX.WorkSheet,
   rows: {
@@ -239,33 +369,37 @@ export const applyHoaHongTableStyle = (
   const headerRow0 = rows.rA - 1
   const top0 = Math.max(0, headerRow0)
   const bot0 = rows.rTOTAL
+
   setAlignmentRange(ws, top0, bot0, 0, maxCol, {
     horizontal: "center",
     vertical: "center",
     wrapText: false,
   })
 
-  // ✅ sau khi đã apply style/border/fill/merge xong hết
+  // cột TÊN: left (merge-aware, không tạo cell rác)
   setColAlignmentMergeAware(ws, top0, bot0, COL_HOA_HONG.TEN, {
     horizontal: "left",
     vertical: "center",
     wrapText: false,
   })
 
-  setRowHeight(ws, headerRow0, 40)
+  setRowHeight(ws, headerRow0, 55)
 
-  // ✅ font all Times New Roman
   setFontAll(ws, "Times New Roman")
+  applyTopCompanyHeaderHeight(ws)
 
-  // borders full table
   applyInnerThinBorders(ws, top0, bot0, 0, maxCol)
   applyOuterThickBorder(ws, top0, bot0, 0, maxCol)
 
-  // header
-  applyFillRow(ws, headerRow0, 0, maxCol, BLUE_LIGHT)
-  setRowFont(ws, headerRow0, 0, maxCol, { bold: true })
+  const paintTitleRow = (r0: number) => {
+    applyFillRow(ws, r0, 0, maxCol, BLUE_LIGHT)
+    setRowFont(ws, r0, 0, maxCol, { bold: true })
+  }
 
-  // titles A..G + TOTAL
+  // header
+  paintTitleRow(headerRow0)
+
+  // title rows
   const titleRows = [
     rows.rA,
     rows.rB,
@@ -276,34 +410,28 @@ export const applyHoaHongTableStyle = (
     rows.rG,
     rows.rTOTAL,
   ]
-  titleRows.forEach((r0) => {
-    applyFillRow(ws, r0, 0, maxCol, BLUE_LIGHT)
-    setRowFont(ws, r0, 0, maxCol, { bold: true })
-  })
-  // data block: từ sau header tới trước TOTAL
+  titleRows.forEach(paintTitleRow)
+
+  // data block
   setRowHeightRange(ws, headerRow0 + 1, bot0 - 1, 28)
 
-  // total row cao hơn chút
+  // total row
   setRowHeight(ws, rows.rTOTAL, 32)
+  setRowFont(ws, rows.rTOTAL, 0, maxCol, RED_FONT)
 
-  // A..G: nền xanh đậm, merge A..D (0..3), và text LEFT (giống VACOM yêu cầu)
+  // merge A..G title rows (0..3) + align left
   ;[rows.rA, rows.rB, rows.rC, rows.rD, rows.rE, rows.rF, rows.rG].forEach(
     (r0) => {
-      applyFillRow(ws, r0, 0, maxCol, BLUE_LIGHT)
-      setRowFont(ws, r0, 0, maxCol, { bold: true })
-
       mergeCells(ws, r0, 0, 3)
       patchCellStyle(ws, r0, 0, {
         alignment: { horizontal: "left", vertical: "center", wrapText: false },
       })
     }
   )
-
-  // total red font
-  setRowFont(ws, rows.rTOTAL, 0, maxCol, RED_FONT)
 }
 
-/** format number columns */
+/* --------------------------- number formatting --------------------------- */
+
 export const formatAllNumbers = (ws: XLSX.WorkSheet) => {
   const rng = XLSX.utils.decode_range(ws["!ref"] || "A1")
   const rEnd0 = rng.e.r
@@ -332,6 +460,7 @@ export const formatAllNumbers = (ws: XLSX.WorkSheet) => {
     for (const c0 of moneyCols) {
       const cell: any = (ws as any)[addrRC(r0, c0)]
       if (!cell) continue
+
       if (cell.t !== "n" && cell.v != null && cell.v !== "") {
         const n = Number(String(cell.v).replace(/,/g, "").trim())
         if (!Number.isNaN(n)) {
@@ -344,7 +473,8 @@ export const formatAllNumbers = (ws: XLSX.WorkSheet) => {
   }
 }
 
-/** bold footer block + center signatures */
+/* ------------------------------ footer block ----------------------------- */
+
 export const boldFooterBlock = (
   ws: XLSX.WorkSheet,
   rTOTAL: number,
@@ -353,37 +483,73 @@ export const boldFooterBlock = (
   const maxCol = COL_HOA_HONG.GHICHU
   const startFooter0 = rowTongCong !== -1 ? rowTongCong : rTOTAL + 1
 
-  const candidates = [
-    findRowContains(ws, "Giám đốc kinh doanh", {
-      scanRows: 9000,
-      scanCols: 40,
-    }),
-    findRowContains(ws, "Người lập bảng", { scanRows: 9000, scanCols: 40 }),
-    findRowContains(ws, "NGUYỄN TRỌNG ĐỨC", { scanRows: 9000, scanCols: 40 }),
-    findRowContains(ws, "ONG NGỌC BÍCH", { scanRows: 9000, scanCols: 40 }),
-  ].filter((x) => x !== -1)
+  const rGDKD = findRowContains(ws, "Giám đốc kinh doanh", {
+    scanRows: 9000,
+    scanCols: 40,
+  })
+  const rNLB = findRowContains(ws, "Người lập bảng", {
+    scanRows: 9000,
+    scanCols: 40,
+  })
+  const rDuc = findRowContains(ws, "NGUYỄN TRỌNG ĐỨC", {
+    scanRows: 9000,
+    scanCols: 40,
+  })
+  const rBich = findRowContains(ws, "ONG NGỌC BÍCH", {
+    scanRows: 9000,
+    scanCols: 40,
+  })
 
-  const endFooter0 = candidates.length
-    ? Math.max(...candidates)
-    : startFooter0 + 15
+  const marks = [rGDKD, rNLB, rDuc, rBich].filter((x) => x !== -1)
+  const endFooter0 = marks.length ? Math.max(...marks) : startFooter0 + 5
 
-  for (let r0 = startFooter0; r0 <= endFooter0; r0++) {
-    setRowFont(ws, r0, 0, maxCol, { bold: true })
+  // không kéo xuống thêm
+  ensureRefIncludes(ws, endFooter0, maxCol)
+
+  // set nhỏ cho toàn footer trước
+  setRowHeightRange(ws, startFooter0, endFooter0, 35)
+
+  // chỉnh riêng khoảng trống ký nếu đủ cặp title/name
+  const rTitle = Math.max(rGDKD, rNLB)
+  const rName = Math.max(rDuc, rBich)
+
+  if (rTitle !== -1 && rName !== -1 && rName > rTitle) {
+    setRowHeight(ws, rTitle, 40)
+    setRowHeight(ws, rName, 40)
+
+    const gapStart = rTitle + 1
+    const gapEnd = rName - 1
+    if (gapEnd >= gapStart) setRowHeightRange(ws, gapStart, gapEnd, 18)
   }
 
-  const centerIfExact = (text: string) => {
+  // font + vertical center toàn vùng footer
+  for (let r0 = startFooter0; r0 <= endFooter0; r0++) {
+    for (let c0 = 0; c0 <= maxCol; c0++) {
+      const cell = ensureCell(ws, r0, c0)
+      patchCellStyle(ws, r0, c0, {
+        font: { ...(cell.s?.font || {}), sz: 14, bold: true },
+        alignment: {
+          ...(cell.s?.alignment || {}),
+          vertical: "center",
+          horizontal: (cell.s?.alignment as any)?.horizontal || "left",
+          wrapText: false,
+        },
+      })
+    }
+  }
+
+  const centerRowText = (text: string) => {
     const r0 = findRowContains(ws, text, { scanRows: 9000, scanCols: 40 })
     if (r0 === -1) return
     const target = normalize(text)
+
     for (let c0 = 0; c0 <= maxCol; c0++) {
       const v = (ws as any)[addrRC(r0, c0)]?.v
       if (normalize(v ?? "") === target) {
-        patchCellStyle(ws, r0, c0, {
-          alignment: {
-            horizontal: "center",
-            vertical: "center",
-            wrapText: false,
-          },
+        setAlignmentCellMergeAware(ws, r0, c0, {
+          horizontal: "center",
+          vertical: "center",
+          wrapText: false,
         })
         break
       }
@@ -395,7 +561,5 @@ export const boldFooterBlock = (
     "Người lập bảng",
     "NGUYỄN TRỌNG ĐỨC",
     "ONG NGỌC BÍCH",
-  ].forEach(centerIfExact)
-
-  ensureRefIncludes(ws, endFooter0, maxCol)
+  ].forEach(centerRowText)
 }

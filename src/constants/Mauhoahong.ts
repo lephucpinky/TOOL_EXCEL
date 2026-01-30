@@ -3,17 +3,18 @@ export const COL_HOA_HONG = {
   NGAY: 1, // B
   MST: 2, // C
   TEN: 3, // D
-  SL: 4, // E
-  TIEN: 5, // F
-  GIAPP: 6, // G
-  CHENH: 7, // H
-  DOANHTHUKHAC: 8, // I
-  HH_PERCENT: 9, // J (%)
-  PHI_TRA: 10, // K
-  HOA_HONG: 11, // L
-  MI_THU: 12, // M
-  CHENH_TT: 13, // N
-  GHICHU: 14, // O (text)
+  LOAIHD: 4, // E
+  SL: 5, // F
+  TIEN: 6, // G
+  GIAPP: 7, // H
+  CHENH: 8, // I
+  DOANHTHUKHAC: 9, // J
+  HH_PERCENT: 10, // K (%)
+  PHI_TRA: 11, // L
+  HOA_HONG: 12, // M
+  MI_THU: 13, // N
+  CHENH_TT: 14, // O
+  GHICHU: 15, // P (text)
 } as const
 export const FONT_TNR = { name: "Times New Roman" }
 export const NUM_PARENS_FMT = "#,##0;(#,##0);0"
@@ -38,5 +39,5 @@ export const BORDER_THICK = {
 } as const
 
 export const HOA_HONG_COL_WIDTHS = [
-  5, 10, 14, 70, 27, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20,
+  5, 10, 14, 70, 20, 27, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20,
 ]
