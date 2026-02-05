@@ -296,7 +296,7 @@ export const applyFooterFormulasAndHighlight = (
   if (rowTongThanhToan !== -1 && rowDlHuong !== -1) {
     setFooterJ(
       rowTongThanhToan,
-      `=${addrF_Total}-${addrN_Total}-${addrRC(rowDlHuong, FOOTER_COL0)}`
+      `=${addrN_Total}-${addrRC(rowDlHuong, FOOTER_COL0)}`
     )
   }
 

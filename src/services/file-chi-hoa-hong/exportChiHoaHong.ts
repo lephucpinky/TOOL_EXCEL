@@ -26,6 +26,7 @@ import {
   compactSections,
   applyAllSectionSums,
   applyGrandTotal,
+  applyChenhLechTTFormulas,
 } from "./hoahongcontroller"
 
 import {
@@ -197,6 +198,7 @@ export async function exportChiHoaHongXlsx(args: ExportArgs) {
 
     // 9.5) compact
     rows = compactSections(ws, grouped)
+    applyChenhLechTTFormulas(ws, rows, grouped)
 
     // 10) sums + total
     applyAllSectionSums(ws, rows, grouped)

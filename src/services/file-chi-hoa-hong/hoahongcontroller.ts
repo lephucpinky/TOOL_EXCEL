@@ -12,6 +12,7 @@ import {
   copyRowStyleBlock,
   clearDataKeepStyle,
   findTitleRowA,
+  setFormulaKeepStyle,
 } from "./hoahong.excel"
 import { COL_HOA_HONG } from "@/constants/Mauhoahong"
 
@@ -189,7 +190,7 @@ export const clearAllSectionBlocks = (
   const maxCol = COL_HOA_HONG.GHICHU
 
   const isNumericCol = (c0: number) =>
-    (c0 >= COL_HOA_HONG.SL && c0 <= COL_HOA_HONG.CHENH_TT) ||
+    (c0 >= COL_HOA_HONG.SL && c0 < COL_HOA_HONG.CHENH_TT) ||
     c0 === COL_HOA_HONG.HH_PERCENT
 
   const clearBlock = (startRow0: number, endRow0: number) => {
@@ -206,10 +207,64 @@ export const clearAllSectionBlocks = (
   clearBlock(rows.rF + 1, rows.rG - 1)
   clearBlock(rows.rG + 1, rows.rTOTAL - 1)
 }
-
 /* -------------------------------
    fill data
 -------------------------------- */
+
+// ✅ parse số an toàn (hỗ trợ "1,234,567" / "1.234.567" / " 1234567 ")
+const toNumber = (v: any) => {
+  if (v == null || v === "") return 0
+  if (typeof v === "number") return Number.isFinite(v) ? v : 0
+
+  const raw = String(v).trim()
+  if (!raw) return 0
+
+  // bỏ khoảng trắng
+  let s = raw.replace(/\s+/g, "")
+
+  // nếu có dấu phẩy (thường là thousand separator) => bỏ phẩy
+  if (s.includes(",")) s = s.replace(/,/g, "")
+
+  // nếu có dấu chấm kiểu 1.234.567 => bỏ chấm
+  // (trường hợp số thập phân 123.45 thì ít gặp trong tiền, nếu bạn cần decimal thì nói mình chỉnh)
+  if (s.includes(".") && /^\d{1,3}(\.\d{3})+(\.\d+)?$/.test(s)) {
+    s = s.replace(/\./g, "")
+  } else if (s.includes(".") && /^\d{1,3}(\.\d{3})+$/.test(s)) {
+    s = s.replace(/\./g, "")
+  }
+
+  const n = Number(s)
+  return Number.isFinite(n) ? n : 0
+}
+
+export const applyChenhLechTTFormulas = (
+  ws: XLSX.WorkSheet,
+  rows: ReturnType<typeof resolveTemplateRows>,
+  group: Record<"A" | "B" | "C" | "D" | "E" | "F" | "G", ExcelRow[]>
+) => {
+  const start = {
+    A: rows.rA + 1,
+    B: rows.rB + 1,
+    C: rows.rC + 1,
+    D: rows.rD + 1,
+    E: rows.rE + 1,
+    F: rows.rF + 1,
+    G: rows.rG + 1,
+  } as const
+
+  ;(["A", "B", "C", "D", "E", "F", "G"] as const).forEach((sec) => {
+    for (let i = 0; i < group[sec].length; i++) {
+      const r0 = start[sec] + i
+      // ✅ O(row) = G(row) - N(row) theo đúng dòng hiện tại
+      setFormulaKeepStyle(
+        ws,
+        r0,
+        COL_HOA_HONG.CHENH_TT,
+        `=${addrRC(r0, COL_HOA_HONG.TIEN)}-${addrRC(r0, COL_HOA_HONG.MI_THU)}`
+      )
+    }
+  })
+}
 
 export const fillAllSections = (
   ws: XLSX.WorkSheet,
@@ -285,10 +340,6 @@ export const fillAllSections = (
         force: true,
       })
       setCell(ws, r0, COL_HOA_HONG.MI_THU, row[H.MI_THU], {
-        kind: "number0",
-        force: true,
-      })
-      setCell(ws, r0, COL_HOA_HONG.CHENH_TT, row[H.CHENH_TT], {
         kind: "number0",
         force: true,
       })
