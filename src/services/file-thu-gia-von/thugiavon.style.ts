@@ -264,13 +264,13 @@ export function applyThuGiaVonStyles(opts: {
     [COL.NGAY]: { wch: 16 },
     [COL.MST]: { wch: 18 },
     [COL.TEN]: { wch: 44 },
-    [COL.LOAIHD]: { wch: 20 },
-    [COL.TONGTIEN]: { wch: 20 },
-    [COL.GOIHOADON]: { wch: 20 },
-    [COL.DTKHAC]: { wch: 20 },
-    [COL.NIEMYET]: { wch: 20 },
-    [COL.GIAMINV]: { wch: 20 },
-    [COL.GHICHU]: { wch: 20 },
+    [COL.LOAIHD]: { wch: 8 },
+    [COL.TONGTIEN]: { wch: 18 },
+    [COL.GOIHOADON]: { wch: 18 },
+    [COL.DTKHAC]: { wch: 18 },
+    [COL.NIEMYET]: { wch: 18 },
+    [COL.GIAMINV]: { wch: 18 },
+    [COL.GHICHU]: { wch: 18 },
   })
   ;(ws as any)["!cols"] = cols
   // ✅ MAP + STYLE header theo text trong template (THÁNG/ĐẠI LÝ/Số)
