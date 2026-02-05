@@ -225,8 +225,7 @@ export const applyVacomHdStyles = (
   const safeStart = Math.max(0, dataStartRow0)
   const safeEnd = Math.max(safeStart, dataEndRow0)
 
-  setRowHeight(ws, 3, 30)
-  headerRows0.forEach((r0) => setRowHeight(ws, r0, 30))
+  headerRows0.forEach((r0) => setRowHeight(ws, r0, 45))
   sectionTitleRows0.forEach((r0) => setRowHeight(ws, r0, 30))
   for (let r0 = safeStart; r0 <= safeEnd; r0++) {
     if (headerRows0.includes(r0)) continue
@@ -273,48 +272,85 @@ export const applyVacomHdStyles = (
   for (let r0 = safeStart; r0 <= safeEnd; r0++) {
     for (let c0 = 0; c0 <= lastCol; c0++) {
       const isNameCol = c0 === COL_VACOM.TEN_HD
+      const isPercentCol = c0 === COL_VACOM.PHAN_TRAM_HH
+      const isMoneyCol = MONEY_COLS_VACOM.includes(c0 as any)
+      const isQtyCol = c0 === COL_VACOM.SLHD
+
+      const horizontal = isNameCol
+        ? "left"
+        : isPercentCol
+          ? "center"
+          : isMoneyCol || isQtyCol
+            ? "right"
+            : "center"
+
       styleCell(ws, r0, c0, {
         font: { ...FONT_TNR },
         alignment: {
           vertical: "center",
-          horizontal: isNameCol ? "left" : "center",
+          horizontal,
           wrapText: isNameCol ? true : false,
         },
         border: BORDER_THIN_VACOM,
       })
+
       applyColumnFormats(ws, r0, c0)
     }
   }
 }
 
-/** style dòng CỘNG – đặt SAU applyVacomHdStyles để không bị ghi đè */
 export const styleCongRow = (ws: XLSX.WorkSheet, r0: number) => {
   const lastCol = getLastCol(ws)
   for (let c0 = 0; c0 <= lastCol; c0++) {
+    const isNameCol = c0 === COL_VACOM.TEN_HD
+    const isPercentCol = c0 === COL_VACOM.PHAN_TRAM_HH
+    const isMoneyCol = MONEY_COLS_VACOM.includes(c0 as any)
+    const isQtyCol = c0 === COL_VACOM.SLHD
+
+    const horizontal = isNameCol
+      ? "left"
+      : isPercentCol
+        ? "center"
+        : isMoneyCol || isQtyCol
+          ? "right"
+          : "center"
+
+    styleCell(ws, r0, c0, {
+      font: { ...FONT_TNR, bold: true },
+      fill: { patternType: "solid", fgColor: { rgb: "DFF3E3" } },
+      border: BORDER_THIN_VACOM,
+      alignment: { vertical: "center", horizontal, wrapText: true },
+    })
+    applyColumnFormats(ws, r0, c0)
+  }
+}
+
+export const centerTotalsOnSectionRow = (ws: XLSX.WorkSheet, r0: number) => {
+  const lastCol = getLastCol(ws)
+
+  for (let c0 = 0; c0 <= lastCol; c0++) {
+    // chỉ style phần số từ SLHD trở đi (nếu bạn muốn giữ logic cũ)
+    if (c0 < COL_VACOM.SLHD) continue
+
+    const isPercentCol = c0 === COL_VACOM.PHAN_TRAM_HH
+    const isMoneyCol = MONEY_COLS_VACOM.includes(c0 as any)
+    const isQtyCol = c0 === COL_VACOM.SLHD
+
     styleCell(ws, r0, c0, {
       font: { ...FONT_TNR, bold: true },
       fill: { patternType: "solid", fgColor: { rgb: "DFF3E3" } },
       border: BORDER_THIN_VACOM,
       alignment: {
         vertical: "center",
-        horizontal: c0 === COL_VACOM.TEN_HD ? "left" : "center",
+        horizontal: isPercentCol
+          ? "center"
+          : isMoneyCol || isQtyCol
+            ? "right"
+            : "center",
         wrapText: true,
       },
     })
-    applyColumnFormats(ws, r0, c0)
-  }
-}
 
-/** center các cột số trên dòng tổng khu (hàng xanh lá) */
-export const centerTotalsOnSectionRow = (ws: XLSX.WorkSheet, r0: number) => {
-  const lastCol = getLastCol(ws)
-  for (let c0 = COL_VACOM.SLHD; c0 <= lastCol; c0++) {
-    styleCell(ws, r0, c0, {
-      font: { ...FONT_TNR, bold: true },
-      fill: { patternType: "solid", fgColor: { rgb: "DFF3E3" } },
-      border: BORDER_THIN_VACOM,
-      alignment: { vertical: "center", horizontal: "center", wrapText: true },
-    })
     applyColumnFormats(ws, r0, c0)
   }
 }
@@ -408,7 +444,7 @@ export const styleTailBlockBold = (ws: XLSX.WorkSheet) => {
         font: { ...FONT_TNR, bold: true, sz: 14 },
         alignment: {
           vertical: "center",
-          horizontal: isNumber ? "center" : "left",
+          horizontal: isNumber ? "right" : "left",
           wrapText: false,
         },
       })

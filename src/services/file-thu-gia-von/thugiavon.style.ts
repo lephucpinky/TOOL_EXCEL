@@ -408,6 +408,7 @@ export function applyThuGiaVonStyles(opts: {
   // data + sum row
   for (let r = dataStartRow0; r <= Math.max(dataEndRow0, sumRow0); r++) {
     const isSumRow = r === sumRow0
+
     for (let c = 0; c <= lastCol; c++) {
       // default center
       styleCell(ws, r, c, {
@@ -423,6 +424,25 @@ export function applyThuGiaVonStyles(opts: {
       if (c === COL.TEN) {
         styleCell(ws, r, c, {
           alignment: { vertical: "center", horizontal: "left", wrapText: true },
+        })
+      }
+
+      // ✅ cột giá trị: RIGHT (giống form bạn chụp)
+      const isValueCol = [
+        COL.TONGTIEN, // Tổng tiền xuất hóa đơn (money)
+        COL.GOIHOADON, // Gói hóa đơn (int)
+        COL.DTKHAC, // DT khác
+        COL.NIEMYET, // Giá trị theo niêm yết
+        COL.GIAMINV, // Giá MINV thu về
+      ].includes(c)
+
+      if (isValueCol) {
+        styleCell(ws, r, c, {
+          alignment: {
+            vertical: "center",
+            horizontal: "right",
+            wrapText: true,
+          },
         })
       }
 
@@ -505,6 +525,38 @@ export function applyThuGiaVonStyles(opts: {
   styleFooterCellContains("Xác nhận đại lý", 28)
   styleFooterCellContains("Xác nhận M-invoice", 28)
   styleFooterCellContains("HCM, ngày", 28)
+  // ✅ Fix: dòng cuối cùng ở cột GIAMINV (thường là tổng cuối) chưa bị canh RIGHT
+  {
+    const rng = XLSX.utils.decode_range((ws as any)["!ref"] || "A1")
+    const col = COL.GIAMINV
+
+    const isNumeric = (v: any) => {
+      const s = String(v ?? "")
+        .replace(/,/g, "")
+        .trim()
+      if (!s) return false
+      return !Number.isNaN(Number(s))
+    }
+
+    // quét từ dưới lên: lấy dòng cuối cùng có số ở cột GIAMINV
+    for (let r0 = rng.e.r; r0 >= 0; r0--) {
+      const addr = XLSX.utils.encode_cell({ r: r0, c: col })
+      const cell: any = (ws as any)[addr]
+      if (!cell) continue
+      if (!isNumeric(cell.v)) continue
+
+      // tránh đụng header: chỉ sửa các dòng dưới header/data
+      if (r0 < dataStartRow0) break
+
+      styleCell(ws, r0, col, {
+        font: { ...FONT_TNR, bold: true },
+        alignment: { vertical: "center", horizontal: "right", wrapText: true },
+        border: BORDER_THIN,
+      })
+      cell.z = "#,##0"
+      break
+    }
+  }
 }
 /** map ngày hiện tại vào dòng "HCM, ngày ... tháng ... năm ..." */
 export const applyHcmDateNow = (ws: XLSX.WorkSheet, d = new Date()) => {

@@ -370,20 +370,65 @@ export const applyHoaHongTableStyle = (
   const top0 = Math.max(0, headerRow0)
   const bot0 = rows.rTOTAL
 
+  // 1) Base: center toàn bảng (đúng form)
   setAlignmentRange(ws, top0, bot0, 0, maxCol, {
     horizontal: "center",
     vertical: "center",
     wrapText: false,
   })
 
-  // cột TÊN: left (merge-aware, không tạo cell rác)
+  // 2) Cột TÊN: left + wrap
   setColAlignmentMergeAware(ws, top0, bot0, COL_HOA_HONG.TEN, {
     horizontal: "left",
     vertical: "center",
     wrapText: true,
   })
 
+  // 3) Header row: center + wrap để xuống dòng nếu hẹp
+  setAlignmentRange(ws, headerRow0, headerRow0, 0, maxCol, {
+    horizontal: "center",
+    vertical: "center",
+    wrapText: true,
+  })
   setRowHeight(ws, headerRow0, 55)
+
+  // 4) DATA: chỉ canh phải các cột SỐ (từ "SỐ LƯỢNG PHÁT HÀNH" trở đi)
+  const dataStart = headerRow0 + 1
+  const dataEnd = bot0
+
+  const rightCols: number[] = [
+    COL_HOA_HONG.SL, // ✅ SỐ LƯỢNG PHÁT HÀNH
+    COL_HOA_HONG.TIEN,
+    COL_HOA_HONG.GIAPP,
+    COL_HOA_HONG.CHENH,
+    COL_HOA_HONG.DOANHTHUKHAC,
+    COL_HOA_HONG.PHI_TRA,
+    COL_HOA_HONG.HOA_HONG,
+    COL_HOA_HONG.MI_THU,
+    COL_HOA_HONG.CHENH_TT,
+  ]
+
+  for (const c0 of rightCols) {
+    setColAlignmentMergeAware(ws, dataStart, dataEnd, c0, {
+      horizontal: "right",
+      vertical: "center",
+      wrapText: false,
+    })
+  }
+
+  // % hoa hồng: giữ center như Vacom (nếu bạn muốn right thì đổi lại sau)
+  setColAlignmentMergeAware(ws, dataStart, dataEnd, COL_HOA_HONG.HH_PERCENT, {
+    horizontal: "center",
+    vertical: "center",
+    wrapText: false,
+  })
+
+  // Ghi chú: để center (hoặc muốn left thì đổi sang left)
+  setColAlignmentMergeAware(ws, dataStart, dataEnd, COL_HOA_HONG.GHICHU, {
+    horizontal: "center",
+    vertical: "center",
+    wrapText: true,
+  })
 
   setFontAll(ws, "Times New Roman")
   applyTopCompanyHeaderHeight(ws)
@@ -413,7 +458,7 @@ export const applyHoaHongTableStyle = (
   titleRows.forEach(paintTitleRow)
 
   // data block
-  setRowHeightRange(ws, headerRow0 + 1, bot0 - 1, 28)
+  setRowHeightRange(ws, headerRow0 + 1, bot0 - 1, 30)
 
   // total row
   setRowHeight(ws, rows.rTOTAL, 32)

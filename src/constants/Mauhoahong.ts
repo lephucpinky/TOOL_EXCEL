@@ -39,5 +39,5 @@ export const BORDER_THICK = {
 } as const
 
 export const HOA_HONG_COL_WIDTHS = [
-  5, 10, 14, 70, 20, 27, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20,
+  6, 14, 14, 40, 14, 8, 11, 11, 11, 11, 6, 11, 11, 11, 11, 8,
 ]

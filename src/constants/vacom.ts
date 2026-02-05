@@ -1,4 +1,4 @@
-export const COL_WCH_VACOM = [6, 22, 66, 14, 18, 18, 18, 18, 18, 18, 18, 18] // A..L
+export const COL_WCH_VACOM = [7, 16, 38, 15, 19, 15, 19, 5, 15, 15, 19, 18] // A..L
 
 export const BORDER_THIN_VACOM = {
   top: { style: "thin", color: { rgb: "000000" } },
