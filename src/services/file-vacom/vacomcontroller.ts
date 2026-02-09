@@ -22,7 +22,6 @@ import {
   buildSalesIndex,
   pickHeaderFromIndex,
   findCongRow0,
-  findRowContainsAOA,
   findLastDataRow,
   sumRange,
   setFormula,
@@ -38,6 +37,44 @@ import {
   styleTailBlockBold,
 } from "./vacom.style"
 import { ExcelRow } from "@/utils/excel"
+
+// ✅ Format: nếu = 0 thì hiển thị "-"
+const FMT_NUM_DASH = '#,##0;-#,##0;"-";@'
+const FMT_PERCENT_DASH = '0%;-0%;"-";@'
+
+function setCellNumFmt(
+  ws: XLSX.WorkSheet,
+  r0: number,
+  c0: number,
+  fmt: string
+) {
+  const addr = XLSX.utils.encode_cell({ r: r0, c: c0 })
+  const cell: any = (ws as any)[addr]
+  if (!cell) return
+
+  // chỉ set format nếu là số hoặc là công thức (công thức thường không có t sẵn)
+  const isNumberLike = cell.t === "n" || !!cell.f
+  if (!isNumberLike) return
+
+  // SheetJS ưu tiên `z`, xlsx-js-style đôi khi đọc `s.numFmt`
+  cell.z = fmt
+  cell.s = { ...(cell.s || {}), numFmt: fmt }
+}
+
+function applyDashZeroFormatInRange(
+  ws: XLSX.WorkSheet,
+  rStart0: number,
+  rEnd0: number,
+  maxC0: number,
+  percentCols: number[] = []
+) {
+  for (let r0 = rStart0; r0 <= rEnd0; r0++) {
+    for (let c0 = 0; c0 <= maxC0; c0++) {
+      const fmt = percentCols.includes(c0) ? FMT_PERCENT_DASH : FMT_NUM_DASH
+      setCellNumFmt(ws, r0, c0, fmt)
+    }
+  }
+}
 
 export function buildVacomHdSheetForDealer(args: {
   templateWorkbook: XLSX.WorkBook
@@ -253,22 +290,30 @@ export function buildVacomHdSheetForDealer(args: {
         kind: "date",
         force: true,
       })
-      setCell(newWs, r0, COL_VACOM.SLHD, row[H_SL], {
+
+      // ✅ GIỮ GIÁ TRỊ SỐ (0) - chỉ format để hiển thị "-" khi 0
+      setCell(newWs, r0, COL_VACOM.SLHD, Number(row[H_SL] ?? 0), {
         kind: "number0",
         force: true,
       })
-      setCell(newWs, r0, COL_VACOM.TONG_GIA_TRI, row[H_TIEN], {
+      setCell(newWs, r0, COL_VACOM.TONG_GIA_TRI, Number(row[H_TIEN] ?? 0), {
         kind: "number0",
         force: true,
       })
-      setCell(newWs, r0, COL_VACOM.PHAN_TRAM_HH, row[H_HH], {
+      setCell(newWs, r0, COL_VACOM.PHAN_TRAM_HH, Number(row[H_HH] ?? 0), {
         kind: "percent",
         force: true,
       })
-      setCell(newWs, r0, COL_VACOM.HH_THUONG_5, H_HH5 ? row[H_HH5] : 0, {
-        kind: "number0",
-        force: true,
-      })
+      setCell(
+        newWs,
+        r0,
+        COL_VACOM.HH_THUONG_5,
+        Number(H_HH5 ? row[H_HH5] : 0),
+        {
+          kind: "number0",
+          force: true,
+        }
+      )
 
       setRowFormulas(newWs, r0, COL_VACOM)
 
@@ -413,7 +458,7 @@ export function buildVacomHdSheetForDealer(args: {
   })
   setFormula(newWs, rDoanhSo0, COL_VACOM.DAI_LY_DUOC_HUONG, addrCongDoanh)
 
-  // ✅ % thưởng = SUM các ô tổng khu của cột I (HH5) -> =SUM(I12,I16,I18,I20,I22)
+  // % thưởng = SUM các ô tổng khu của cột I (HH5)
   const formulaThuong = sumCells(sectionTitleRows, COL_VACOM.HH_THUONG_5)
   setFormula(newWs, rThuong0, COL_VACOM.DAI_LY_DUOC_HUONG, formulaThuong)
 
@@ -460,6 +505,21 @@ export function buildVacomHdSheetForDealer(args: {
   styleCongRow(newWs, rCong0)
   styleTailBlockBold(newWs)
   styleSignArea(newWs)
+
+  // ✅ QUAN TRỌNG: sau khi style xong mới set format để 0 hiển thị "-"
+  // Áp cho toàn bộ bảng dữ liệu + dòng CỘNG + block tổng kết dưới CỘNG
+  // Chỉ cột % sẽ dùng format % có "-"
+  applyDashZeroFormatInRange(
+    newWs,
+    startA,
+    rTongThucThu0, // gồm cả 3 dòng tổng kết
+    maxC,
+    [COL_VACOM.PHAN_TRAM_HH]
+  )
+  // ✅ Format luôn dòng xanh lá (tổng từng khu A/B/C/E/D)
+  for (const r0 of [rA2, rB2, rC2, rE2, rD3]) {
+    applyDashZeroFormatInRange(newWs, r0, r0, maxC, [COL_VACOM.PHAN_TRAM_HH])
+  }
 
   const outWb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(outWb, newWs, templateSheetName)

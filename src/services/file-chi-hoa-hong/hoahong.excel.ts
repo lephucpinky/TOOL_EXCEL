@@ -7,12 +7,13 @@ import {
 } from "@/constants/Mauhoahong"
 
 let _exemptTncnSet: Set<string> | null = null
+
 export const extractAgencyNameFromTemplate = (ws: XLSX.WorkSheet) => {
   const ref = (ws as any)["!ref"] || "A1"
   const range = XLSX.utils.decode_range(ref)
 
   const maxR = Math.min(range.e.r, range.s.r + 80)
-  const maxC = Math.min(range.e.c, range.s.c + 20)
+  const maxC = Math.min(range.e.c, range.s.c + 25)
 
   for (let r = range.s.r; r <= maxR; r++) {
     for (let c = range.s.c; c <= maxC; c++) {
@@ -21,22 +22,40 @@ export const extractAgencyNameFromTemplate = (ws: XLSX.WorkSheet) => {
       const s = normalize(v ?? "")
       if (!s) continue
 
-      if (s.includes(normalize("BẢNG ĐỐI SOÁT ĐẠI LÝ"))) {
-        // ✅ ưu tiên lấy ô bên phải (thường là F5)
+      // ✅ template mới: label "ĐẠI LÝ/CTV" ở I6, value ở K6
+      if (
+        s.includes(normalize("ĐẠI LÝ/CTV")) ||
+        s.includes(normalize("ĐẠI LÝ/CTV"))
+      ) {
+        // ưu tiên lấy ô cách 2 cột bên phải (I -> K)
+        const vAddr = XLSX.utils.encode_cell({ r, c: c + 2 })
+        const v2 = (ws as any)[vAddr]?.v
+        const name = String(v2 ?? "").trim()
+        if (name) return name
+
+        // fallback: ô ngay bên phải
         const rightAddr = XLSX.utils.encode_cell({ r, c: c + 1 })
         const rightV = (ws as any)[rightAddr]?.v
         const nameRight = String(rightV ?? "").trim()
         if (nameRight) return nameRight
-
-        // fallback: nếu tên nằm chung 1 ô sau dấu :
-        const raw = String(v ?? "")
-        const parts = raw.split(/[:：]/)
-        return (parts[1] ?? "").trim()
       }
     }
   }
   return ""
 }
+
+export const setNumFmtKeepStyle = (
+  ws: XLSX.WorkSheet,
+  r0: number,
+  c0: number,
+  numFmt: string
+) => {
+  const cell = ensureCell(ws, r0, c0)
+  const s0 = cell.s || {}
+  cell.s = { ...s0, numFmt } // ✅ quan trọng
+  cell.z = numFmt // (phụ) để tương thích
+}
+
 export const getExemptTncnAgentsClient = async () => {
   if (_exemptTncnSet) return _exemptTncnSet
 
@@ -124,17 +143,22 @@ export const setFormulaKeepStyle = (
   const addr = addrRC(r0, c0)
   const keepS = (ws as any)[addr]?.s
   const keepZ = (ws as any)[addr]?.z
+  const keepNumFmt = (ws as any)[addr]?.s?.numFmt // ✅ thêm
+
   const old = (ws as any)[addr] || {}
   delete old.v
   delete old.w
   delete old.vt
+
+  const finalFmt = fmt || keepNumFmt || keepZ
+
   ;(ws as any)[addr] = {
     ...old,
     t: "n",
     v: 0,
     f: formula.startsWith("=") ? formula.slice(1) : formula,
-    s: keepS,
-    z: fmt || keepZ,
+    s: { ...(keepS || {}), ...(finalFmt ? { numFmt: finalFmt } : {}) }, // ✅ giữ numFmt
+    z: finalFmt,
   }
 }
 
@@ -182,6 +206,17 @@ export const copyRowStyleBlock = (
 ) => {
   for (let i = 0; i < count; i++)
     copyRowStyle(ws, srcRow0, startDstRow0 + i, cStart0, cEnd0)
+}
+export const mergeRange = (
+  ws: XLSX.WorkSheet,
+  rStart0: number,
+  cStart0: number,
+  rEnd0: number,
+  cEnd0: number
+) => {
+  const merges = ((ws as any)["!merges"] || []) as XLSX.Range[]
+  merges.push({ s: { r: rStart0, c: cStart0 }, e: { r: rEnd0, c: cEnd0 } })
+  ;(ws as any)["!merges"] = merges
 }
 
 export const clearDataKeepStyle = (

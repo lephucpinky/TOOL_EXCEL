@@ -33,7 +33,6 @@ const getRefRange = (ws: XLSX.WorkSheet) => {
 export const setFontSizeAll = (ws: XLSX.WorkSheet, sz: number) => {
   const rng = getRefRange(ws)
   if (!rng) return
-
   for (let r = rng.s.r; r <= rng.e.r; r++) {
     for (let c = rng.s.c; c <= rng.e.c; c++) {
       const addr = XLSX.utils.encode_cell({ r, c })
@@ -104,7 +103,6 @@ export const setColAlignmentMergeAware = (
   alignment: any
 ) => {
   for (let r = rStart0; r <= rEnd0; r++) {
-    // tránh tạo cell rác
     const addr = XLSX.utils.encode_cell({ r, c: c0 })
     if (!(ws as any)[addr]) continue
     setAlignmentCellMergeAware(ws, r, c0, alignment)
@@ -147,13 +145,9 @@ export const applyTopCompanyHeaderHeight = (ws: XLSX.WorkSheet) => {
   })
   if (rCompany === -1) return
 
-  const rStart = rCompany
-  const rEnd = rCompany + 2
+  setRowHeightRange(ws, rCompany, rCompany + 2, 28)
 
-  setRowHeightRange(ws, rStart, rEnd, 28)
-
-  // patch style cho cell tồn tại để tránh tạo cell rác
-  for (let r0 = rStart; r0 <= rEnd; r0++) {
+  for (let r0 = rCompany; r0 <= rCompany + 2; r0++) {
     for (let c0 = 0; c0 <= 20; c0++) {
       const addr = XLSX.utils.encode_cell({ r: r0, c: c0 })
       if (!(ws as any)[addr]) continue
@@ -165,156 +159,131 @@ export const applyTopCompanyHeaderHeight = (ws: XLSX.WorkSheet) => {
   }
 }
 
-/* ----------------------- header dealer + month row ------------------------ */
-
+/* ----------------------- header dealer + month ------------------------ */
+/**
+ * Template mới:
+ * - Title: "BẢNG ĐỐI SOÁT DOANH THU THÁNG" => append tháng vào title
+ * - Dealer label "ĐẠI LÝ/CTV", value ở cột K
+ */
 export const applyHeaderDealerMonth = (
   ws: XLSX.WorkSheet,
   dealerName: string,
   month?: string
 ) => {
-  const rTITLE = findRowContains(ws, "BẢNG ĐỐI SOÁT ĐẠI LÝ", {
-    scanRows: 5000,
-    scanCols: 50,
+  const rTITLE = findRowContains(ws, "BẢNG ĐỐI SOÁT DOANH THU THÁNG", {
+    scanRows: 100,
+    scanCols: 30,
   })
-  const rMONTH = findRowContains(ws, "THÁNG", { scanRows: 5000, scanCols: 50 })
 
   const now = new Date()
   const fallbackMonth = `${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`
   const monthText = month || fallbackMonth
 
-  const COL_F = 5 // F
-
-  const writeLabelValueSameCell = (
-    r0: number,
-    label: string,
-    value: string
-  ) => {
-    if (r0 === -1) return
-
-    const isMonthRow = normalize(label) === normalize("THÁNG")
-    if (isMonthRow) mergeCells(ws, r0, COL_F, 7) // F..H
-
-    const tl = getTopLeftOfMerge(ws, r0, COL_F)
-    const addr = XLSX.utils.encode_cell({ r: tl.r, c: tl.c })
-    const cell: any =
-      (ws as any)[addr] || ((ws as any)[addr] = { t: "s", v: "" })
-
-    const cur = String(cell.v ?? "")
-    const curNorm = normalize(cur)
-    const labelNorm = normalize(label)
-
-    const next = curNorm.includes(labelNorm)
-      ? cur.includes(":")
-        ? `${cur.split(":")[0].trim()}: ${value}`
-        : `${label}: ${value}`
-      : `${label}: ${value}`
-
-    setTextKeepStyle(ws, tl.r, tl.c, next)
-
+  if (rTITLE !== -1) {
+    const cTitle = 7 // H
+    const tl = getTopLeftOfMerge(ws, rTITLE, cTitle)
+    setTextKeepStyle(
+      ws,
+      tl.r,
+      tl.c,
+      `BẢNG ĐỐI SOÁT DOANH THU THÁNG ${monthText}`
+    )
     patchCellStyle(ws, tl.r, tl.c, {
       font: { bold: true, sz: 18 },
-      alignment: {
-        horizontal: isMonthRow ? "center" : "left",
-        vertical: "center",
-        wrapText: false,
-      },
+      alignment: { horizontal: "center", vertical: "center", wrapText: false },
     })
-
-    if (isMonthRow) {
-      setAlignmentCellMergeAware(ws, tl.r, tl.c, {
-        horizontal: "center",
-        vertical: "center",
-        wrapText: false,
-      })
-    }
-
-    setRowHeight(ws, r0, 30)
+    setRowHeight(ws, rTITLE, 30)
   }
 
-  writeLabelValueSameCell(rTITLE, "BẢNG ĐỐI SOÁT ĐẠI LÝ", dealerName)
-  writeLabelValueSameCell(rMONTH, "THÁNG", monthText)
+  const rDealer = findRowContains(ws, "ĐẠI LÝ/CTV", {
+    scanRows: 80,
+    scanCols: 30,
+  })
+  if (rDealer !== -1) {
+    setTextKeepStyle(ws, rDealer, 10, dealerName) // K
+    patchCellStyle(ws, rDealer, 10, {
+      font: { bold: true, sz: 14 },
+      alignment: { horizontal: "left", vertical: "center", wrapText: false },
+    })
+  }
 }
 
 /* --------------------- footer formulas + highlight ------------------------ */
-
+/**
+ * Footer template mới:
+ * - Label ở cột C
+ * - Value nằm ở ô merge M..N => top-left col M = COL_HOA_HONG.VUOT_GIA
+ * - 4 row label sau CỘNG:
+ *   1) TỔNG CỘNG HOA HỒNG CHI TRẢ TRONG THÁNG
+ *   2) THUẾ TNCN
+ *   3) HOA HỒNG DL HƯỞNG
+ *   4) M-INVOICE CÒN PHẢI THU
+ */
 export const applyFooterFormulasAndHighlight = (
   ws: XLSX.WorkSheet,
   rTOTAL: number,
   opts?: { isTncnExempt?: boolean }
 ) => {
   const isTncnExempt = !!opts?.isTncnExempt
-  const FOOTER_COL0 = COL_HOA_HONG.HH_PERCENT // J
+  const FOOTER_COL0 = COL_HOA_HONG.VUOT_GIA // M (top-left merge M..N)
 
-  const addrL_Total = addrRC(rTOTAL, COL_HOA_HONG.HOA_HONG)
-  const addrF_Total = addrRC(rTOTAL, COL_HOA_HONG.TIEN)
-  const addrN_Total = addrRC(rTOTAL, COL_HOA_HONG.CHENH_TT)
-
-  // scan 30 dòng sau TOTAL
   let rowTongCong = -1
   let rowThue = -1
   let rowDlHuong = -1
-  let rowTongThanhToan = -1
+  let rowMinvoiceConPhaiThu = -1
 
   const N_TONGCONG = normalize("TỔNG CỘNG HOA HỒNG CHI TRẢ TRONG THÁNG")
   const N_THUE1 = normalize("THUẾ TNCN")
   const N_THUE2 = normalize("THUẾ TNCN")
   const N_DLHUONG = normalize("HOA HỒNG DL HƯỞNG")
-  const N_TONGTT = normalize("TỔNG TIỀN THANH TOÁN")
+  const N_MINV = normalize("M-INVOICE CÒN PHẢI THU")
 
   for (let r0 = rTOTAL + 1; r0 <= rTOTAL + 30; r0++) {
     const vC = (ws as any)[addrRC(r0, 2)]?.v
     const s = normalize(vC ?? "")
-
     if (s === N_TONGCONG) rowTongCong = r0
     if (s === N_THUE1 || s === N_THUE2) rowThue = r0
     if (s === N_DLHUONG) rowDlHuong = r0
-    if (s.startsWith(N_TONGTT)) rowTongThanhToan = r0
+    if (s === N_MINV) rowMinvoiceConPhaiThu = r0
   }
 
-  const setFooterJ = (row0: number, formula: string) => {
+  const setFooterVal = (row0: number, formula: string) => {
     if (row0 === -1) return
     setFormulaKeepStyle(ws, row0, FOOTER_COL0, formula, NUM_PARENS_FMT)
   }
 
-  // formulas
-  setFooterJ(rowTongCong, `=${addrL_Total}`)
+  // 1) Tổng cộng HH = tổng cột TIỀN HOA HỒNG (N) ở dòng CỘNG
+  setFooterVal(rowTongCong, `=${addrRC(rTOTAL, COL_HOA_HONG.TIEN_HOA_HONG)}`)
 
+  // 2) Thuế = 10% * tổng HH (trừ exempt)
   if (rowTongCong !== -1 && rowThue !== -1) {
-    setFooterJ(
+    setFooterVal(
       rowThue,
       isTncnExempt ? `=0` : `=${addrRC(rowTongCong, FOOTER_COL0)}*10%`
     )
   }
 
+  // 3) HH DL hưởng = tổng HH - thuế
   if (rowTongCong !== -1 && rowThue !== -1 && rowDlHuong !== -1) {
-    setFooterJ(
+    setFooterVal(
       rowDlHuong,
       `=${addrRC(rowTongCong, FOOTER_COL0)}-${addrRC(rowThue, FOOTER_COL0)}`
     )
   }
 
-  if (rowTongThanhToan !== -1 && rowDlHuong !== -1) {
-    setFooterJ(
-      rowTongThanhToan,
-      `=${addrN_Total}-${addrRC(rowDlHuong, FOOTER_COL0)}`
+  // ✅ 4) M-invoice còn phải thu
+  // = CHÊNH LỆCH (R) ở dòng CỘNG - HH DL hưởng
+  if (rowMinvoiceConPhaiThu !== -1 && rowDlHuong !== -1) {
+    setFooterVal(
+      rowMinvoiceConPhaiThu,
+      `=${addrRC(rTOTAL, COL_HOA_HONG.CHENH_LECH)}-${addrRC(
+        rowDlHuong,
+        FOOTER_COL0
+      )}`
     )
   }
 
-  // label row: merge + text
-  if (rowTongThanhToan !== -1) {
-    mergeCells(ws, rowTongThanhToan, 2, COL_HOA_HONG.HH_PERCENT - 1) // C..I
-    setTextKeepStyle(
-      ws,
-      rowTongThanhToan,
-      2,
-      "TỔNG TIỀN THANH TOÁN (Số tiền âm là Minvoice chi, Số dương là Minvoice thu)"
-    )
-    patchCellStyle(ws, rowTongThanhToan, 2, {
-      alignment: { horizontal: "left", vertical: "center", wrapText: false },
-    })
-  }
-
-  // highlight vàng 4 dòng sau TOTAL
+  // highlight value cột M cho 4 dòng ngay sau TOTAL
   for (let r0 = rTOTAL + 1; r0 <= rTOTAL + 4; r0++) {
     patchCellStyle(ws, r0, FOOTER_COL0, {
       fill: YELLOW_BG,
@@ -324,33 +293,31 @@ export const applyFooterFormulasAndHighlight = (
 
   const alignFooterLabel = (row0: number) => {
     if (row0 === -1) return
-
-    // label bắt đầu ở C (2)
     setAlignmentCellMergeAware(ws, row0, 2, {
       horizontal: "left",
       vertical: "center",
       wrapText: false,
     })
-
-    // set vertical center cho C..I (merge rồi thì TL là đủ, nhưng vẫn ok)
-    for (let c0 = 2; c0 <= COL_HOA_HONG.HH_PERCENT - 1; c0++) {
-      const addr = XLSX.utils.encode_cell({ r: row0, c: c0 })
-      if (!(ws as any)[addr]) continue // tránh tạo cell rác
-      setAlignmentCellMergeAware(ws, row0, c0, { vertical: "center" })
-    }
-
     setRowHeight(ws, row0, 35)
   }
 
   alignFooterLabel(rowTongCong)
   alignFooterLabel(rowThue)
   alignFooterLabel(rowDlHuong)
-  alignFooterLabel(rowTongThanhToan)
+  alignFooterLabel(rowMinvoiceConPhaiThu)
 
   return { rowTongCong }
 }
 
 /* --------------------------- table style block --------------------------- */
+
+// ✅ gỡ merge ở 1 dòng (tránh dính merge cũ của template)
+const unmergeRow = (ws: XLSX.WorkSheet, r0: number) => {
+  const merges = ((ws as any)["!merges"] || []) as XLSX.Range[]
+  ;(ws as any)["!merges"] = merges.filter(
+    (m) => !(m.s.r === r0 && m.e.r === r0)
+  )
+}
 
 export const applyHoaHongTableStyle = (
   ws: XLSX.WorkSheet,
@@ -365,26 +332,26 @@ export const applyHoaHongTableStyle = (
     rTOTAL: number
   }
 ) => {
-  const maxCol = COL_HOA_HONG.GHICHU
+  const maxCol = COL_HOA_HONG.GHI_CHU
   const headerRow0 = rows.rA - 1
   const top0 = Math.max(0, headerRow0)
   const bot0 = rows.rTOTAL
 
-  // 1) Base: center toàn bảng (đúng form)
+  // base: center toàn bảng
   setAlignmentRange(ws, top0, bot0, 0, maxCol, {
     horizontal: "center",
     vertical: "center",
     wrapText: false,
   })
 
-  // 2) Cột TÊN: left + wrap
+  // TÊN: left + wrap
   setColAlignmentMergeAware(ws, top0, bot0, COL_HOA_HONG.TEN, {
     horizontal: "left",
     vertical: "center",
     wrapText: true,
   })
 
-  // 3) Header row: center + wrap để xuống dòng nếu hẹp
+  // header row: wrap
   setAlignmentRange(ws, headerRow0, headerRow0, 0, maxCol, {
     horizontal: "center",
     vertical: "center",
@@ -392,22 +359,26 @@ export const applyHoaHongTableStyle = (
   })
   setRowHeight(ws, headerRow0, 55)
 
-  // 4) DATA: chỉ canh phải các cột SỐ (từ "SỐ LƯỢNG PHÁT HÀNH" trở đi)
+  // data: numeric cols right
   const dataStart = headerRow0 + 1
   const dataEnd = bot0
 
   const rightCols: number[] = [
-    COL_HOA_HONG.SL, // ✅ SỐ LƯỢNG PHÁT HÀNH
-    COL_HOA_HONG.TIEN,
-    COL_HOA_HONG.GIAPP,
-    COL_HOA_HONG.CHENH,
-    COL_HOA_HONG.DOANHTHUKHAC,
-    COL_HOA_HONG.PHI_TRA,
-    COL_HOA_HONG.HOA_HONG,
-    COL_HOA_HONG.MI_THU,
-    COL_HOA_HONG.CHENH_TT,
+    COL_HOA_HONG.BANQUYEN,
+    COL_HOA_HONG.SL_MOI,
+    COL_HOA_HONG.SL_GH,
+    COL_HOA_HONG.SL_TANG,
+    COL_HOA_HONG.DT_GOI_HD,
+    COL_HOA_HONG.DT_KHAC,
+    COL_HOA_HONG.TRI_GIA_XUAT_HD,
+    COL_HOA_HONG.GIA_DOI_SOAT,
+    COL_HOA_HONG.VUOT_GIA,
+    COL_HOA_HONG.TIEN_HOA_HONG,
+    COL_HOA_HONG.PHI_VIET_CHENH,
+    COL_HOA_HONG.TONG_TRA_DOI_TAC,
+    COL_HOA_HONG.DT_MINVOICE,
+    COL_HOA_HONG.CHENH_LECH,
   ]
-
   for (const c0 of rightCols) {
     setColAlignmentMergeAware(ws, dataStart, dataEnd, c0, {
       horizontal: "right",
@@ -415,17 +386,20 @@ export const applyHoaHongTableStyle = (
       wrapText: false,
     })
   }
+  // ✅ ép riêng CKS: ô F (top-left merge F..J) center
+  const cksStart = rows.rF + 1
+  const cksEnd = rows.rG - 1
+  if (cksEnd >= cksStart) {
+    setColAlignmentMergeAware(ws, cksStart, cksEnd, COL_HOA_HONG.SL_MOI, {
+      horizontal: "center",
+      vertical: "center",
+      wrapText: true,
+    })
+  }
 
-  // % hoa hồng: giữ center như Vacom (nếu bạn muốn right thì đổi lại sau)
-  setColAlignmentMergeAware(ws, dataStart, dataEnd, COL_HOA_HONG.HH_PERCENT, {
-    horizontal: "center",
-    vertical: "center",
-    wrapText: false,
-  })
-
-  // Ghi chú: để center (hoặc muốn left thì đổi sang left)
-  setColAlignmentMergeAware(ws, dataStart, dataEnd, COL_HOA_HONG.GHICHU, {
-    horizontal: "center",
+  // ghi chú: left + wrap
+  setColAlignmentMergeAware(ws, dataStart, dataEnd, COL_HOA_HONG.GHI_CHU, {
+    horizontal: "left",
     vertical: "center",
     wrapText: true,
   })
@@ -444,8 +418,8 @@ export const applyHoaHongTableStyle = (
   // header
   paintTitleRow(headerRow0)
 
-  // title rows
-  const titleRows = [
+  // section rows + TOTAL
+  ;[
     rows.rA,
     rows.rB,
     rows.rC,
@@ -454,20 +428,22 @@ export const applyHoaHongTableStyle = (
     rows.rF,
     rows.rG,
     rows.rTOTAL,
-  ]
-  titleRows.forEach(paintTitleRow)
+  ].forEach(paintTitleRow)
 
-  // data block
+  // data row height
   setRowHeightRange(ws, headerRow0 + 1, bot0 - 1, 30)
 
   // total row
   setRowHeight(ws, rows.rTOTAL, 32)
   setRowFont(ws, rows.rTOTAL, 0, maxCol, RED_FONT)
 
-  // merge A..G title rows (0..3) + align left
+  // ✅ merge title:
+  // - các khu khác: A..D
+  // - riêng CKS (rows.rF): A..C để không che "F. GIÁ TRỊ CHỮ KÝ SỐ" ở cột D
   ;[rows.rA, rows.rB, rows.rC, rows.rD, rows.rE, rows.rF, rows.rG].forEach(
     (r0) => {
-      mergeCells(ws, r0, 0, 3)
+      // merge A..C (không đụng cột D)
+      mergeCells(ws, r0, 0, 2)
       patchCellStyle(ws, r0, 0, {
         alignment: { horizontal: "left", vertical: "center", wrapText: false },
       })
@@ -481,17 +457,25 @@ export const formatAllNumbers = (ws: XLSX.WorkSheet) => {
   const rng = XLSX.utils.decode_range(ws["!ref"] || "A1")
   const rEnd0 = rng.e.r
 
-  const moneyCols = [
-    COL_HOA_HONG.TIEN,
-    COL_HOA_HONG.GIAPP,
-    COL_HOA_HONG.CHENH,
-    COL_HOA_HONG.DOANHTHUKHAC,
-    COL_HOA_HONG.PHI_TRA,
-    COL_HOA_HONG.HOA_HONG,
-    COL_HOA_HONG.MI_THU,
-    COL_HOA_HONG.CHENH_TT,
+  const intCols = [
+    COL_HOA_HONG.STT,
+    COL_HOA_HONG.SL_MOI,
+    COL_HOA_HONG.SL_GH,
+    COL_HOA_HONG.SL_TANG,
   ]
-  const intCols = [COL_HOA_HONG.STT, COL_HOA_HONG.SL]
+  const moneyCols = [
+    COL_HOA_HONG.BANQUYEN,
+    COL_HOA_HONG.DT_GOI_HD,
+    COL_HOA_HONG.DT_KHAC,
+    COL_HOA_HONG.TRI_GIA_XUAT_HD,
+    COL_HOA_HONG.GIA_DOI_SOAT,
+    COL_HOA_HONG.VUOT_GIA,
+    COL_HOA_HONG.TIEN_HOA_HONG,
+    COL_HOA_HONG.PHI_VIET_CHENH,
+    COL_HOA_HONG.TONG_TRA_DOI_TAC,
+    COL_HOA_HONG.DT_MINVOICE,
+    COL_HOA_HONG.CHENH_LECH,
+  ]
 
   for (let r0 = 0; r0 <= rEnd0; r0++) {
     const dateCell: any = (ws as any)[addrRC(r0, COL_HOA_HONG.NGAY)]
@@ -505,7 +489,6 @@ export const formatAllNumbers = (ws: XLSX.WorkSheet) => {
     for (const c0 of moneyCols) {
       const cell: any = (ws as any)[addrRC(r0, c0)]
       if (!cell) continue
-
       if (cell.t !== "n" && cell.v != null && cell.v !== "") {
         const n = Number(String(cell.v).replace(/,/g, "").trim())
         if (!Number.isNaN(n)) {
@@ -525,7 +508,7 @@ export const boldFooterBlock = (
   rTOTAL: number,
   rowTongCong: number
 ) => {
-  const maxCol = COL_HOA_HONG.GHICHU
+  const maxCol = COL_HOA_HONG.GHI_CHU
   const startFooter0 = rowTongCong !== -1 ? rowTongCong : rTOTAL + 1
 
   const rGDKD = findRowContains(ws, "Giám đốc kinh doanh", {
@@ -548,26 +531,9 @@ export const boldFooterBlock = (
   const marks = [rGDKD, rNLB, rDuc, rBich].filter((x) => x !== -1)
   const endFooter0 = marks.length ? Math.max(...marks) : startFooter0 + 5
 
-  // không kéo xuống thêm
   ensureRefIncludes(ws, endFooter0, maxCol)
-
-  // set nhỏ cho toàn footer trước
   setRowHeightRange(ws, startFooter0, endFooter0, 35)
 
-  // chỉnh riêng khoảng trống ký nếu đủ cặp title/name
-  const rTitle = Math.max(rGDKD, rNLB)
-  const rName = Math.max(rDuc, rBich)
-
-  if (rTitle !== -1 && rName !== -1 && rName > rTitle) {
-    setRowHeight(ws, rTitle, 40)
-    setRowHeight(ws, rName, 40)
-
-    const gapStart = rTitle + 1
-    const gapEnd = rName - 1
-    if (gapEnd >= gapStart) setRowHeightRange(ws, gapStart, gapEnd, 18)
-  }
-
-  // font + vertical center toàn vùng footer
   for (let r0 = startFooter0; r0 <= endFooter0; r0++) {
     for (let c0 = 0; c0 <= maxCol; c0++) {
       const cell = ensureCell(ws, r0, c0)
@@ -582,29 +548,4 @@ export const boldFooterBlock = (
       })
     }
   }
-
-  const centerRowText = (text: string) => {
-    const r0 = findRowContains(ws, text, { scanRows: 9000, scanCols: 40 })
-    if (r0 === -1) return
-    const target = normalize(text)
-
-    for (let c0 = 0; c0 <= maxCol; c0++) {
-      const v = (ws as any)[addrRC(r0, c0)]?.v
-      if (normalize(v ?? "") === target) {
-        setAlignmentCellMergeAware(ws, r0, c0, {
-          horizontal: "center",
-          vertical: "center",
-          wrapText: false,
-        })
-        break
-      }
-    }
-  }
-
-  ;[
-    "Giám đốc kinh doanh",
-    "Người lập bảng",
-    "NGUYỄN TRỌNG ĐỨC",
-    "ONG NGỌC BÍCH",
-  ].forEach(centerRowText)
 }

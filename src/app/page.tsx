@@ -1,15 +1,13 @@
 "use client"
+
 import { useEffect, useMemo, useState } from "react"
 import * as XLSX from "xlsx-js-style"
 import { normalize, type ExcelRow } from "@/utils/excel"
 import { exportChiHoaHongXlsx } from "@/services/file-chi-hoa-hong/exportChiHoaHong"
-import { exportVacomHdXlsx } from "@/services/file-vacom/exportVacom"
-import { exportThuGiaVonXlsx } from "@/services/file-thu-gia-von/exportThuGiavon"
 import { SearchableSelect } from "@/components/select/SearchableSelect"
 
-const TEMPLATE_URL = "/templates/cac_mau_doi_soat_v3.xlsx"
-
-type TemplateKey = "vacom-hd" | "chi-hoa-hong" | "thu-gia-von"
+// ✅ chỉ dùng mẫu chi hoa hồng
+const TEMPLATE_URL = "/templates/mau-chi-hoa-hong-text.xlsx"
 const ALL_VALUE = "__ALL__"
 
 function pickKeyFromRow(row: Record<string, any>, aliases: string[]) {
@@ -22,11 +20,11 @@ function pickKeyFromRow(row: Record<string, any>, aliases: string[]) {
   }
   return ""
 }
+
 function parseMonthKey(v: any): string {
-  // trả về "MM/YYYY" hoặc "" nếu không parse được
   if (v == null || v === "") return ""
 
-  // Excel serial date (number)
+  // Excel serial date
   if (typeof v === "number" && Number.isFinite(v)) {
     const d = XLSX.SSF.parse_date_code(v)
     if (!d?.m || !d?.y) return ""
@@ -36,8 +34,6 @@ function parseMonthKey(v: any): string {
   const s = String(v).trim()
   if (!s) return ""
 
-  // bắt các kiểu: dd/mm/yyyy, d/m/yyyy, yyyy-mm-dd, yyyy/mm/dd
-  // lấy month + year
   const m1 = s.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/) // dd/mm/yyyy
   if (m1) {
     const mm = Number(m1[2])
@@ -52,8 +48,7 @@ function parseMonthKey(v: any): string {
     if (mm >= 1 && mm <= 12) return `${String(mm).padStart(2, "0")}/${yy}`
   }
 
-  // nếu user nhập sẵn "mm/yyyy"
-  const m3 = s.match(/^(\d{1,2})[\/\-](\d{4})$/)
+  const m3 = s.match(/^(\d{1,2})[\/\-](\d{4})$/) // mm/yyyy
   if (m3) {
     const mm = Number(m3[1])
     const yy = Number(m3[2])
@@ -64,7 +59,6 @@ function parseMonthKey(v: any): string {
 }
 
 function sortMonthKeysDesc(keys: string[]) {
-  // sort giảm dần theo YYYYMM
   return [...keys].sort((a, b) => {
     const [am, ay] = a.split("/")
     const [bm, by] = b.split("/")
@@ -73,40 +67,47 @@ function sortMonthKeysDesc(keys: string[]) {
     return bv - av
   })
 }
+
 function parseSalesWorkbook(wb: XLSX.WorkBook): {
   headers: string[]
   rows: ExcelRow[]
   keyDealer: string
-  keyCategory: string
   keyDate: string
+  keyCategory: string
 } {
   const first = wb.SheetNames[0]
   const ws = wb.Sheets[first]
   const json = XLSX.utils.sheet_to_json<Record<string, any>>(ws, { defval: "" })
   const headers = json.length ? Object.keys(json[0]) : []
-
   const sample = json[0] || {}
 
+  // ✅ ưu tiên đúng file THEO-DOI-DOANH-SO.xlsx
   const keyDealer =
-    pickKeyFromRow(sample, ["Tên đại lý", "Đại lý", "Dealer"]) || "Tên đại lý"
-  const keyCategory =
-    pickKeyFromRow(sample, ["Loại sản phẩm", "Danh mục", "Category"]) ||
-    "Loại sản phẩm"
+    pickKeyFromRow(sample, ["Đại Lý", "ĐẠI LÝ", "Dealer", "Tên đại lý"]) ||
+    "Đại Lý"
 
   const keyDate =
     pickKeyFromRow(sample, [
+      "NGÀY KÍCH HOẠT",
+      "NGÀY PHÁT SINH",
       "Ngày phát sinh",
-      "Ngày tháng",
-      "Thời gian kích hoạt",
-      "Date",
-    ]) || "Ngày phát sinh"
+    ]) || "NGÀY KÍCH HOẠT"
+
+  // (không show UI category nữa, nhưng vẫn parse sẵn nếu sau này cần)
+  const keyCategory =
+    pickKeyFromRow(sample, [
+      "PHÒNG BAN",
+      "Danh mục",
+      "Category",
+      "Loại sản phẩm",
+    ]) || "PHÒNG BAN"
 
   return {
     headers,
     rows: json as unknown as ExcelRow[],
     keyDealer,
-    keyCategory,
     keyDate,
+    keyCategory,
   }
 }
 
@@ -120,21 +121,24 @@ export default function HomePage() {
   const [salesFile, setSalesFile] = useState<File | null>(null)
   const [salesHeaders, setSalesHeaders] = useState<string[]>([])
   const [salesRows, setSalesRows] = useState<ExcelRow[]>([])
-  const [keyDealer, setKeyDealer] = useState<string>("Tên đại lý")
-  const [keyCategory, setKeyCategory] = useState<string>("Loại sản phẩm")
+
+  const [keyDealer, setKeyDealer] = useState<string>("Đại Lý")
+  const [keyDate, setKeyDate] = useState<string>("NGÀY KÍCH HOẠT")
+  const [keyCategory, setKeyCategory] = useState<string>("PHÒNG BAN")
 
   const [dealers, setDealers] = useState<string[]>([])
-  const [categoriesAll, setCategoriesAll] = useState<string[]>([])
+  const [dealerName, setDealerName] = useState<string>(ALL_VALUE)
 
-  const [dealerName, setDealerName] = useState<string>("")
-  const [category, setCategory] = useState<string>("")
   const [month, setMonth] = useState<string>("")
-  const [keyDate, setKeyDate] = useState<string>("Ngày phát sinh")
   const [monthsAll, setMonthsAll] = useState<string[]>([])
 
   const [templateWb, setTemplateWb] = useState<XLSX.WorkBook | null>(null)
-  const [templateKey, setTemplateKey] = useState<TemplateKey>("vacom-hd")
   const [loadingTemplate, setLoadingTemplate] = useState(false)
+  const [templateErr, setTemplateErr] = useState<string>("")
+
+  const [exporting, setExporting] = useState(false)
+  const [exportErr, setExportErr] = useState<string>("")
+
   const dealerOptions = useMemo(
     () => [
       { value: ALL_VALUE, label: "Tất cả" },
@@ -143,85 +147,70 @@ export default function HomePage() {
     [dealers]
   )
 
-  // load template (fix cứng)
+  // ✅ load template chi hoa hồng (fix cứng) + hiển thị lỗi nếu fail
   useEffect(() => {
     ;(async () => {
       setLoadingTemplate(true)
+      setTemplateErr("")
       try {
         const res = await fetch(TEMPLATE_URL)
-        if (!res.ok) throw new Error(`Template not found: ${res.status}`)
+        if (!res.ok) throw new Error(`Không tải được template (${res.status})`)
         const buf = await res.arrayBuffer()
         const wb = XLSX.read(buf, { type: "array" })
         setTemplateWb(wb)
+      } catch (e: any) {
+        console.error("Load template failed:", e)
+        setTemplateWb(null)
+        setTemplateErr(
+          e?.message ??
+            `Lỗi tải template. Hãy kiểm tra file nằm ở /public${TEMPLATE_URL}`
+        )
       } finally {
         setLoadingTemplate(false)
       }
     })()
   }, [])
 
-  // when upload sales file -> parse -> build selects
   async function onPickSalesFile(file: File | null) {
     setSalesFile(file)
     setSalesHeaders([])
     setSalesRows([])
     setDealers([])
-    setCategoriesAll([])
-    setDealerName("")
-    setCategory("")
+    setDealerName(ALL_VALUE)
+    setMonth("")
+    setMonthsAll([])
+    setExportErr("")
 
     if (!file) return
-    const buf = await file.arrayBuffer()
-    const wb = XLSX.read(buf, { type: "array" })
-    const parsed = parseSalesWorkbook(wb)
+    try {
+      const buf = await file.arrayBuffer()
+      const wb = XLSX.read(buf, { type: "array" })
+      const parsed = parseSalesWorkbook(wb)
 
-    setSalesHeaders(parsed.headers)
-    setSalesRows(parsed.rows)
-    setKeyDealer(parsed.keyDealer)
-    setKeyCategory(parsed.keyCategory)
-    setKeyDate(parsed.keyDate)
-    const months = uniqueSorted(
-      parsed.rows
-        .map((r: any) => parseMonthKey(r[parsed.keyDate]))
-        .filter(Boolean)
-    )
-    setMonthsAll(sortMonthKeysDesc(months))
+      setSalesHeaders(parsed.headers)
+      setSalesRows(parsed.rows)
+      setKeyDealer(parsed.keyDealer)
+      setKeyDate(parsed.keyDate)
+      setKeyCategory(parsed.keyCategory)
 
-    // auto chọn tháng mới nhất (nếu có)
-    if (months.length) setMonth(sortMonthKeysDesc(months)[0])
+      // months
+      const months = uniqueSorted(
+        parsed.rows
+          .map((r: any) => parseMonthKey(r[parsed.keyDate]))
+          .filter(Boolean)
+      )
+      const sortedMonths = sortMonthKeysDesc(months)
+      setMonthsAll(sortedMonths)
+      if (sortedMonths.length) setMonth(sortedMonths[0])
 
-    const dls = uniqueSorted(parsed.rows.map((r: any) => r[parsed.keyDealer]))
-    setDealers(dls)
-
-    const cats = uniqueSorted(
-      parsed.rows.map((r: any) => r[parsed.keyCategory])
-    )
-    setCategoriesAll(cats)
-
-    // auto chọn "Tất cả" nếu muốn, hoặc dealer đầu tiên
-    // setDealerName(ALL_VALUE)
-    setDealerName(ALL_VALUE) // hoặc: if (dls.length) setDealerName(dls[0])
-  }
-
-  // categories filtered by selected dealer (nếu ALL => trả categoriesAll)
-  const categories = useMemo(() => {
-    if (!salesRows.length) return []
-    if (!dealerName || dealerName === ALL_VALUE) return categoriesAll
-
-    const set = new Set<string>()
-    for (const r of salesRows as any[]) {
-      if (String(r[keyDealer] ?? "").trim() !== dealerName) continue
-      const c = String(r[keyCategory] ?? "").trim()
-      if (c) set.add(c)
+      // dealers
+      const dls = uniqueSorted(parsed.rows.map((r: any) => r[parsed.keyDealer]))
+      setDealers(dls)
+    } catch (e: any) {
+      console.error("Parse sales file failed:", e)
+      alert(e?.message ?? "Không đọc được file doanh số")
     }
-    return Array.from(set).sort((a, b) => a.localeCompare(b, "vi"))
-  }, [salesRows, categoriesAll, dealerName, keyDealer, keyCategory])
-
-  // auto reset category when dealer changes (if category not in list)
-  useEffect(() => {
-    if (!dealerName) return
-    if (!category || categories.includes(category)) return
-    setCategory("")
-  }, [dealerName, categories, category])
+  }
 
   const canExport = useMemo(() => {
     return (
@@ -229,50 +218,69 @@ export default function HomePage() {
       !!templateWb &&
       !!dealerName &&
       salesRows.length > 0 &&
-      !loadingTemplate
+      !loadingTemplate &&
+      !exporting
     )
-  }, [salesFile, templateWb, dealerName, salesRows.length, loadingTemplate])
+  }, [
+    salesFile,
+    templateWb,
+    dealerName,
+    salesRows.length,
+    loadingTemplate,
+    exporting,
+  ])
 
   async function onExport() {
     if (!canExport || !templateWb) return
-
-    const commonArgs = {
-      templateWorkbook: templateWb,
-      salesHeaders,
-      salesRows,
-      filter: {
-        dealerName, // ✅ "__ALL__" hoặc 1 dealer
-        category: category || undefined,
-        month: month || undefined,
-      },
+    setExportErr("")
+    setExporting(true)
+    try {
+      await exportChiHoaHongXlsx({
+        templateWorkbook: templateWb,
+        salesHeaders,
+        salesRows,
+        filter: {
+          dealerName, // "__ALL__" hoặc 1 dealer
+          month: month || undefined,
+        },
+      } as any)
+    } catch (e: any) {
+      console.error("Export failed:", e)
+      const msg = e?.message ?? "Xuất file thất bại"
+      setExportErr(msg)
+      alert(msg)
+    } finally {
+      setExporting(false)
     }
-
-    if (templateKey === "vacom-hd") await exportVacomHdXlsx(commonArgs as any)
-    else if (templateKey === "chi-hoa-hong")
-      await exportChiHoaHongXlsx(commonArgs as any)
-    else await exportThuGiaVonXlsx(commonArgs as any)
   }
 
   return (
     <div className="min-h-screen bg-slate-50 p-6">
       <div className="mx-auto max-w-5xl space-y-6">
-        {/* chọn template mẫu đối soát */}
+        {/* ✅ chỉ hiện mẫu chi hoa hồng */}
         <div className="rounded-xl bg-white p-5 shadow">
           <div className="text-center text-base font-bold">
-            Chọn mẫu báo cáo
+            MẪU CHI HOA HỒNG
+          </div>
+          <div className="mt-2 text-center text-xs text-slate-500">
+            Template: <b>{TEMPLATE_URL}</b>
           </div>
 
-          <div className="mx-auto mt-3 max-w-xl">
-            <select
-              className="w-full rounded-lg border border-slate-200 bg-white p-3 text-sm"
-              value={templateKey}
-              onChange={(e) => setTemplateKey(e.target.value as TemplateKey)}
-            >
-              <option value="vacom-hd">MẪU VACOM HD</option>
-              <option value="chi-hoa-hong">MẪU CHI HOA HỒNG</option>
-              <option value="thu-gia-von">MẪU THU GIÁ VỐN</option>
-            </select>
-          </div>
+          {loadingTemplate && (
+            <div className="mt-2 text-center text-xs text-slate-500">
+              Đang tải template...
+            </div>
+          )}
+
+          {templateErr && (
+            <div className="mt-2 text-center text-xs text-red-600">
+              {templateErr}
+              <div className="mt-1 text-[11px] text-red-500">
+                Hãy chắc chắn file nằm đúng: <b>/public/templates/</b> và đúng
+                tên <b>mau-chi-hoa-hong-text.xlsx</b>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* upload sales */}
@@ -282,7 +290,6 @@ export default function HomePage() {
             <div className="flex-1">
               <div className="text-base font-bold">File theo dõi doanh số</div>
 
-              {/* input ẩn */}
               <input
                 id="sales-file"
                 type="file"
@@ -331,16 +338,17 @@ export default function HomePage() {
               {!!salesRows.length && (
                 <div className="mt-2 text-xs text-slate-500">
                   Đọc được <b>{salesRows.length}</b> dòng — cột đại lý:{" "}
-                  <b>{keyDealer}</b>, cột danh mục: <b>{keyCategory}</b>
+                  <b>{keyDealer}</b>, cột tháng: <b>{keyDate}</b> (category:{" "}
+                  <b>{keyCategory}</b>)
                 </div>
               )}
             </div>
           </div>
         </div>
 
-        {/* select dealer/category/month */}
+        {/* select dealer/month */}
         <div className="rounded-xl bg-white p-5 shadow">
-          <div className="grid gap-3 md:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-2">
             <div>
               <div className="text-sm font-semibold text-slate-700">
                 Tên đại lý (bắt buộc)
@@ -368,7 +376,6 @@ export default function HomePage() {
               <div className="text-sm font-semibold text-slate-700">
                 Tháng (tuỳ chọn)
               </div>
-
               <select
                 className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm"
                 value={month}
@@ -400,14 +407,19 @@ export default function HomePage() {
                 : "bg-slate-200 text-slate-500"
             }`}
           >
-            ⬇️ Xuất Excel
+            {exporting ? "⏳ Đang xuất..." : "⬇️ Xuất Excel (Chi hoa hồng)"}
           </button>
 
-          {loadingTemplate && (
-            <div className="mt-2 text-xs text-slate-500">
-              Đang tải template...
-            </div>
+          {exportErr && (
+            <div className="mt-2 text-xs text-red-600">{exportErr}</div>
           )}
+
+          {/* debug nhỏ để biết vì sao nút bị disable */}
+          <div className="mt-2 text-[11px] text-slate-400">
+            canExport: {String(canExport)} | templateWb: {String(!!templateWb)}{" "}
+            | salesRows: {salesRows.length} | loadingTemplate:{" "}
+            {String(loadingTemplate)} | exporting: {String(exporting)}
+          </div>
         </div>
       </div>
     </div>
