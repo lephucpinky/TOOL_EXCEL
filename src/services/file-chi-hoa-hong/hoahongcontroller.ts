@@ -288,12 +288,6 @@ export const fillAllSections = (
     const keepZ = (ws as any)[addr]?.z
     ;(ws as any)[addr] = { t: "n", v: n0(value), s: keepS, z: keepZ }
   }
-  const clearCellKeepStyle = (r0: number, c0: number) => {
-    const addr = addrRC(r0, c0)
-    const keepS = (ws as any)[addr]?.s
-    const keepZ = (ws as any)[addr]?.z
-    ;(ws as any)[addr] = { t: "s", v: "", s: keepS, z: keepZ }
-  }
 
   const fillSection = (sec: Sec) => {
     const rowsData = group[sec]

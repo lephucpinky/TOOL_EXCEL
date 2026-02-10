@@ -4,6 +4,7 @@ import {
   BLUE_LIGHT,
   COL_HOA_HONG,
   NUM_PARENS_FMT,
+  PURPLE_BG,
   RED_FONT,
   YELLOW_BG,
 } from "@/constants/Mauhoahong"
@@ -177,7 +178,23 @@ export const applyHeaderDealerMonth = (
 
   const now = new Date()
   const fallbackMonth = `${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`
-  const monthText = month || fallbackMonth
+
+  const sanitizeMonth = (m?: string) => {
+    const s = String(m ?? "").trim()
+    // format mm/yyyy
+    const match = s.match(/^(\d{1,2})\/(\d{4})$/)
+    if (!match) return fallbackMonth
+
+    const mm = Number(match[1])
+    const yyyy = Number(match[2])
+
+    // chặn 1900/những năm sai
+    if (mm < 1 || mm > 12 || yyyy < 2000) return fallbackMonth
+
+    return `${String(mm).padStart(2, "0")}/${yyyy}`
+  }
+
+  const monthText = sanitizeMonth(month)
 
   if (rTITLE !== -1) {
     const cTitle = 7 // H
@@ -217,15 +234,20 @@ export const applyHeaderDealerMonth = (
  *   1) TỔNG CỘNG HOA HỒNG CHI TRẢ TRONG THÁNG
  *   2) THUẾ TNCN
  *   3) HOA HỒNG DL HƯỞNG
- *   4) M-INVOICE CÒN PHẢI THU
+ *   4) CÔNG NỢ TỔNG CỘNG ( Âm - M-invoice chi ; Dương - M-invoice thu)
  */
+
+const FOOTER_LAVENDER_BG = {
+  patternType: "solid",
+  fgColor: { rgb: "D7CBDC" }, // tím nhạt gần ảnh
+} as const
 export const applyFooterFormulasAndHighlight = (
   ws: XLSX.WorkSheet,
   rTOTAL: number,
   opts?: { isTncnExempt?: boolean }
 ) => {
   const isTncnExempt = !!opts?.isTncnExempt
-  const FOOTER_COL0 = COL_HOA_HONG.VUOT_GIA // M (top-left merge M..N)
+  const FOOTER_COL0 = COL_HOA_HONG.VUOT_GIA // M
 
   let rowTongCong = -1
   let rowThue = -1
@@ -236,7 +258,9 @@ export const applyFooterFormulasAndHighlight = (
   const N_THUE1 = normalize("THUẾ TNCN")
   const N_THUE2 = normalize("THUẾ TNCN")
   const N_DLHUONG = normalize("HOA HỒNG DL HƯỞNG")
-  const N_MINV = normalize("M-INVOICE CÒN PHẢI THU")
+  const N_MINV = normalize(
+    "CÔNG NỢ TỔNG CỘNG ( Âm - M-invoice chi ; Dương - M-invoice thu)	"
+  )
 
   for (let r0 = rTOTAL + 1; r0 <= rTOTAL + 30; r0++) {
     const vC = (ws as any)[addrRC(r0, 2)]?.v
@@ -252,10 +276,10 @@ export const applyFooterFormulasAndHighlight = (
     setFormulaKeepStyle(ws, row0, FOOTER_COL0, formula, NUM_PARENS_FMT)
   }
 
-  // 1) Tổng cộng HH = tổng cột TIỀN HOA HỒNG (N) ở dòng CỘNG
+  // 1) Tổng cộng HH
   setFooterVal(rowTongCong, `=${addrRC(rTOTAL, COL_HOA_HONG.TIEN_HOA_HONG)}`)
 
-  // 2) Thuế = 10% * tổng HH (trừ exempt)
+  // 2) Thuế
   if (rowTongCong !== -1 && rowThue !== -1) {
     setFooterVal(
       rowThue,
@@ -263,7 +287,7 @@ export const applyFooterFormulasAndHighlight = (
     )
   }
 
-  // 3) HH DL hưởng = tổng HH - thuế
+  // 3) HH DL hưởng
   if (rowTongCong !== -1 && rowThue !== -1 && rowDlHuong !== -1) {
     setFooterVal(
       rowDlHuong,
@@ -271,8 +295,7 @@ export const applyFooterFormulasAndHighlight = (
     )
   }
 
-  // ✅ 4) M-invoice còn phải thu
-  // = CHÊNH LỆCH (R) ở dòng CỘNG - HH DL hưởng
+  // 4) Công nợ tổng cộng
   if (rowMinvoiceConPhaiThu !== -1 && rowDlHuong !== -1) {
     setFooterVal(
       rowMinvoiceConPhaiThu,
@@ -283,12 +306,29 @@ export const applyFooterFormulasAndHighlight = (
     )
   }
 
-  // highlight value cột M cho 4 dòng ngay sau TOTAL
-  for (let r0 = rTOTAL + 1; r0 <= rTOTAL + 4; r0++) {
+  // ✅ tô xanh nhạt cho ô giá trị cột M (giống hình)
+  const footerRows = [
+    rowTongCong,
+    rowThue,
+    rowDlHuong,
+    rowMinvoiceConPhaiThu,
+  ].filter((r) => r !== -1)
+
+  for (const r0 of footerRows) {
     patchCellStyle(ws, r0, FOOTER_COL0, {
-      fill: YELLOW_BG,
+      fill: FOOTER_LAVENDER_BG,
       alignment: { horizontal: "right", vertical: "center", wrapText: false },
     })
+  }
+
+  // ✅ tô tím nhạt cho dòng "CÔNG NỢ..." (vùng label từ C -> trước M)
+  if (rowMinvoiceConPhaiThu !== -1) {
+    for (let c = 2; c <= FOOTER_COL0 - 1; c++) {
+      patchCellStyle(ws, rowMinvoiceConPhaiThu, c, {
+        fill: FOOTER_LAVENDER_BG,
+        alignment: { horizontal: "left", vertical: "center", wrapText: false },
+      })
+    }
   }
 
   const alignFooterLabel = (row0: number) => {
@@ -300,6 +340,16 @@ export const applyFooterFormulasAndHighlight = (
     })
     setRowHeight(ws, row0, 35)
   }
+
+  // merge C..G label
+  mergeLabelCG(ws, rowTongCong, "TỔNG CỘNG HOA HỒNG CHI TRẢ TRONG THÁNG")
+  mergeLabelCG(ws, rowThue, "THUẾ TNCN")
+  mergeLabelCG(ws, rowDlHuong, "HOA HỒNG DL HƯỞNG")
+  mergeLabelCG(
+    ws,
+    rowMinvoiceConPhaiThu,
+    "CÔNG NỢ TỔNG CỘNG ( Âm - M-invoice chi ; Dương - M-invoice thu)	"
+  )
 
   alignFooterLabel(rowTongCong)
   alignFooterLabel(rowThue)
@@ -317,6 +367,25 @@ const unmergeRow = (ws: XLSX.WorkSheet, r0: number) => {
   ;(ws as any)["!merges"] = merges.filter(
     (m) => !(m.s.r === r0 && m.e.r === r0)
   )
+}
+// ✅ merge label C..G nhưng giữ chữ ở ô C (top-left)
+const mergeLabelCG = (ws: XLSX.WorkSheet, r0: number, text: string) => {
+  if (r0 === -1) return
+
+  // gỡ merge cũ của dòng đó (nếu có)
+  unmergeRow(ws, r0)
+
+  // quan trọng: set text vào ô C trước (top-left)
+  setTextKeepStyle(ws, r0, 2, text)
+
+  // merge C..G (C=2, G=6)
+  mergeCells(ws, r0, 2, 6)
+
+  // style cho ô top-left của merge
+  patchCellStyle(ws, r0, 2, {
+    alignment: { horizontal: "left", vertical: "center", wrapText: false },
+    font: { bold: true },
+  })
 }
 
 export const applyHoaHongTableStyle = (
@@ -386,15 +455,17 @@ export const applyHoaHongTableStyle = (
       wrapText: false,
     })
   }
-  // ✅ ép riêng CKS: ô F (top-left merge F..J) center
+
   const cksStart = rows.rF + 1
   const cksEnd = rows.rG - 1
   if (cksEnd >= cksStart) {
-    setColAlignmentMergeAware(ws, cksStart, cksEnd, COL_HOA_HONG.SL_MOI, {
-      horizontal: "center",
-      vertical: "center",
-      wrapText: true,
-    })
+    for (let r0 = cksStart; r0 <= cksEnd; r0++) {
+      setAlignmentCellMergeAware(ws, r0, COL_HOA_HONG.BANQUYEN, {
+        horizontal: "center",
+        vertical: "center",
+        wrapText: true,
+      })
+    }
   }
 
   // ghi chú: left + wrap
@@ -479,7 +550,46 @@ export const formatAllNumbers = (ws: XLSX.WorkSheet) => {
 
   for (let r0 = 0; r0 <= rEnd0; r0++) {
     const dateCell: any = (ws as any)[addrRC(r0, COL_HOA_HONG.NGAY)]
-    if (dateCell) dateCell.z = "dd/mm/yyyy"
+    if (dateCell) {
+      const v = dateCell.v
+
+      // 1) rỗng/null => để trống
+      if (v == null || v === "") {
+        dateCell.t = "s"
+        dateCell.v = ""
+        dateCell.z = "dd/mm"
+        continue
+      }
+
+      // 2) nếu là number: Excel date serial
+      if (typeof v === "number") {
+        // 0/1/2 thường là rỗng hoặc lỗi -> đừng hiển thị 1900
+        if (!Number.isFinite(v) || v <= 2) {
+          dateCell.t = "s"
+          dateCell.v = ""
+          dateCell.z = "dd/mm"
+          continue
+        }
+        // serial hợp lệ: giữ, format ngày
+        dateCell.t = "n"
+        dateCell.z = "dd/mm"
+        continue
+      }
+
+      // 3) nếu là string: chỉ xóa khi nó "0" hoặc quá rác
+      const s = String(v).trim()
+      if (!s || s === "0" || s === "00/00") {
+        dateCell.t = "s"
+        dateCell.v = ""
+        dateCell.z = "dd/mm"
+        continue
+      }
+
+      // nếu là chuỗi ngày (dd/mm/yyyy hoặc yyyy-mm-dd...) -> giữ nguyên
+      dateCell.t = "s"
+      dateCell.v = s
+      dateCell.z = "dd/mm"
+    }
 
     for (const c0 of intCols) {
       const cell: any = (ws as any)[addrRC(r0, c0)]
@@ -538,7 +648,7 @@ export const boldFooterBlock = (
     for (let c0 = 0; c0 <= maxCol; c0++) {
       const cell = ensureCell(ws, r0, c0)
       patchCellStyle(ws, r0, c0, {
-        font: { ...(cell.s?.font || {}), sz: 14, bold: true },
+        font: { ...(cell.s?.font || {}), sz: 11, bold: true },
         alignment: {
           ...(cell.s?.alignment || {}),
           vertical: "center",

@@ -27,6 +27,10 @@ export const BLUE_LIGHT = { patternType: "solid", fgColor: { rgb: "D9EAF7" } }
 export const BLUE_DARK = { patternType: "solid", fgColor: { rgb: "9DC3E6" } }
 export const RED_FONT = { color: { rgb: "FF0000" }, bold: true }
 export const YELLOW_BG = { patternType: "solid", fgColor: { rgb: "FFFF00" } }
+export const PURPLE_BG = {
+  patternType: "solid",
+  fgColor: { rgb: "B1A0C7" }, // giống màu trong hình (RGB 177,160,199)
+}
 
 export const BORDER_THIN = {
   top: { style: "thin", color: { rgb: "000000" } },

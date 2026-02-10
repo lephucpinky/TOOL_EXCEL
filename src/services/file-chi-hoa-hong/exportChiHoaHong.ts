@@ -63,23 +63,26 @@ export async function exportChiHoaHongXlsx(args: ExportArgs) {
     throw new Error("Thiếu dữ liệu doanh thu")
   if (!filter?.dealerName) throw new Error("❌ Thiếu filter.dealerName")
 
-  // ✅ resolve sheet template (không hardcode)
+  const norm = (v: any) => normalize(v ?? "")
+
   const pickSheetName = () => {
     if (args.sheetName && templateWorkbook.SheetNames.includes(args.sheetName))
       return args.sheetName
+
     const candidates = [
       "MẪU CHI HOA HỒNG",
       "CHI HOA HONG",
       "HOA HONG",
       "Sheet1",
     ]
-    const normNames = templateWorkbook.SheetNames.map((n) => ({
-      raw: n,
-      n: normalize(n),
+    const names = templateWorkbook.SheetNames.map((raw) => ({
+      raw,
+      n: norm(raw),
     }))
+
     for (const c of candidates) {
-      const want = normalize(c)
-      const hit = normNames.find((x) => x.n.includes(want))
+      const want = norm(c)
+      const hit = names.find((x) => x.n.includes(want))
       if (hit) return hit.raw
     }
     return templateWorkbook.SheetNames[0] || ""
@@ -92,121 +95,111 @@ export async function exportChiHoaHongXlsx(args: ExportArgs) {
   if (!templateWs)
     throw new Error(`❌ Không đọc được sheet template: ${realName}`)
 
-  // 2) header index -> map columns (THEO FILE THEO DÕI DOANH SỐ)
+  // header index -> map columns
   const index = buildSalesIndex(salesHeaders)
   const pick = (...aliases: string[]) => pickHeaderFromIndex(index, ...aliases)
-  // ✅ Pick đúng cột TIỀN HOA HỒNG (HH tiền) - tránh nhầm sang % hoa hồng
-  const pickTienHoaHong = () => {
-    const hs = (salesHeaders || []).filter(Boolean).map(String)
+  const headers = (salesHeaders || []).filter(Boolean).map(String)
+  const sampleN = Math.min(200, salesRows.length)
 
-    // Ưu tiên tiêu đề có "TIỀN HOA HỒNG"
-    const byMoneyName = hs.find((h) =>
-      normalize(h).includes(normalize("TIỀN HOA HỒNG"))
-    )
+  // ✅ Pick đúng cột TIỀN HOA HỒNG (tránh nhầm %)
+  const pickTienHoaHong = () => {
+    const moneyLabel = norm("TIỀN HOA HỒNG")
+    const byMoneyName = headers.find((h) => norm(h).includes(moneyLabel))
     if (byMoneyName) return byMoneyName
 
-    // Nếu chỉ ghi "HH" thì loại những cột có dấu % / tỷ lệ
-    const hhMoney = hs.find((h) => {
-      const raw = h.toLowerCase()
-      const s = normalize(h)
+    const hhMoney = headers.find((h) => {
+      const raw = String(h).toLowerCase()
+      const s = norm(h)
 
       const looksLikeHH =
-        s === normalize("hh") ||
-        s === normalize("tien hoa hong") ||
-        s.includes(normalize("hoa hong")) // phòng trường hợp "Hoa hồng"
+        s === norm("hh") ||
+        s === norm("tien hoa hong") ||
+        s.includes(norm("hoa hong"))
 
       const isPercent =
         raw.includes("%") ||
-        s.includes(normalize("phan tram")) ||
-        s.includes(normalize("percent")) ||
-        s.includes(normalize("ty le")) ||
-        s.includes(normalize("ti le"))
+        s.includes(norm("phan tram")) ||
+        s.includes(norm("percent")) ||
+        s.includes(norm("ty le")) ||
+        s.includes(norm("ti le"))
 
       return looksLikeHH && !isPercent
     })
     if (hhMoney) return hhMoney
 
-    // fallback cuối cùng
     return pick("TIỀN HOA HỒNG", "TIEN HOA HONG", "HH")
   }
-  // ✅ Pick đúng cột LOẠI SP / TÊN SP để phân khu (ưu tiên cột có HD/CKS/ICA...)
-  // Vì file doanh số có thể có 2 cột "TÊN SP"
-  const pickLoaiSanPham = () => {
-    const hs = (salesHeaders || []).filter(Boolean).map(String)
 
-    // gom các header có thể là "TÊN SP" (kể cả bị suffix: _1, (2), ...)
-    const candidates = hs.filter((h) => {
-      const nh = normalize(h)
+  // ✅ Pick đúng cột LOẠI SP / TÊN SP để phân khu (ưu tiên cột có HD/CKS/ICA...)
+  const pickLoaiSanPham = () => {
+    const candidates = headers.filter((h) => {
+      const nh = norm(h)
       return (
-        nh.includes(normalize("tên sp")) ||
-        nh.includes(normalize("ten sp")) ||
-        nh.includes(normalize("loại sp")) ||
-        nh.includes(normalize("loai sp"))
+        nh.includes(norm("tên sp")) ||
+        nh.includes(norm("ten sp")) ||
+        nh.includes(norm("loại sp")) ||
+        nh.includes(norm("loai sp"))
       )
     })
 
-    // fallback nếu chỉ có 1 cột hoặc không tìm được
     if (!candidates.length)
       return pick("TÊN SP", "Tên SP", "LOẠI SP", "Loại sản phẩm")
     if (candidates.length === 1) return candidates[0]
 
-    // chấm điểm theo dữ liệu: cột nào chứa HD/CKS/ICA/BHXH/MTT... thì ưu tiên
     const score = (header: string) => {
       let sc = 0
-      const max = Math.min(200, salesRows.length)
-      for (let i = 0; i < max; i++) {
+      for (let i = 0; i < sampleN; i++) {
         const v = String((salesRows[i] as any)?.[header] ?? "")
-        const s = normalize(v)
+        const s = norm(v)
         if (!s) continue
 
         const hit =
-          s === normalize("HD") ||
-          s === normalize("MTT") ||
-          s === normalize("TNCN") ||
-          s === normalize("BHXH") ||
-          s === normalize("SMI") ||
-          s === normalize("CKS") ||
-          s.startsWith(normalize("ICA")) ||
+          s === norm("HD") ||
+          s === norm("MTT") ||
+          s === norm("TNCN") ||
+          s === norm("BHXH") ||
+          s === norm("SMI") ||
+          s === norm("CKS") ||
+          s.startsWith(norm("ICA")) ||
           s.includes("hddt") ||
           (s.includes("hoadon") && s.includes("dientu")) ||
           s.includes("maytinhtien")
 
         if (hit) sc += 5
-        if (s.length <= 5) sc += 1 // code ngắn thường là cột phân loại
+        if (s.length <= 5) sc += 1
       }
       return sc
     }
 
     return candidates.sort((a, b) => score(b) - score(a))[0]
   }
+
   // ✅ cột code: HD/CKS/TH/PM... (tương ứng cột P)
   const pickLoaiCode = () => {
-    const hs = (salesHeaders || []).filter(Boolean).map(String)
-    const candidates = hs.filter((h) =>
-      normalize(h).includes(normalize("tên sp"))
-    )
+    const candidates = headers.filter((h) => norm(h).includes(norm("tên sp")))
     if (!candidates.length) return pick("TÊN SP")
 
     const score = (header: string) => {
       let sc = 0
-      const max = Math.min(200, salesRows.length)
-      for (let i = 0; i < max; i++) {
+      for (let i = 0; i < sampleN; i++) {
         const v = String((salesRows[i] as any)?.[header] ?? "")
-        const s = normalize(v)
+        const s = norm(v)
         if (!s) continue
+
         if (
-          s === normalize("HD") ||
-          s === normalize("CKS") ||
-          s === normalize("TH") ||
-          s === normalize("PM")
+          s === norm("HD") ||
+          s === norm("CKS") ||
+          s === norm("TH") ||
+          s === norm("PM")
         )
           sc += 5
         if (s.length <= 4) sc += 1
+
         if (
-          s.startsWith(normalize("ICA")) ||
-          s.startsWith(normalize("INT")) ||
+          s.startsWith(norm("ICA")) ||
+          s.startsWith(norm("INT")) ||
           s.includes("KIOT") ||
-          s === normalize("MTT")
+          s === norm("MTT")
         )
           sc -= 3
       }
@@ -216,12 +209,9 @@ export async function exportChiHoaHongXlsx(args: ExportArgs) {
     return candidates.sort((a, b) => score(b) - score(a))[0]
   }
 
-  // ✅ cột chi tiết: MTT/INT1/KIOT/ICA1... (tương ứng cột O màu vàng)
+  // ✅ cột chi tiết: MTT/INT1/KIOT/ICA1... (tương ứng cột O vàng)
   const pickTenSpVangO = (loaiCodeHeader: string) => {
-    const hs = (salesHeaders || []).filter(Boolean).map(String)
-    const candidates = hs.filter((h) =>
-      normalize(h).includes(normalize("tên sp"))
-    )
+    const candidates = headers.filter((h) => norm(h).includes(norm("tên sp")))
     if (!candidates.length) return ""
 
     const others = candidates.filter((h) => h !== loaiCodeHeader)
@@ -229,23 +219,24 @@ export async function exportChiHoaHongXlsx(args: ExportArgs) {
 
     const score = (header: string) => {
       let sc = 0
-      const max = Math.min(200, salesRows.length)
-      for (let i = 0; i < max; i++) {
+      for (let i = 0; i < sampleN; i++) {
         const v = String((salesRows[i] as any)?.[header] ?? "")
-        const s = normalize(v)
+        const s = norm(v)
         if (!s) continue
+
         if (
-          s.startsWith(normalize("ICA")) ||
-          s.startsWith(normalize("INT")) ||
+          s.startsWith(norm("ICA")) ||
+          s.startsWith(norm("INT")) ||
           s.includes("KIOT") ||
-          s === normalize("MTT")
+          s === norm("MTT")
         )
           sc += 5
+
         if (
-          s === normalize("HD") ||
-          s === normalize("CKS") ||
-          s === normalize("TH") ||
-          s === normalize("PM")
+          s === norm("HD") ||
+          s === norm("CKS") ||
+          s === norm("TH") ||
+          s === norm("PM")
         )
           sc -= 4
       }
@@ -254,7 +245,9 @@ export async function exportChiHoaHongXlsx(args: ExportArgs) {
 
     return pool.sort((a, b) => score(b) - score(a))[0]
   }
+
   const loaiCodeHeader = pickLoaiCode()
+
   const H = {
     LOAI: pickLoaiSanPham(),
 
@@ -266,8 +259,10 @@ export async function exportChiHoaHongXlsx(args: ExportArgs) {
     ),
     MST: pick("MST", "Mã số thuế"),
     TEN: pick("TÊN CTY", "TÊN CÔNG TY", "TÊN ĐƠN VỊ", "Tên công ty"),
-    LOAI_CODE: loaiCodeHeader, // ✅ cột P (HD/CKS/TH/PM)
-    LOAI_CKS_TEXT: pickTenSpVangO(loaiCodeHeader), // ✅ cột O (MTT/INT1/KIOT/ICA1)
+
+    LOAI_CODE: loaiCodeHeader, // cột P (HD/CKS/TH/PM)
+    LOAI_CKS_TEXT: pickTenSpVangO(loaiCodeHeader), // cột O (MTT/INT1/KIOT/ICA1)
+
     BANQUYEN: pick("BQ", "BẢN QUYỀN"),
     SL_MOI: pick("SL MỚI", "SLMOI"),
     SL_GH: pick("SL GH", "SLGH"),
@@ -290,7 +285,7 @@ export async function exportChiHoaHongXlsx(args: ExportArgs) {
       "PHAI TRA CHENH"
     ),
 
-    // ✅ M-INV ĐÃ THU: lấy từ cột "SỐ TIỀN" trong file theo dõi doanh số
+    // M-INV đã thu: từ cột "SỐ TIỀN"
     DT_MINVOICE: pick(
       "SỐ TIỀN",
       "SO TIEN",
@@ -302,12 +297,11 @@ export async function exportChiHoaHongXlsx(args: ExportArgs) {
     ),
 
     GHI_CHU: pick("CHI CHÚ", "CHI CHU", "GHI CHÚ", "GHI CHU"),
-
     DEALER: pick("Tên đại lý", "Đại lý", "Dealer"),
     CATEGORY: pick("PHÒNG BAN", "Danh mục", "Category") || "",
   }
 
-  // ✅ validate đúng các cột cần thiết để ra công thức chuẩn
+  // ✅ validate đúng các cột cần thiết
   const missing: string[] = []
   ;[
     ["TÊN SP", H.LOAI],
@@ -334,11 +328,10 @@ export async function exportChiHoaHongXlsx(args: ExportArgs) {
       "❌ Thiếu cột trong file theo dõi doanh số: " + missing.join(", ")
     )
 
-  // ✅ ALL dealers
+  // ALL dealers
   const dealerPickedRaw = String(filter.dealerName ?? "").trim()
   const isAll =
-    dealerPickedRaw === "__ALL__" ||
-    normalize(dealerPickedRaw) === normalize("tất cả")
+    dealerPickedRaw === "__ALL__" || norm(dealerPickedRaw) === norm("tất cả")
 
   const dealers: string[] = isAll
     ? Array.from(
@@ -366,54 +359,40 @@ export async function exportChiHoaHongXlsx(args: ExportArgs) {
   const timestamp = now.toISOString().slice(0, 10).replace(/-/g, "")
 
   const exportOneDealer = async (dealerName: string) => {
-    const wantedDealer = normalize(dealerName)
+    const wantedDealer = norm(dealerName)
 
     const filteredRows = salesRows.filter(
-      (row: any) => normalize(row[H.DEALER]) === wantedDealer
+      (row: any) => norm(row[H.DEALER]) === wantedDealer
     )
-
-    if (!filteredRows.length) {
+    if (!filteredRows.length)
       throw new Error(`Không có dữ liệu sau lọc: dealer="${dealerName}"`)
-    }
 
     const ws = deepCloneSheet(templateWs)
     setColumnWidthsHoaHong(ws)
 
     let rows = resolveTemplateRows(ws)
 
-    // header dealer + month
     applyHeaderDealerMonth(ws, dealerName, filter.month)
 
-    // ensure space & group
     const grouped = ensureAllSectionsHaveSpace(ws, rows, filteredRows, H.LOAI)
 
-    // sau insert phải resolve lại rows
     rows = resolveTemplateRows(ws)
-
-    // ✅ COMPACT TRƯỚC khi fill (để không lệch công thức)
     rows = compactSections(ws, grouped)
-
-    // ✅ sau deleteRows, resolve lại rows lần nữa
     rows = resolveTemplateRows(ws)
 
-    // ✅ clear sau khi layout đã “chốt”
     clearAllSectionBlocks(ws, rows)
 
-    // ✅ fill cuối cùng (formula sẽ đúng row hiện tại)
     fillAllSections(ws, rows, grouped, H)
 
-    // sums + total
     applyAllSectionSums(ws, rows, grouped)
     applyGrandTotal(ws, rows)
 
-    // footer (nếu bạn vẫn dùng block footer)
     const agencyName = extractAgencyNameFromTemplate(ws)
-    const isTncnExempt = exemptSet.has(normalize(agencyName))
+    const isTncnExempt = exemptSet.has(norm(agencyName))
     const { rowTongCong } = applyFooterFormulasAndHighlight(ws, rows.rTOTAL, {
       isTncnExempt,
     })
 
-    // style + number format
     applyHoaHongTableStyle(ws, rows)
     formatAllNumbers(ws)
     boldFooterBlock(ws, rows.rTOTAL, rowTongCong)
