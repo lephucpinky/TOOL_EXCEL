@@ -277,7 +277,7 @@ export const applyFooterFormulasAndHighlight = (
   }
 
   // 1) Tổng cộng HH
-  setFooterVal(rowTongCong, `=${addrRC(rTOTAL, COL_HOA_HONG.TIEN_HOA_HONG)}`)
+  setFooterVal(rowTongCong, `=${addrRC(rTOTAL, COL_HOA_HONG.TONG_TRA_DOI_TAC)}`)
 
   // 2) Thuế
   if (rowTongCong !== -1 && rowThue !== -1) {
