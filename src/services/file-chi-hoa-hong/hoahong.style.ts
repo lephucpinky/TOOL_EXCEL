@@ -207,7 +207,7 @@ export const applyHeaderDealerMonth = (
     )
     patchCellStyle(ws, tl.r, tl.c, {
       font: { bold: true, sz: 18 },
-      alignment: { horizontal: "center", vertical: "center", wrapText: false },
+      alignment: { horizontal: "left", vertical: "center", wrapText: false },
     })
     setRowHeight(ws, rTITLE, 30)
   }

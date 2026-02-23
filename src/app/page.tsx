@@ -262,23 +262,10 @@ export default function HomePage() {
           <div className="text-center text-base font-bold">
             MẪU CHI HOA HỒNG
           </div>
-          <div className="mt-2 text-center text-xs text-slate-500">
-            Template: <b>{TEMPLATE_URL}</b>
-          </div>
 
           {loadingTemplate && (
             <div className="mt-2 text-center text-xs text-slate-500">
               Đang tải template...
-            </div>
-          )}
-
-          {templateErr && (
-            <div className="mt-2 text-center text-xs text-red-600">
-              {templateErr}
-              <div className="mt-1 text-[11px] text-red-500">
-                Hãy chắc chắn file nằm đúng: <b>/public/templates/</b> và đúng
-                tên <b>mau-chi-hoa-hong-text.xlsx</b>
-              </div>
             </div>
           )}
         </div>
@@ -334,14 +321,6 @@ export default function HomePage() {
                   "Chưa chọn file"
                 )}
               </div>
-
-              {!!salesRows.length && (
-                <div className="mt-2 text-xs text-slate-500">
-                  Đọc được <b>{salesRows.length}</b> dòng — cột đại lý:{" "}
-                  <b>{keyDealer}</b>, cột tháng: <b>{keyDate}</b> (category:{" "}
-                  <b>{keyCategory}</b>)
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -351,7 +330,7 @@ export default function HomePage() {
           <div className="grid gap-3 md:grid-cols-2">
             <div>
               <div className="text-sm font-semibold text-slate-700">
-                Tên đại lý (bắt buộc)
+                Tên đại lý
               </div>
               <div className="mt-1">
                 <SearchableSelect
@@ -373,9 +352,7 @@ export default function HomePage() {
             </div>
 
             <div>
-              <div className="text-sm font-semibold text-slate-700">
-                Tháng (tuỳ chọn)
-              </div>
+              <div className="text-sm font-semibold text-slate-700">Tháng</div>
               <select
                 className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm"
                 value={month}

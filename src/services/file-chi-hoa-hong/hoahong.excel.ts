@@ -23,10 +23,7 @@ export const extractAgencyNameFromTemplate = (ws: XLSX.WorkSheet) => {
       if (!s) continue
 
       // ✅ template mới: label "ĐẠI LÝ/CTV" ở I6, value ở K6
-      if (
-        s.includes(normalize("ĐẠI LÝ/CTV")) ||
-        s.includes(normalize("ĐẠI LÝ/CTV"))
-      ) {
+      if (s.includes(normalize("ĐẠI LÝ/CTV"))) {
         // ưu tiên lấy ô cách 2 cột bên phải (I -> K)
         const vAddr = XLSX.utils.encode_cell({ r, c: c + 2 })
         const v2 = (ws as any)[vAddr]?.v
