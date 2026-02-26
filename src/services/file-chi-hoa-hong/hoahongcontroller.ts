@@ -399,11 +399,10 @@ export const fillAllSections = (
 
         setNumKeepStyle(r0, COL_HOA_HONG.DT_GOI_HD, row[H.DT_GOI_HD])
         setNumKeepStyle(r0, COL_HOA_HONG.DT_KHAC, row[H.DT_KHAC])
-        setNumKeepStyle(
-          r0,
-          COL_HOA_HONG.TRI_GIA_XUAT_HD,
-          row[H.TRI_GIA_XUAT_HD]
-        )
+        const tongGiaTri =
+          toNumber(row[H.BANQUYEN]) + toNumber(row[H.DT_GOI_HD])
+
+        setNumKeepStyle(r0, COL_HOA_HONG.TRI_GIA_XUAT_HD, tongGiaTri)
 
         setFormulaKeepStyle(
           ws,
