@@ -315,6 +315,8 @@ export async function exportChiHoaHongXlsx(args: ExportArgs) {
     ["GÓI HÓA ĐƠN", H.DT_GOI_HD],
     ["KHÁC", H.DT_KHAC],
     ["TỔNG XUẤT HĐ", H.TRI_GIA_XUAT_HD],
+    ["BQ", H.BANQUYEN],
+    ["GÓI HÓA ĐƠN", H.DT_GOI_HD],
     ["VIẾT CHÊNH", H.VUOT_GIA],
     ["TIỀN HOA HỒNG", H.TIEN_HOA_HONG],
     ["DT VIẾT CHÊNH", H.PHI_VIET_CHENH],

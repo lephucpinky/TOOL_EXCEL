@@ -1,4 +1,3 @@
-import { BORDER_THIN_VACOM } from "@/constants/vacom"
 import * as XLSX from "xlsx-js-style"
 const FONT_TNR = { name: "Times New Roman" }
 export type ExcelRow = Record<string, any>
@@ -111,7 +110,7 @@ export const forceLeftTitleRow = (
     s: {
       font: { ...FONT_TNR, bold: true },
       fill: { patternType: "solid", fgColor: { rgb: "DFF3E3" } },
-      border: BORDER_THIN_VACOM,
+      // border: BORDER_THIN_VACOM,
       alignment: {
         vertical: "center",
         horizontal: "left",
@@ -202,86 +201,6 @@ export const findSectionTitleRow = (
     if (line.includes(key)) return r
   }
   return -1
-}
-
-/** classify Loại sản phẩm -> section */
-export const classifyProductToSection = (
-  v: any
-): "A" | "B" | "C" | "E" | "D" | "" => {
-  const s = normalize(v)
-
-  // ✅ BỎ CKS (không lấy)
-  if (s.includes("cks") || s.includes("chukyso") || s.includes("chukiso"))
-    return ""
-
-  // A: Hóa đơn điện tử + tem/vé/thẻ điện tử
-  if (
-    (s.includes("hoadon") && s.includes("dientu")) ||
-    s.includes("hoadondientu") ||
-    s.includes("hddt") ||
-    ((s.includes("tem") || s.includes("ve") || s.includes("the")) &&
-      s.includes("dientu"))
-  )
-    return "A"
-
-  // B: Hóa đơn từ máy tính tiền
-  if (
-    (s.includes("hoadon") && s.includes("maytinhtien")) ||
-    s.includes("maytinhtien") ||
-    s.includes("mtt")
-  )
-    return "B"
-
-  // C: khấu trừ TNCN / chứng từ
-  if (s.includes("khautru") || s.includes("tncn") || s.includes("chungtu"))
-    return "C"
-
-  // E: SMI
-  if (s.includes("smi")) return "E"
-
-  // D: BHXH
-  if (s.includes("bhxh")) return "D"
-
-  return ""
-}
-
-/** ✅ parse số kiểu "1,280,000" | "1.280.000" | "1 280 000" -> number */
-export const parseNumberLoose = (v: any): number | null => {
-  if (v === null || v === undefined || v === "") return null
-  if (typeof v === "number" && Number.isFinite(v)) return v
-
-  let s = String(v).trim()
-  if (!s) return null
-
-  // bỏ ký tự tiền tệ/khoảng trắng
-  s = s.replace(/\s+/g, "").replace(/[₫đ]/gi, "")
-
-  // nếu có % thì không parse dạng tiền ở đây
-  if (s.includes("%")) return null
-
-  const lastDot = s.lastIndexOf(".")
-  const lastComma = s.lastIndexOf(",")
-
-  // xác định decimal separator là cái xuất hiện cuối cùng (nếu có)
-  const decPos = Math.max(lastDot, lastComma)
-
-  // nếu có decimal và sau nó là 1-2 chữ số => coi là phần lẻ, bỏ đi (hoặc có thể /100)
-  if (decPos !== -1) {
-    const tail = s.slice(decPos + 1)
-    if (/^\d{1,2}$/.test(tail)) {
-      s = s.slice(0, decPos) // bỏ phần lẻ cho an toàn (tiền của bạn đang integer)
-    }
-  }
-
-  // bỏ hết dấu phân tách hàng nghìn
-  s = s.replace(/[.,]/g, "")
-
-  // chỉ giữ số và dấu -
-  s = s.replace(/[^\d-]/g, "")
-  if (!s || s === "-") return null
-
-  const n = Number(s)
-  return Number.isFinite(n) ? n : null
 }
 
 export const toNumberLoose = (v: any) => {
@@ -422,43 +341,4 @@ export const setCell = (
   const num = Number(asText.replace(/,/g, ""))
   if (asText !== "" && Number.isFinite(num)) ws[addr] = { t: "n", v: num }
   else ws[addr] = { t: "s", v: String(v) }
-}
-
-/** ✅ Set công thức theo từng dòng */
-export const setRowFormulas = (
-  ws: XLSX.WorkSheet,
-  r0: number,
-  col: {
-    TONG_GIA_TRI: number
-    PHAN_TRAM_HH: number
-    DAI_LY_DUOC_HUONG: number
-    HH_THUONG_5: number
-    TONG_TRICH_DAI_LY: number
-    CON_PHAI_THANH_TOAN: number
-  }
-) => {
-  const r1 = r0 + 1 // excel 1-index
-  const F = XLSX.utils.encode_col(col.TONG_GIA_TRI)
-  const G = XLSX.utils.encode_col(col.PHAN_TRAM_HH)
-  const H = XLSX.utils.encode_col(col.DAI_LY_DUOC_HUONG)
-  const I = XLSX.utils.encode_col(col.HH_THUONG_5)
-  const J = XLSX.utils.encode_col(col.TONG_TRICH_DAI_LY)
-
-  // H = F * G  (Đại lý được hưởng)
-  ws[XLSX.utils.encode_cell({ r: r0, c: col.DAI_LY_DUOC_HUONG })] = {
-    t: "n",
-    f: `${F}${r1}*${G}${r1}`,
-  }
-
-  // J = H + I  (Tổng trích đại lý)
-  ws[XLSX.utils.encode_cell({ r: r0, c: col.TONG_TRICH_DAI_LY })] = {
-    t: "n",
-    f: `${H}${r1}+${I}${r1}`,
-  }
-
-  // ✅ K = J  (Còn phải TT = Tổng trích đại lý)
-  ws[XLSX.utils.encode_cell({ r: r0, c: col.CON_PHAI_THANH_TOAN })] = {
-    t: "n",
-    f: `${J}${r1}`,
-  }
 }

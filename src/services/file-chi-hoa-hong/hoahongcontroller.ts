@@ -350,14 +350,11 @@ export const fillAllSections = (
           COL_HOA_HONG.TRI_GIA_XUAT_HD,
           row[H.TRI_GIA_XUAT_HD]
         )
+        // 8) L = BQ + GÓI HÓA ĐƠN (tính trực tiếp từ file doanh số)
+        const giaDoiSoat =
+          toNumber(row[H.BANQUYEN]) + toNumber(row[H.DT_GOI_HD])
 
-        // 8) L = K
-        setFormulaKeepStyle(
-          ws,
-          r0,
-          COL_HOA_HONG.GIA_DOI_SOAT,
-          `=${addrRC(r0, COL_HOA_HONG.TRI_GIA_XUAT_HD)}`
-        )
+        setNumKeepStyle(r0, COL_HOA_HONG.GIA_DOI_SOAT, giaDoiSoat)
 
         // 9) M,N,O
         setNumKeepStyle(r0, COL_HOA_HONG.VUOT_GIA, row[H.VUOT_GIA])

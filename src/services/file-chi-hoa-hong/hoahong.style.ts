@@ -4,9 +4,7 @@ import {
   BLUE_LIGHT,
   COL_HOA_HONG,
   NUM_PARENS_FMT,
-  PURPLE_BG,
   RED_FONT,
-  YELLOW_BG,
 } from "@/constants/Mauhoahong"
 import {
   addrRC,
