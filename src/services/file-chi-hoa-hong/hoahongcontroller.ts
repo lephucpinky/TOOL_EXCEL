@@ -85,6 +85,8 @@ export const classifyProductToSectionHoaHong = (v: any): Sec => {
   // ICA3 / ICA... / CKS
   if (
     s.startsWith(normalize("ICA")) ||
+    s.startsWith(normalize("INT")) ||
+    s.startsWith(normalize("TOKEN")) ||
     s.includes("cks") ||
     s.includes("chukyso") ||
     s.includes("chu ky so") ||
@@ -325,7 +327,7 @@ export const fillAllSections = (
         mergeCells(ws, r0, COL_HOA_HONG.BANQUYEN, COL_HOA_HONG.DT_KHAC)
 
         // 3) Lấy text theo cột O vàng
-        const cksText = (H.LOAI_CKS_TEXT && row[H.LOAI_CKS_TEXT]) || "ICA1"
+        const cksText = H.LOAI_CKS_TEXT && row[H.LOAI_CKS_TEXT]
 
         // 4) Set text vào ô top-left của merge (E)
         setCell(ws, r0, COL_HOA_HONG.BANQUYEN, cksText, {

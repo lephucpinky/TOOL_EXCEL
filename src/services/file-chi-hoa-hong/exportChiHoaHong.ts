@@ -227,6 +227,7 @@ export async function exportChiHoaHongXlsx(args: ExportArgs) {
         if (
           s.startsWith(norm("ICA")) ||
           s.startsWith(norm("INT")) ||
+          s.startsWith(norm("TOKEN")) ||
           s.includes("KIOT") ||
           s === norm("MTT")
         )
