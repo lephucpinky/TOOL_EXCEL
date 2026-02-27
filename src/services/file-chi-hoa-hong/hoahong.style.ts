@@ -396,6 +396,7 @@ export const applyHoaHongTableStyle = (
     rE: number
     rF: number
     rG: number
+    rH: number
     rTOTAL: number
   }
 ) => {
@@ -454,8 +455,8 @@ export const applyHoaHongTableStyle = (
     })
   }
 
-  const cksStart = rows.rF + 1
-  const cksEnd = rows.rG - 1
+  const cksStart = rows.rG + 1
+  const cksEnd = rows.rH - 1
   if (cksEnd >= cksStart) {
     for (let r0 = cksStart; r0 <= cksEnd; r0++) {
       setAlignmentCellMergeAware(ws, r0, COL_HOA_HONG.BANQUYEN, {
@@ -496,6 +497,7 @@ export const applyHoaHongTableStyle = (
     rows.rE,
     rows.rF,
     rows.rG,
+    rows.rH,
     rows.rTOTAL,
   ].forEach(paintTitleRow)
 
@@ -509,15 +511,22 @@ export const applyHoaHongTableStyle = (
   // ✅ merge title:
   // - các khu khác: A..D
   // - riêng CKS (rows.rF): A..C để không che "F. GIÁ TRỊ CHỮ KÝ SỐ" ở cột D
-  ;[rows.rA, rows.rB, rows.rC, rows.rD, rows.rE, rows.rF, rows.rG].forEach(
-    (r0) => {
-      // merge A..C (không đụng cột D)
-      mergeCells(ws, r0, 0, 2)
-      patchCellStyle(ws, r0, 0, {
-        alignment: { horizontal: "left", vertical: "center", wrapText: false },
-      })
-    }
-  )
+  ;[
+    rows.rA,
+    rows.rB,
+    rows.rC,
+    rows.rD,
+    rows.rE,
+    rows.rF,
+    rows.rG,
+    rows.rH,
+  ].forEach((r0) => {
+    // merge A..C (không đụng cột D)
+    mergeCells(ws, r0, 0, 2)
+    patchCellStyle(ws, r0, 0, {
+      alignment: { horizontal: "left", vertical: "center", wrapText: false },
+    })
+  })
 }
 
 /* --------------------------- number formatting --------------------------- */

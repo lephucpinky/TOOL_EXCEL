@@ -17,7 +17,11 @@ import {
   patchCellStyle,
   mergeCells,
 } from "./hoahong.excel"
-import { COL_HOA_HONG } from "@/constants/Mauhoahong"
+import {
+  COL_HOA_HONG,
+  NUM_PARENS_FMT,
+  sumTargets,
+} from "@/constants/Mauhoahong"
 
 /* ------------------------------- header index ------------------------------- */
 
@@ -45,8 +49,8 @@ export const pickHeaderFromIndex = (
 }
 
 /* ------------------------------- section classify ------------------------------- */
-type Sec = "A" | "B" | "C" | "D" | "E" | "F" | "G"
-const SECS: Sec[] = ["A", "B", "C", "D", "E", "F", "G"]
+type Sec = "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H"
+const SECS: Sec[] = ["A", "B", "C", "D", "E", "F", "G", "H"]
 
 // ✅ File theo dõi doanh số của bạn: cột "TÊN SP" có code ngắn: HD, MTT, BHXH, ICA3...
 export const classifyProductToSectionHoaHong = (v: any): Sec => {
@@ -81,21 +85,22 @@ export const classifyProductToSectionHoaHong = (v: any): Sec => {
   if (s === normalize("BHXH") || s.includes("bhxh")) return "D"
 
   if (s === normalize("SMI") || s.includes("smi")) return "E"
-
-  // ICA3 / ICA... / CKS
+  if (s === normalize("XANG") || s.includes("xang")) return "F"
   if (
     s.startsWith(normalize("ICA")) ||
     s.startsWith(normalize("INT")) ||
+    s.startsWith(normalize("EAS")) ||
     s.startsWith(normalize("TOKEN")) ||
     s.includes("cks") ||
     s.includes("chukyso") ||
     s.includes("chu ky so") ||
     s.includes("chukiso")
   )
-    return "F"
+    // ICA3 / ICA... / CKS
+    return "G"
 
   // ✅ KHÔNG MATCH -> đẩy vào "mục khác" (chọn E)
-  return "G"
+  return "H"
 }
 
 /* ------------------------------- template row positions ------------------------------- */
@@ -119,25 +124,27 @@ export const resolveTemplateRows = (ws: XLSX.WorkSheet) => {
     scanCols: 30,
   })
 
-  const rF = findRowContains(ws, "F. GIÁ TRỊ CHỮ KÝ SỐ", {
+  const rF = findRowContains(ws, "F. XĂNG DẦU", { scanRows: 800, scanCols: 30 })
+
+  const rG = findRowContains(ws, "G. GIÁ TRỊ CHỮ KÝ SỐ", {
     scanRows: 1200,
     scanCols: 30,
   })
-  let rG = findRowContains(ws, "F. KHAC", { scanRows: 1500, scanCols: 30 })
-  if (rG === -1)
-    rG = findRowContains(ws, "F. KHÁC", { scanRows: 1500, scanCols: 30 })
+  let rH = findRowContains(ws, "H. KHAC", { scanRows: 1500, scanCols: 30 })
+  if (rH === -1)
+    rH = findRowContains(ws, "H. KHÁC", { scanRows: 1500, scanCols: 30 })
 
   const rTOTAL = findTitleRowA(ws, "CỘNG", {
     startsWith: false,
     scanRows: 5000,
   })
 
-  if ([rA, rB, rC, rD, rE, rF, rG, rTOTAL].some((x) => x === -1)) {
+  if ([rA, rB, rC, rD, rE, rF, rG, rH, rTOTAL].some((x) => x === -1)) {
     throw new Error(
       "❌ Không tìm thấy đủ khu A..F + KHAC hoặc dòng CỘNG trong template."
     )
   }
-  return { rA, rB, rC, rD, rE, rF, rG, rTOTAL }
+  return { rA, rB, rC, rD, rE, rF, rG, rH, rTOTAL }
 }
 
 /* ------------------------------- ensure space bottom-up ------------------------------- */
@@ -156,6 +163,7 @@ export const ensureAllSectionsHaveSpace = (
     E: [],
     F: [],
     G: [],
+    H: [],
   }
 
   filteredRows.forEach((row) => {
@@ -194,9 +202,10 @@ export const ensureAllSectionsHaveSpace = (
   }
 
   // bottom-up
-  ensureSpace("G", "F. KHAC", "CỘNG", true)
-  ensureSpace("F", "F. GIÁ TRỊ CHỮ KÝ SỐ", "F. KHAC")
-  ensureSpace("E", "E. QUẢN LÝ HÓA ĐƠN SMI", "F. GIÁ TRỊ CHỮ KÝ SỐ")
+  ensureSpace("H", "H. KHAC", "CỘNG", true)
+  ensureSpace("G", "G. GIÁ TRỊ CHỮ KÝ SỐ", "H. KHAC")
+  ensureSpace("F", "F. XĂNG DẦU", "G. GIÁ TRỊ CHỮ KÝ SỐ")
+  ensureSpace("E", "E. QUẢN LÝ HÓA ĐƠN SMI", "F. XĂNG DẦU")
   ensureSpace("D", "D. BHXH", "E. QUẢN LÝ HÓA ĐƠN SMI")
   ensureSpace("C", "C. CHỨNG TỪ KHẤU TRỪ THUẾ TNCN", "D. BHXH")
   ensureSpace("B", "B. MÁY TÍNH TIỀN", "C. CHỨNG TỪ KHẤU TRỪ THUẾ TNCN")
@@ -248,7 +257,8 @@ export const clearAllSectionBlocks = (
   clearBlock(rows.rD + 1, rows.rE - 1)
   clearBlock(rows.rE + 1, rows.rF - 1)
   clearBlock(rows.rF + 1, rows.rG - 1)
-  clearBlock(rows.rG + 1, rows.rTOTAL - 1)
+  clearBlock(rows.rG + 1, rows.rH - 1)
+  clearBlock(rows.rH + 1, rows.rTOTAL - 1)
 }
 
 /* ------------------------------- fill data + FORMULA LIKE TEMPLATE ------------------------------- */
@@ -280,6 +290,7 @@ export const fillAllSections = (
     E: rows.rE + 1,
     F: rows.rF + 1,
     G: rows.rG + 1,
+    H: rows.rH + 1,
   }
 
   const n0 = (v: any) => toNumber(v)
@@ -296,7 +307,7 @@ export const fillAllSections = (
     for (let i = 0; i < rowsData.length; i++) {
       const r0 = start[sec] + i
       const row = rowsData[i] as any
-      const isCKS = classifyProductToSectionHoaHong(row[H.LOAI_CODE]) === "F"
+      const isCKS = classifyProductToSectionHoaHong(row[H.LOAI_CODE]) === "G"
 
       // basic
       setCell(ws, r0, COL_HOA_HONG.STT, i + 1, { kind: "stt", force: true })
@@ -343,8 +354,6 @@ export const fillAllSections = (
             wrapText: true,
           },
         })
-
-        // 6) Các cột F..J không set số nữa (vì đang merge text)
 
         // 7) K: TỔNG XUẤT HĐ
         setNumKeepStyle(
@@ -524,12 +533,14 @@ export const compactSections = (
     const nDel = Math.max(0, end - start + 1)
     if (nDel > 0) deleteRows(ws, start, nDel)
   }
+  rows = resolveTemplateRows(ws)
+  compactBetween(rows.rH, rows.rTOTAL, group.H.length)
 
   rows = resolveTemplateRows(ws)
-  compactBetween(rows.rG, rows.rTOTAL, group.G.length)
+  compactBetween(rows.rG, rows.rH, group.G.length)
 
   rows = resolveTemplateRows(ws)
-  compactBetween(rows.rF, rows.rG, group.F.length) // ✅ FIX
+  compactBetween(rows.rF, rows.rG, group.F.length)
 
   rows = resolveTemplateRows(ws)
   compactBetween(rows.rE, rows.rF, group.E.length)
@@ -551,8 +562,6 @@ export const compactSections = (
 
 /* ------------------------------- sums (giữ như template) ------------------------------- */
 
-const FMT_NUM0_DASH = `#,##0;-#,##0;"-";@`
-
 const setSectionSumRow = (
   ws: XLSX.WorkSheet,
   titleRow0: number,
@@ -568,69 +577,17 @@ const setSectionSumRow = (
       : "0"
   }
 
-  const sumTargets = [
-    COL_HOA_HONG.BANQUYEN,
-    COL_HOA_HONG.SL_MOI,
-    COL_HOA_HONG.SL_GH,
-    COL_HOA_HONG.SL_TANG,
-    COL_HOA_HONG.DT_GOI_HD,
-    COL_HOA_HONG.DT_KHAC,
-    COL_HOA_HONG.TRI_GIA_XUAT_HD,
-    COL_HOA_HONG.GIA_DOI_SOAT,
-    COL_HOA_HONG.VUOT_GIA,
-    COL_HOA_HONG.TIEN_HOA_HONG,
-    COL_HOA_HONG.PHI_VIET_CHENH,
-    COL_HOA_HONG.TONG_TRA_DOI_TAC,
-    COL_HOA_HONG.DT_MINVOICE,
-    COL_HOA_HONG.CHENH_LECH,
-  ]
-
   sumTargets.forEach((c0) => {
     const addr = addrRC(titleRow0, c0)
     const keepS = (ws as any)[addr]?.s
     ;(ws as any)[addr] = { t: "n", f: mkSum(c0), s: keepS }
-    patchCellStyle(ws, titleRow0, c0, { numFmt: FMT_NUM0_DASH })
+    patchCellStyle(ws, titleRow0, c0, { numFmt: NUM_PARENS_FMT })
     const cell: any = (ws as any)[addr]
-    if (cell) cell.z = FMT_NUM0_DASH
+    if (cell) cell.z = NUM_PARENS_FMT
   })
 
   ensureRefIncludes(ws, titleRow0, COL_HOA_HONG.GHI_CHU)
 }
-
-export const applyAllSectionSums = (
-  ws: XLSX.WorkSheet,
-  rows: ReturnType<typeof resolveTemplateRows>,
-  group: Record<Sec, ExcelRow[]>
-) => {
-  const start: Record<Sec, number> = {
-    A: rows.rA + 1,
-    B: rows.rB + 1,
-    C: rows.rC + 1,
-    D: rows.rD + 1,
-    E: rows.rE + 1,
-    F: rows.rF + 1,
-    G: rows.rG + 1,
-  }
-
-  const end: Record<Sec, number> = {
-    A: start.A + group.A.length - 1,
-    B: start.B + group.B.length - 1,
-    C: start.C + group.C.length - 1,
-    D: start.D + group.D.length - 1,
-    E: start.E + group.E.length - 1,
-    F: start.F + group.F.length - 1,
-    G: start.G + group.G.length - 1,
-  }
-
-  setSectionSumRow(ws, rows.rA, start.A, end.A)
-  setSectionSumRow(ws, rows.rB, start.B, end.B)
-  setSectionSumRow(ws, rows.rC, start.C, end.C)
-  setSectionSumRow(ws, rows.rD, start.D, end.D)
-  setSectionSumRow(ws, rows.rE, start.E, end.E)
-  setSectionSumRow(ws, rows.rF, start.F, end.F)
-  setSectionSumRow(ws, rows.rG, start.G, end.G)
-}
-
 export const applyGrandTotal = (
   ws: XLSX.WorkSheet,
   rows: ReturnType<typeof resolveTemplateRows>
@@ -649,29 +606,48 @@ export const applyGrandTotal = (
     return titleRows0.map((r0) => `${col}${r0 + 1}`).join("+")
   }
 
-  const sumTargets = [
-    COL_HOA_HONG.BANQUYEN,
-    COL_HOA_HONG.SL_MOI,
-    COL_HOA_HONG.SL_GH,
-    COL_HOA_HONG.SL_TANG,
-    COL_HOA_HONG.DT_GOI_HD,
-    COL_HOA_HONG.DT_KHAC,
-    COL_HOA_HONG.TRI_GIA_XUAT_HD,
-    COL_HOA_HONG.GIA_DOI_SOAT,
-    COL_HOA_HONG.VUOT_GIA,
-    COL_HOA_HONG.TIEN_HOA_HONG,
-    COL_HOA_HONG.PHI_VIET_CHENH,
-    COL_HOA_HONG.TONG_TRA_DOI_TAC,
-    COL_HOA_HONG.DT_MINVOICE,
-    COL_HOA_HONG.CHENH_LECH,
-  ]
-
   sumTargets.forEach((c0) => {
     const addr = addrRC(rows.rTOTAL, c0)
     const keepS = (ws as any)[addr]?.s
     ;(ws as any)[addr] = { t: "n", f: mk(c0), s: keepS }
-    patchCellStyle(ws, rows.rTOTAL, c0, { numFmt: FMT_NUM0_DASH })
+    patchCellStyle(ws, rows.rTOTAL, c0, { numFmt: NUM_PARENS_FMT })
     const cell: any = (ws as any)[addr]
-    if (cell) cell.z = FMT_NUM0_DASH
+    if (cell) cell.z = NUM_PARENS_FMT
   })
+}
+export const applyAllSectionSums = (
+  ws: XLSX.WorkSheet,
+  rows: ReturnType<typeof resolveTemplateRows>,
+  group: Record<Sec, ExcelRow[]>
+) => {
+  const start: Record<Sec, number> = {
+    A: rows.rA + 1,
+    B: rows.rB + 1,
+    C: rows.rC + 1,
+    D: rows.rD + 1,
+    E: rows.rE + 1,
+    F: rows.rF + 1,
+    G: rows.rG + 1,
+    H: rows.rH + 1,
+  }
+
+  const end: Record<Sec, number> = {
+    A: start.A + group.A.length - 1,
+    B: start.B + group.B.length - 1,
+    C: start.C + group.C.length - 1,
+    D: start.D + group.D.length - 1,
+    E: start.E + group.E.length - 1,
+    F: start.F + group.F.length - 1,
+    G: start.G + group.G.length - 1,
+    H: start.H + group.H.length - 1,
+  }
+
+  setSectionSumRow(ws, rows.rA, start.A, end.A)
+  setSectionSumRow(ws, rows.rB, start.B, end.B)
+  setSectionSumRow(ws, rows.rC, start.C, end.C)
+  setSectionSumRow(ws, rows.rD, start.D, end.D)
+  setSectionSumRow(ws, rows.rE, start.E, end.E)
+  setSectionSumRow(ws, rows.rF, start.F, end.F)
+  setSectionSumRow(ws, rows.rG, start.G, end.G)
+  setSectionSumRow(ws, rows.rH, start.H, end.H)
 }
