@@ -271,7 +271,7 @@ export async function exportChiHoaHongXlsx(args: ExportArgs) {
 
     DT_GOI_HD: pick("GÓI HÓA ĐƠN", "GOI HOA DON", "GÓI HĐ"),
     DT_KHAC: pick("KHÁC", "KHAC"),
-    TRI_GIA_XUAT_HD: pick("TỔNG XUẤT HD", "TONG XUAT HD", "TỔNG XUẤT HĐ"),
+    TRI_GIA_XUAT_HD: pick("TỔNG XUẤT HD", "TONG XUAT HD", "TỔNG XUẤT HĐ", "tổng suất hd"),
 
     VUOT_GIA: pick("VIẾT CHÊNH", "VIET CHENH", "VƯỢT GIÁ"),
     TIEN_HOA_HONG: pickTienHoaHong(),

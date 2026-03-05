@@ -408,10 +408,11 @@ export const fillAllSections = (
 
         setNumKeepStyle(r0, COL_HOA_HONG.DT_GOI_HD, row[H.DT_GOI_HD])
         setNumKeepStyle(r0, COL_HOA_HONG.DT_KHAC, row[H.DT_KHAC])
-        const tongGiaTri =
-          toNumber(row[H.BANQUYEN]) + toNumber(row[H.DT_GOI_HD])
-
-        setNumKeepStyle(r0, COL_HOA_HONG.TRI_GIA_XUAT_HD, tongGiaTri)
+         setNumKeepStyle(
+          r0,
+          COL_HOA_HONG.TRI_GIA_XUAT_HD,
+          row[H.TRI_GIA_XUAT_HD]
+        )
 
         setFormulaKeepStyle(
           ws,
@@ -640,6 +641,7 @@ export const applyAllSectionSums = (
     F: start.F + group.F.length - 1,
     G: start.G + group.G.length - 1,
     H: start.H + group.H.length - 1,
+ 
   }
 
   setSectionSumRow(ws, rows.rA, start.A, end.A)
