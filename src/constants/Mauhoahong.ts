@@ -38,7 +38,7 @@ export const sumTargets = [
 ]
 
 export const FONT_TNR = { name: "Times New Roman" }
-export const NUM_PARENS_FMT = "#,##0;(#,##0);0"
+export const NUM_PARENS_FMT = `_-* #,##0_-;[Red]_* (#,##0);_-* "-"_-;_-@_-`
 
 export const BLUE_LIGHT = { patternType: "solid", fgColor: { rgb: "D9EAF7" } }
 export const BLUE_DARK = { patternType: "solid", fgColor: { rgb: "9DC3E6" } }

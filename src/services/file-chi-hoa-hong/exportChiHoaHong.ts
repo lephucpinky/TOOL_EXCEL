@@ -41,7 +41,7 @@ export type ExportArgs = {
   salesHeaders: string[]
   salesRows: ExcelRow[]
   sheetName?: string
-  filter: { dealerName: string; category?: string; month?: string }
+  filter: { dealerName: string; category?: string }
   onLog?: (msg: string, ...rest: any[]) => void
 }
 
@@ -271,7 +271,12 @@ export async function exportChiHoaHongXlsx(args: ExportArgs) {
 
     DT_GOI_HD: pick("GÓI HÓA ĐƠN", "GOI HOA DON", "GÓI HĐ"),
     DT_KHAC: pick("KHÁC", "KHAC"),
-    TRI_GIA_XUAT_HD: pick("TỔNG XUẤT HD", "TONG XUAT HD", "TỔNG XUẤT HĐ", "tổng suất hd"),
+    TRI_GIA_XUAT_HD: pick(
+      "TỔNG XUẤT HD",
+      "TONG XUAT HD",
+      "TỔNG XUẤT HĐ",
+      "tổng suất hd"
+    ),
 
     VUOT_GIA: pick("VIẾT CHÊNH", "VIET CHENH", "VƯỢT GIÁ"),
     TIEN_HOA_HONG: pickTienHoaHong(),
@@ -375,7 +380,7 @@ export async function exportChiHoaHongXlsx(args: ExportArgs) {
 
     let rows = resolveTemplateRows(ws)
 
-    applyHeaderDealerMonth(ws, dealerName, filter.month)
+    applyHeaderDealerMonth(ws, dealerName)
 
     const grouped = ensureAllSectionsHaveSpace(ws, rows, filteredRows, H.LOAI)
 

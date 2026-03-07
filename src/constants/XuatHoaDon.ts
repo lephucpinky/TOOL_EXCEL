@@ -1,0 +1,47 @@
+export const COL_XUATHD = {
+  STT: 0,
+  NGAY_PHAT_SINH: 1,
+  MA_SO_THUE: 2,
+  TEN_DON_VI: 3,
+  LOAI_SP: 4,
+  BAN_QUYEN: 5,
+  SO_LUONG: 6,
+  GOI_HOA_DON: 7,
+  DT_KHAC: 8,
+  GIA_TRI_NIEM_YET: 9,
+  GIA_MINV_THU_VE: 10,
+  HOA_HONG_DL: 11,
+  CONG_NO_THU_KHACH: 12,
+  CON_LAI: 13,
+  GHI_CHU: 14,
+}
+
+export const WIDTH_COL_XUATHD = [
+  4.75, // A
+  8.5, // B
+  16.75, // C
+  41.375, // D
+  8.375, // E
+  10.625, // F
+  8.75, // G
+  11.625, // H
+  10.125, // I
+  15, // J
+  15, // K
+  11.375, // L
+  15, // M
+  15, // N
+  8.375, // O
+]
+
+export const sumTargetsHD = [
+  COL_XUATHD.BAN_QUYEN,
+  COL_XUATHD.SO_LUONG,
+  COL_XUATHD.GOI_HOA_DON,
+  COL_XUATHD.DT_KHAC,
+  COL_XUATHD.GIA_TRI_NIEM_YET,
+  COL_XUATHD.GIA_MINV_THU_VE,
+  COL_XUATHD.HOA_HONG_DL,
+  COL_XUATHD.CONG_NO_THU_KHACH,
+  COL_XUATHD.CON_LAI,
+]

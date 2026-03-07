@@ -166,8 +166,7 @@ export const applyTopCompanyHeaderHeight = (ws: XLSX.WorkSheet) => {
  */
 export const applyHeaderDealerMonth = (
   ws: XLSX.WorkSheet,
-  dealerName: string,
-  month?: string
+  dealerName: string
 ) => {
   const rTITLE = findRowContains(ws, "BẢNG ĐỐI SOÁT DOANH THU THÁNG", {
     scanRows: 100,
@@ -192,17 +191,10 @@ export const applyHeaderDealerMonth = (
     return `${String(mm).padStart(2, "0")}/${yyyy}`
   }
 
-  const monthText = sanitizeMonth(month)
-
   if (rTITLE !== -1) {
     const cTitle = 7 // H
     const tl = getTopLeftOfMerge(ws, rTITLE, cTitle)
-    setTextKeepStyle(
-      ws,
-      tl.r,
-      tl.c,
-      `BẢNG ĐỐI SOÁT DOANH THU THÁNG ${monthText}`
-    )
+    setTextKeepStyle(ws, tl.r, tl.c, `BẢNG ĐỐI SOÁT DOANH THU THÁNG `)
     patchCellStyle(ws, tl.r, tl.c, {
       font: { bold: true, sz: 18 },
       alignment: { horizontal: "left", vertical: "center", wrapText: false },
@@ -600,12 +592,18 @@ export const formatAllNumbers = (ws: XLSX.WorkSheet) => {
 
     for (const c0 of intCols) {
       const cell: any = (ws as any)[addrRC(r0, c0)]
-      if (cell) cell.z = "0"
-    }
+      if (!cell) continue
 
+      cell.z = `0;;-`
+      cell.s = {
+        ...(cell.s || {}),
+        numFmt: `0;;-`,
+      }
+    }
     for (const c0 of moneyCols) {
       const cell: any = (ws as any)[addrRC(r0, c0)]
       if (!cell) continue
+
       if (cell.t !== "n" && cell.v != null && cell.v !== "") {
         const n = Number(String(cell.v).replace(/,/g, "").trim())
         if (!Number.isNaN(n)) {
@@ -613,7 +611,12 @@ export const formatAllNumbers = (ws: XLSX.WorkSheet) => {
           cell.v = n
         }
       }
-      cell.z = "#,##0;(#,##0)"
+
+      cell.z = NUM_PARENS_FMT
+      cell.s = {
+        ...(cell.s || {}),
+        numFmt: NUM_PARENS_FMT,
+      }
     }
   }
 }

@@ -295,11 +295,27 @@ export const fillAllSections = (
 
   const n0 = (v: any) => toNumber(v)
 
+  const isEmptyValue = (v: any) => v == null || String(v).trim() === ""
+
   const setNumKeepStyle = (r0: number, c0: number, value: any) => {
     const addr = addrRC(r0, c0)
     const keepS = (ws as any)[addr]?.s
     const keepZ = (ws as any)[addr]?.z
-    ;(ws as any)[addr] = { t: "n", v: n0(value), s: keepS, z: keepZ }
+
+    // nếu không có giá trị thì vẫn để 0,
+    // nhưng ép format của mẫu để Excel hiện "-"
+    const vNum = isEmptyValue(value) ? 0 : n0(value)
+
+    ;(ws as any)[addr] = {
+      t: "n",
+      v: vNum,
+      s: keepS,
+      z: keepZ || NUM_PARENS_FMT,
+    }
+
+    patchCellStyle(ws, r0, c0, {
+      numFmt: keepZ || NUM_PARENS_FMT,
+    })
   }
 
   const fillSection = (sec: Sec) => {
@@ -312,7 +328,7 @@ export const fillAllSections = (
       // basic
       setCell(ws, r0, COL_HOA_HONG.STT, i + 1, { kind: "stt", force: true })
       setCell(ws, r0, COL_HOA_HONG.NGAY, row[H.NGAY], {
-        kind: "date",
+        kind: "text",
         force: true,
       })
       setCell(ws, r0, COL_HOA_HONG.MST, row[H.MST], {
@@ -408,7 +424,7 @@ export const fillAllSections = (
 
         setNumKeepStyle(r0, COL_HOA_HONG.DT_GOI_HD, row[H.DT_GOI_HD])
         setNumKeepStyle(r0, COL_HOA_HONG.DT_KHAC, row[H.DT_KHAC])
-         setNumKeepStyle(
+        setNumKeepStyle(
           r0,
           COL_HOA_HONG.TRI_GIA_XUAT_HD,
           row[H.TRI_GIA_XUAT_HD]
@@ -586,8 +602,12 @@ const setSectionSumRow = (
     const cell: any = (ws as any)[addr]
     if (cell) cell.z = NUM_PARENS_FMT
   })
-
-  ensureRefIncludes(ws, titleRow0, COL_HOA_HONG.GHI_CHU)
+  const noteAddr = addrRC(titleRow0, COL_HOA_HONG.GHI_CHU)
+  if ((ws as any)[noteAddr]) {
+    delete (ws as any)[noteAddr].f
+    ;(ws as any)[noteAddr].v = ""
+    ;(ws as any)[noteAddr].t = "s"
+  }
 }
 export const applyGrandTotal = (
   ws: XLSX.WorkSheet,
@@ -615,6 +635,12 @@ export const applyGrandTotal = (
     const cell: any = (ws as any)[addr]
     if (cell) cell.z = NUM_PARENS_FMT
   })
+  const noteAddr = addrRC(rows.rTOTAL, COL_HOA_HONG.GHI_CHU)
+  if ((ws as any)[noteAddr]) {
+    delete (ws as any)[noteAddr].f
+    ;(ws as any)[noteAddr].v = ""
+    ;(ws as any)[noteAddr].t = "s"
+  }
 }
 export const applyAllSectionSums = (
   ws: XLSX.WorkSheet,
@@ -641,7 +667,6 @@ export const applyAllSectionSums = (
     F: start.F + group.F.length - 1,
     G: start.G + group.G.length - 1,
     H: start.H + group.H.length - 1,
- 
   }
 
   setSectionSumRow(ws, rows.rA, start.A, end.A)

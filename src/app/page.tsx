@@ -4,68 +4,40 @@ import { useEffect, useMemo, useState } from "react"
 import * as XLSX from "xlsx-js-style"
 import { normalize, type ExcelRow } from "@/utils/excel"
 import { exportChiHoaHongXlsx } from "@/services/file-chi-hoa-hong/exportChiHoaHong"
+import { exportXuatHoaDonXlsx } from "@/services/file/exportXuatHD"
 import { SearchableSelect } from "@/components/select/SearchableSelect"
 
-// ✅ chỉ dùng mẫu chi hoa hồng
-const TEMPLATE_URL = "/templates/mau-chi-hoa-hong-text.xlsx"
 const ALL_VALUE = "__ALL__"
+
+const TEMPLATE_CONFIG = {
+  commission: {
+    key: "commission",
+    label: "Mẫu chi hoa hồng",
+    templateUrl: "/templates/mau-chi-hoa-hong-text.xlsx",
+    exportLabel: "⬇️ Xuất Excel (Chi hoa hồng)",
+  },
+  invoice: {
+    key: "invoice",
+    label: "Mẫu hóa đơn",
+    templateUrl: "/templates/MAU_XUAT-HD.xlsx",
+    exportLabel: "⬇️ Xuất Excel (Hóa đơn)",
+  },
+} as const
+
+type TemplateKey = keyof typeof TEMPLATE_CONFIG
 
 function pickKeyFromRow(row: Record<string, any>, aliases: string[]) {
   const keys = Object.keys(row || {})
   const map = new Map<string, string>()
+
   for (const k of keys) map.set(normalize(k), k)
+
   for (const a of aliases) {
     const found = map.get(normalize(a))
     if (found) return found
   }
-  return ""
-}
-
-function parseMonthKey(v: any): string {
-  if (v == null || v === "") return ""
-
-  // Excel serial date
-  if (typeof v === "number" && Number.isFinite(v)) {
-    const d = XLSX.SSF.parse_date_code(v)
-    if (!d?.m || !d?.y) return ""
-    return `${String(d.m).padStart(2, "0")}/${String(d.y)}`
-  }
-
-  const s = String(v).trim()
-  if (!s) return ""
-
-  const m1 = s.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/) // dd/mm/yyyy
-  if (m1) {
-    const mm = Number(m1[2])
-    const yy = Number(m1[3])
-    if (mm >= 1 && mm <= 12) return `${String(mm).padStart(2, "0")}/${yy}`
-  }
-
-  const m2 = s.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/) // yyyy-mm-dd
-  if (m2) {
-    const yy = Number(m2[1])
-    const mm = Number(m2[2])
-    if (mm >= 1 && mm <= 12) return `${String(mm).padStart(2, "0")}/${yy}`
-  }
-
-  const m3 = s.match(/^(\d{1,2})[\/\-](\d{4})$/) // mm/yyyy
-  if (m3) {
-    const mm = Number(m3[1])
-    const yy = Number(m3[2])
-    if (mm >= 1 && mm <= 12) return `${String(mm).padStart(2, "0")}/${yy}`
-  }
 
   return ""
-}
-
-function sortMonthKeysDesc(keys: string[]) {
-  return [...keys].sort((a, b) => {
-    const [am, ay] = a.split("/")
-    const [bm, by] = b.split("/")
-    const av = Number(ay) * 100 + Number(am)
-    const bv = Number(by) * 100 + Number(bm)
-    return bv - av
-  })
 }
 
 function parseSalesWorkbook(wb: XLSX.WorkBook): {
@@ -81,7 +53,6 @@ function parseSalesWorkbook(wb: XLSX.WorkBook): {
   const headers = json.length ? Object.keys(json[0]) : []
   const sample = json[0] || {}
 
-  // ✅ ưu tiên đúng file THEO-DOI-DOANH-SO.xlsx
   const keyDealer =
     pickKeyFromRow(sample, ["Đại Lý", "ĐẠI LÝ", "Dealer", "Tên đại lý"]) ||
     "Đại Lý"
@@ -93,13 +64,13 @@ function parseSalesWorkbook(wb: XLSX.WorkBook): {
       "Ngày phát sinh",
     ]) || "NGÀY KÍCH HOẠT"
 
-  // (không show UI category nữa, nhưng vẫn parse sẵn nếu sau này cần)
   const keyCategory =
     pickKeyFromRow(sample, [
       "PHÒNG BAN",
       "Danh mục",
       "Category",
       "Loại sản phẩm",
+      "TIÊU ĐỀ",
     ]) || "PHÒNG BAN"
 
   return {
@@ -118,6 +89,8 @@ function uniqueSorted(arr: string[]) {
 }
 
 export default function HomePage() {
+  const [templateType, setTemplateType] = useState<TemplateKey>("commission")
+
   const [salesFile, setSalesFile] = useState<File | null>(null)
   const [salesHeaders, setSalesHeaders] = useState<string[]>([])
   const [salesRows, setSalesRows] = useState<ExcelRow[]>([])
@@ -129,11 +102,13 @@ export default function HomePage() {
   const [dealers, setDealers] = useState<string[]>([])
   const [dealerName, setDealerName] = useState<string>(ALL_VALUE)
 
-  const [month, setMonth] = useState<string>("")
-  const [monthsAll, setMonthsAll] = useState<string[]>([])
+  // tách riêng workbook cho từng mẫu để không ảnh hưởng chéo
+  const [commissionTemplateWb, setCommissionTemplateWb] =
+    useState<XLSX.WorkBook | null>(null)
+  const [invoiceTemplateWb, setInvoiceTemplateWb] =
+    useState<XLSX.WorkBook | null>(null)
 
-  const [templateWb, setTemplateWb] = useState<XLSX.WorkBook | null>(null)
-  const [loadingTemplate, setLoadingTemplate] = useState(false)
+  const [loadingTemplates, setLoadingTemplates] = useState(false)
   const [templateErr, setTemplateErr] = useState<string>("")
 
   const [exporting, setExporting] = useState(false)
@@ -147,26 +122,67 @@ export default function HomePage() {
     [dealers]
   )
 
-  // ✅ load template chi hoa hồng (fix cứng) + hiển thị lỗi nếu fail
+  const templateOptions = useMemo(
+    () => [
+      {
+        value: TEMPLATE_CONFIG.commission.key,
+        label: TEMPLATE_CONFIG.commission.label,
+      },
+      {
+        value: TEMPLATE_CONFIG.invoice.key,
+        label: TEMPLATE_CONFIG.invoice.label,
+      },
+    ],
+    []
+  )
+
+  const currentTemplate = TEMPLATE_CONFIG[templateType]
+  const currentTemplateWb =
+    templateType === "commission" ? commissionTemplateWb : invoiceTemplateWb
+
   useEffect(() => {
     ;(async () => {
-      setLoadingTemplate(true)
+      setLoadingTemplates(true)
       setTemplateErr("")
+
       try {
-        const res = await fetch(TEMPLATE_URL)
-        if (!res.ok) throw new Error(`Không tải được template (${res.status})`)
-        const buf = await res.arrayBuffer()
-        const wb = XLSX.read(buf, { type: "array" })
-        setTemplateWb(wb)
+        const [commissionRes, invoiceRes] = await Promise.all([
+          fetch(TEMPLATE_CONFIG.commission.templateUrl),
+          fetch(TEMPLATE_CONFIG.invoice.templateUrl),
+        ])
+
+        if (!commissionRes.ok) {
+          throw new Error(
+            `Không tải được template chi hoa hồng (${commissionRes.status})`
+          )
+        }
+
+        if (!invoiceRes.ok) {
+          throw new Error(
+            `Không tải được template hóa đơn (${invoiceRes.status})`
+          )
+        }
+
+        const [commissionBuf, invoiceBuf] = await Promise.all([
+          commissionRes.arrayBuffer(),
+          invoiceRes.arrayBuffer(),
+        ])
+
+        const commissionWb = XLSX.read(commissionBuf, { type: "array" })
+        const invoiceWb = XLSX.read(invoiceBuf, { type: "array" })
+
+        setCommissionTemplateWb(commissionWb)
+        setInvoiceTemplateWb(invoiceWb)
       } catch (e: any) {
-        console.error("Load template failed:", e)
-        setTemplateWb(null)
+        console.error("Load templates failed:", e)
+        setCommissionTemplateWb(null)
+        setInvoiceTemplateWb(null)
         setTemplateErr(
           e?.message ??
-            `Lỗi tải template. Hãy kiểm tra file nằm ở /public${TEMPLATE_URL}`
+            "Lỗi tải template. Hãy kiểm tra file template trong thư mục /public/templates"
         )
       } finally {
-        setLoadingTemplate(false)
+        setLoadingTemplates(false)
       }
     })()
   }, [])
@@ -177,11 +193,10 @@ export default function HomePage() {
     setSalesRows([])
     setDealers([])
     setDealerName(ALL_VALUE)
-    setMonth("")
-    setMonthsAll([])
     setExportErr("")
 
     if (!file) return
+
     try {
       const buf = await file.arrayBuffer()
       const wb = XLSX.read(buf, { type: "array" })
@@ -193,17 +208,6 @@ export default function HomePage() {
       setKeyDate(parsed.keyDate)
       setKeyCategory(parsed.keyCategory)
 
-      // months
-      const months = uniqueSorted(
-        parsed.rows
-          .map((r: any) => parseMonthKey(r[parsed.keyDate]))
-          .filter(Boolean)
-      )
-      const sortedMonths = sortMonthKeysDesc(months)
-      setMonthsAll(sortedMonths)
-      if (sortedMonths.length) setMonth(sortedMonths[0])
-
-      // dealers
       const dls = uniqueSorted(parsed.rows.map((r: any) => r[parsed.keyDealer]))
       setDealers(dls)
     } catch (e: any) {
@@ -215,35 +219,47 @@ export default function HomePage() {
   const canExport = useMemo(() => {
     return (
       !!salesFile &&
-      !!templateWb &&
+      !!currentTemplateWb &&
       !!dealerName &&
       salesRows.length > 0 &&
-      !loadingTemplate &&
+      !loadingTemplates &&
       !exporting
     )
   }, [
     salesFile,
-    templateWb,
+    currentTemplateWb,
     dealerName,
     salesRows.length,
-    loadingTemplate,
+    loadingTemplates,
     exporting,
   ])
 
   async function onExport() {
-    if (!canExport || !templateWb) return
+    if (!canExport || !currentTemplateWb) return
+
     setExportErr("")
     setExporting(true)
+
     try {
-      await exportChiHoaHongXlsx({
-        templateWorkbook: templateWb,
-        salesHeaders,
-        salesRows,
-        filter: {
-          dealerName, // "__ALL__" hoặc 1 dealer
-          month: month || undefined,
-        },
-      } as any)
+      if (templateType === "commission") {
+        await exportChiHoaHongXlsx({
+          templateWorkbook: commissionTemplateWb,
+          salesHeaders,
+          salesRows,
+          filter: {
+            dealerName,
+          },
+        } as any)
+      } else {
+        await exportXuatHoaDonXlsx({
+          templateWorkbook: invoiceTemplateWb,
+          salesHeaders,
+          salesRows,
+          filter: {
+            dealerName,
+          },
+        } as any)
+      }
     } catch (e: any) {
       console.error("Export failed:", e)
       const msg = e?.message ?? "Xuất file thất bại"
@@ -257,17 +273,68 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-slate-50 p-6">
       <div className="mx-auto max-w-5xl space-y-6">
-        {/* ✅ chỉ hiện mẫu chi hoa hồng */}
+        {/* chọn danh mục mẫu */}
         <div className="rounded-xl bg-white p-5 shadow">
           <div className="text-center text-base font-bold">
-            MẪU CHI HOA HỒNG
+            CHỌN DANH MỤC XUẤT FILE
           </div>
 
-          {loadingTemplate && (
-            <div className="mt-2 text-center text-xs text-slate-500">
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            {templateOptions.map((item) => {
+              const isActive = templateType === item.value
+              return (
+                <button
+                  key={item.value}
+                  type="button"
+                  onClick={() => {
+                    setTemplateType(item.value as TemplateKey)
+                    setExportErr("")
+                  }}
+                  className={`rounded-xl border p-4 text-left transition ${
+                    isActive
+                      ? "border-slate-900 bg-slate-900 text-white shadow"
+                      : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+                  }`}
+                >
+                  <div className="text-sm font-semibold">Danh mục</div>
+                  <div className="mt-1 text-base font-bold">{item.label}</div>
+                  <div
+                    className={`mt-2 text-xs ${
+                      isActive ? "text-slate-200" : "text-slate-500"
+                    }`}
+                  >
+                    Dùng chung file doanh số, nhưng mỗi mẫu có template và cách
+                    xuất riêng
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+
+          {loadingTemplates && (
+            <div className="mt-3 text-center text-xs text-slate-500">
               Đang tải template...
             </div>
           )}
+
+          {templateErr && (
+            <div className="mt-3 text-center text-xs text-red-600">
+              {templateErr}
+            </div>
+          )}
+        </div>
+
+        {/* thông tin mẫu đang chọn */}
+        <div className="rounded-xl bg-white p-5 shadow">
+          <div className="text-center text-base font-bold uppercase">
+            {currentTemplate.label}
+          </div>
+
+          <div className="mt-2 text-center text-sm text-slate-600">
+            {templateType === "commission"
+              ? "Xuất file theo mẫu chi hoa hồng"
+              : "Xuất file theo mẫu hóa đơn"}
+          </div>
         </div>
 
         {/* upload sales */}
@@ -321,11 +388,28 @@ export default function HomePage() {
                   "Chưa chọn file"
                 )}
               </div>
+
+              {!!salesRows.length && (
+                <div className="mt-3 rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
+                  <div>
+                    <b>Tổng dòng dữ liệu:</b> {salesRows.length}
+                  </div>
+                  <div>
+                    <b>Cột đại lý:</b> {keyDealer}
+                  </div>
+                  <div>
+                    <b>Cột ngày:</b> {keyDate}
+                  </div>
+                  <div>
+                    <b>Cột danh mục:</b> {keyCategory}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
 
-        {/* select dealer/month */}
+        {/* filter + export */}
         <div className="rounded-xl bg-white p-5 shadow">
           <div className="grid gap-3 md:grid-cols-2">
             <div>
@@ -352,26 +436,12 @@ export default function HomePage() {
             </div>
 
             <div>
-              <div className="text-sm font-semibold text-slate-700">Tháng</div>
-              <select
-                className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm"
-                value={month}
-                onChange={(e) => setMonth(e.target.value)}
-                disabled={!monthsAll.length}
-              >
-                <option value="">Tất cả</option>
-                {monthsAll.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-
-              {!monthsAll.length && (
-                <div className="mt-1 text-xs text-slate-500">
-                  Upload file doanh số để lấy danh sách tháng từ “{keyDate}”
-                </div>
-              )}
+              <div className="text-sm font-semibold text-slate-700">
+                Mẫu đang xuất
+              </div>
+              <div className="mt-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                {currentTemplate.label}
+              </div>
             </div>
           </div>
 
@@ -384,19 +454,12 @@ export default function HomePage() {
                 : "bg-slate-200 text-slate-500"
             }`}
           >
-            {exporting ? "⏳ Đang xuất..." : "⬇️ Xuất Excel (Chi hoa hồng)"}
+            {exporting ? "⏳ Đang xuất..." : currentTemplate.exportLabel}
           </button>
 
           {exportErr && (
             <div className="mt-2 text-xs text-red-600">{exportErr}</div>
           )}
-
-          {/* debug nhỏ để biết vì sao nút bị disable */}
-          <div className="mt-2 text-[11px] text-slate-400">
-            canExport: {String(canExport)} | templateWb: {String(!!templateWb)}{" "}
-            | salesRows: {salesRows.length} | loadingTemplate:{" "}
-            {String(loadingTemplate)} | exporting: {String(exporting)}
-          </div>
         </div>
       </div>
     </div>
