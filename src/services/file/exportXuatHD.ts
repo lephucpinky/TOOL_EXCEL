@@ -1,6 +1,13 @@
+"use client"
+
 import * as XLSX from "xlsx-js-style"
 import { normalize } from "@/utils/excel"
 import { buildXuatHDSheet } from "./XuatHDController"
+import {
+  fetchPngAsBase64,
+  addLogoToA1_OOXML,
+  downloadArrayBuffer,
+} from "@/lib/logo"
 
 export type ExportXuatHoaDonInput = {
   templateWorkbook: XLSX.WorkBook
@@ -28,20 +35,9 @@ const cloneWorkbook = (wb: XLSX.WorkBook): XLSX.WorkBook => {
   })
 }
 
-const downloadArrayBuffer = (data: ArrayBuffer, fileName: string) => {
-  const blob = new Blob([data], {
-    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement("a")
-  a.href = url
-  a.download = fileName
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
 const pickField = (row: any, aliases: string[]) => {
   const idx = new Map<string, string>()
+
   for (const key of Object.keys(row || {})) {
     idx.set(normalize(key), key)
   }
@@ -53,6 +49,12 @@ const pickField = (row: any, aliases: string[]) => {
 
   return undefined
 }
+
+const sanitizeFileNamePart = (value: string) =>
+  String(value || "")
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
 
 export async function exportXuatHoaDonXlsx({
   templateWorkbook,
@@ -68,7 +70,6 @@ export async function exportXuatHoaDonXlsx({
   }
 
   const workbook = cloneWorkbook(templateWorkbook)
-
   const dealerName = String(filter?.dealerName ?? "__ALL__").trim()
 
   const filteredRows = salesRows.filter((row: any) => {
@@ -76,23 +77,19 @@ export async function exportXuatHoaDonXlsx({
       pickField(row, ["Đại Lý", "ĐẠI LÝ", "Dealer", "Tên đại lý"]) ?? ""
     ).trim()
 
-    const okDealer =
-      dealerName === "__ALL__" || !dealerName || dealerValue === dealerName
-
-    return okDealer
+    return dealerName === "__ALL__" || !dealerName || dealerValue === dealerName
   })
 
   if (filteredRows.length === 0) {
-    throw new Error("Không có dữ liệu phù hợp với đại lý / tháng đã chọn")
+    throw new Error("Không có dữ liệu phù hợp với đại lý đã chọn")
   }
 
-  buildXuatHDSheet({
+  const { sheetName } = buildXuatHDSheet({
     workbook,
     templateSheetName,
     salesHeaders,
     dataRows: filteredRows,
     dealerName: dealerName === "__ALL__" ? "" : dealerName,
-
     signDate: new Date(),
   })
 
@@ -101,10 +98,17 @@ export async function exportXuatHoaDonXlsx({
     bookType: "xlsx",
   }) as ArrayBuffer
 
-  downloadArrayBuffer(
-    out,
-    fileName ||
-      `Xuat-hoa-don
-      }.xlsx`
-  )
+  const logoBase64 = await fetchPngAsBase64("/images/logo_minvoice.png")
+
+  const finalBuf = await addLogoToA1_OOXML(out, sheetName, logoBase64, {
+    widthPx: 100,
+    heightPx: 60,
+  })
+
+  const safeDealer =
+    dealerName && dealerName !== "__ALL__"
+      ? sanitizeFileNamePart(dealerName)
+      : "tat-ca"
+
+  downloadArrayBuffer(finalBuf, fileName || `Xuat-hoa-don-${safeDealer}.xlsx`)
 }

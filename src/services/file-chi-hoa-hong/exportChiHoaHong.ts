@@ -411,7 +411,7 @@ export async function exportChiHoaHongXlsx(args: ExportArgs) {
     const safeDealer = String(dealerName)
       .replace(/[\\/:*?"<>|]+/g, "-")
       .trim()
-    const fileName = `CHI-HOA-HONG-${safeDealer}-${timestamp}.xlsx`
+    const fileName = `CHI-HOA-HONG-${safeDealer}.xlsx`
 
     const xlsxBuf = XLSX.write(outWb, {
       bookType: "xlsx",
@@ -449,7 +449,7 @@ export async function exportChiHoaHongXlsx(args: ExportArgs) {
     }
     if (errors.length) log("⚠️ Some dealers failed:", errors)
 
-    const zipName = `CHI-HOA-HONG-ALL-${timestamp}.zip`
+    const zipName = `CHI-HOA-HONG-ALL-.zip`
     const blob = await zip.generateAsync({ type: "blob" })
     downloadBlob(blob, zipName)
   }

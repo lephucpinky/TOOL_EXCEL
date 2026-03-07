@@ -388,23 +388,6 @@ export default function HomePage() {
                   "Chưa chọn file"
                 )}
               </div>
-
-              {!!salesRows.length && (
-                <div className="mt-3 rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
-                  <div>
-                    <b>Tổng dòng dữ liệu:</b> {salesRows.length}
-                  </div>
-                  <div>
-                    <b>Cột đại lý:</b> {keyDealer}
-                  </div>
-                  <div>
-                    <b>Cột ngày:</b> {keyDate}
-                  </div>
-                  <div>
-                    <b>Cột danh mục:</b> {keyCategory}
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         </div>
