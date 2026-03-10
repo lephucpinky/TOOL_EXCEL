@@ -10,10 +10,30 @@ function deepClone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v))
 }
 
+const isSumTargetCol = (c0: number) =>
+  (sumTargetsHD as readonly number[]).includes(c0)
+
 export const ensureCell = (ws: XLSX.WorkSheet, r0: number, c0: number) => {
   const addr = addrRC(r0, c0)
   if (!(ws as any)[addr]) (ws as any)[addr] = { t: "s", v: "" }
   return (ws as any)[addr]
+}
+
+const getKeepStyle = (ws: XLSX.WorkSheet, addr: string) => {
+  const cell = (ws as any)[addr]
+  return { s: cell?.s, z: cell?.z }
+}
+
+const putCellKeepStyle = (
+  ws: XLSX.WorkSheet,
+  addr: string,
+  next: { t: "s" | "n"; v: any; s?: any; z?: any }
+) => {
+  delete (ws as any)[addr]?.f
+  ;(ws as any)[addr] = {
+    ...(ws as any)[addr],
+    ...next,
+  }
 }
 
 export const patchCellStyle = (
@@ -41,16 +61,13 @@ export const setTextKeepStyle = (
   value: string
 ) => {
   const addr = addrRC(r0, c0)
-  const keepS = (ws as any)[addr]?.s
-  const keepZ = (ws as any)[addr]?.z
-  delete (ws as any)[addr]?.f
-  ;(ws as any)[addr] = {
-    ...(ws as any)[addr],
+  const keep = getKeepStyle(ws, addr)
+  putCellKeepStyle(ws, addr, {
     t: "s",
     v: value == null ? "" : String(value),
-    s: keepS,
-    z: keepZ,
-  }
+    s: keep.s,
+    z: keep.z,
+  })
 }
 
 export const setNumberKeepStyle = (
@@ -60,16 +77,13 @@ export const setNumberKeepStyle = (
   value: number
 ) => {
   const addr = addrRC(r0, c0)
-  const keepS = (ws as any)[addr]?.s
-  const keepZ = (ws as any)[addr]?.z
-  delete (ws as any)[addr]?.f
-  ;(ws as any)[addr] = {
-    ...(ws as any)[addr],
+  const keep = getKeepStyle(ws, addr)
+  putCellKeepStyle(ws, addr, {
     t: "n",
     v: Number.isFinite(value) ? value : 0,
-    s: keepS,
-    z: keepZ,
-  }
+    s: keep.s,
+    z: keep.z,
+  })
 }
 
 export const setFormulaKeepStyle = (
@@ -477,7 +491,7 @@ export const clearDataBlockXuatHD = (
     rows.rTotal - 1,
     0,
     COL_XUATHD.GHI_CHU,
-    (c0) => (sumTargetsHD as readonly number[]).includes(c0)
+    isSumTargetCol
   )
 
   setTextKeepStyle(ws, rows.rTotal, COL_XUATHD.STT, "CỘNG")
@@ -489,24 +503,27 @@ export const fillDataRowsXuatHD = (
   dataRows: any[],
   H: ReturnType<typeof buildHeaderMapHD>
 ) => {
+  const pickRaw = (row: any, header: string) => (header ? row[header] : undefined)
+  const pickStr = (row: any, header: string) => String(pickRaw(row, header) ?? "")
+
   for (let i = 0; i < dataRows.length; i++) {
     const r0 = rows.rDataStart + i
     const row = dataRows[i]
 
-    const slMoi = toNumber(H.SL_MOI ? row[H.SL_MOI] : 0)
-    const slGh = toNumber(H.SL_GH ? row[H.SL_GH] : 0)
-    const slTang = toNumber(H.SL_TANG ? row[H.SL_TANG] : 0)
+    const slMoi = toNumber(pickRaw(row, H.SL_MOI))
+    const slGh = toNumber(pickRaw(row, H.SL_GH))
+    const slTang = toNumber(pickRaw(row, H.SL_TANG))
 
     let soLuong = slMoi + slGh + slTang
 
-    const banQuyen = toNumber(H.BQ ? row[H.BQ] : 0)
-    const goiHoaDon = toNumber(H.GOI_HOA_DON ? row[H.GOI_HOA_DON] : 0)
-    const dtKhac = toNumber(H.KHAC ? row[H.KHAC] : 0)
+    const banQuyen = toNumber(pickRaw(row, H.BQ))
+    const goiHoaDon = toNumber(pickRaw(row, H.GOI_HOA_DON))
+    const dtKhac = toNumber(pickRaw(row, H.KHAC))
     const giaTriNiemYet = banQuyen + goiHoaDon + dtKhac
 
-    const giaMinvThuVe = toNumber(H.DT_MINVOICE ? row[H.DT_MINVOICE] : 0)
-    const hoaHongDL = toNumber(H.HH ? row[H.HH] : 0)
-    const congNoThuKhach = toNumber(H.SO_TIEN ? row[H.SO_TIEN] : 0)
+    const giaMinvThuVe = toNumber(pickRaw(row, H.DT_MINVOICE))
+    const hoaHongDL = toNumber(pickRaw(row, H.HH))
+    const congNoThuKhach = toNumber(pickRaw(row, H.SO_TIEN))
 
     if (soLuong <= 0 && giaTriNiemYet > 0) soLuong = 1
 
@@ -515,25 +532,25 @@ export const fillDataRowsXuatHD = (
       ws,
       r0,
       COL_XUATHD.NGAY_PHAT_SINH,
-      dayText(H.NGAY_KICH_HOAT ? row[H.NGAY_KICH_HOAT] : "")
+      dayText(pickRaw(row, H.NGAY_KICH_HOAT))
     )
     setTextKeepStyle(
       ws,
       r0,
       COL_XUATHD.MA_SO_THUE,
-      String(H.MST ? (row[H.MST] ?? "") : "")
+      pickStr(row, H.MST)
     )
     setTextKeepStyle(
       ws,
       r0,
       COL_XUATHD.TEN_DON_VI,
-      String(H.TEN_CTY ? (row[H.TEN_CTY] ?? "") : "")
+      pickStr(row, H.TEN_CTY)
     )
     setTextKeepStyle(
       ws,
       r0,
       COL_XUATHD.LOAI_SP,
-      String(H.TIEU_DE ? (row[H.TIEU_DE] ?? "") : "")
+      pickStr(row, H.TIEU_DE)
     )
 
     setNumberKeepStyle(ws, r0, COL_XUATHD.BAN_QUYEN, banQuyen)
@@ -569,12 +586,11 @@ export const fillDataRowsXuatHD = (
       giaTriNiemYet - congNoThuKhach
     )
 
-    const tieuDe = H.TIEU_DE ? String(row[H.TIEU_DE] ?? "").trim() : ""
+    const tieuDe = pickStr(row, H.TIEU_DE).trim()
     const ghiChu =
       normalize(tieuDe) === normalize("CKS")
         ? String(
-            (H.GHI_CHU_SRC ? row[H.GHI_CHU_SRC] : "") ||
-              (H.TEN_SP ? row[H.TEN_SP] : "")
+            pickRaw(row, H.GHI_CHU_SRC) || pickRaw(row, H.TEN_SP) || ""
           ).trim()
         : ""
 
@@ -590,7 +606,7 @@ export const applyTotalRowXuatHD = (
   for (let c0 = 0; c0 <= COL_XUATHD.GHI_CHU; c0++) {
     if (
       c0 === COL_XUATHD.STT ||
-      (sumTargetsHD as readonly number[]).includes(c0)
+      isSumTargetCol(c0)
     ) {
       continue
     }
@@ -611,29 +627,18 @@ export const applyTotalRowXuatHD = (
 
   setTextKeepStyle(ws, rows.rTotal, COL_XUATHD.STT, "CỘNG")
 
-  setFormulaKeepStyle(
-    ws,
-    rows.rFooter1,
-    COL_XUATHD.GIA_MINV_THU_VE,
-    `=${addrRC(rows.rTotal, COL_XUATHD.GIA_MINV_THU_VE)}`,
-    NUM_PARENS_FMT
-  )
+  const linkTotal = (rDst0: number, col0: number) =>
+    setFormulaKeepStyle(
+      ws,
+      rDst0,
+      col0,
+      `=${addrRC(rows.rTotal, col0)}`,
+      NUM_PARENS_FMT
+    )
 
-  setFormulaKeepStyle(
-    ws,
-    rows.rFooter2,
-    COL_XUATHD.CONG_NO_THU_KHACH,
-    `=${addrRC(rows.rTotal, COL_XUATHD.CONG_NO_THU_KHACH)}`,
-    NUM_PARENS_FMT
-  )
-
-  setFormulaKeepStyle(
-    ws,
-    rows.rFooter3,
-    COL_XUATHD.HOA_HONG_DL,
-    `=${addrRC(rows.rTotal, COL_XUATHD.HOA_HONG_DL)}`,
-    NUM_PARENS_FMT
-  )
+  linkTotal(rows.rFooter1, COL_XUATHD.GIA_MINV_THU_VE)
+  linkTotal(rows.rFooter2, COL_XUATHD.CONG_NO_THU_KHACH)
+  linkTotal(rows.rFooter3, COL_XUATHD.HOA_HONG_DL)
 
   setFormulaKeepStyle(
     ws,
