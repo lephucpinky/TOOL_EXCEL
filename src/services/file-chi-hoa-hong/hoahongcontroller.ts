@@ -1,7 +1,6 @@
 import * as XLSX from "xlsx-js-style"
 import type { ExcelRow } from "@/utils/excel"
 import {
-  ensureRefIncludes,
   insertRows,
   normalize,
   setCell,
@@ -327,7 +326,7 @@ export const fillAllSections = (
 
       // basic
       setCell(ws, r0, COL_HOA_HONG.STT, i + 1, { kind: "stt", force: true })
-      setCell(ws, r0, COL_HOA_HONG.NGAY, row[H.NGAY], {
+      setCell(ws, r0, COL_HOA_HONG.THANG, row[H.THANG], {
         kind: "text",
         force: true,
       })

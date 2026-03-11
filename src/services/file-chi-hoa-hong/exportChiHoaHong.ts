@@ -252,12 +252,7 @@ export async function exportChiHoaHongXlsx(args: ExportArgs) {
   const H = {
     LOAI: pickLoaiSanPham(),
 
-    NGAY: pick(
-      "NGÀY KÍCH H",
-      "NGÀY KÍCH HOẠT",
-      "NGÀY PHÁT SINH",
-      "Ngày phát sinh"
-    ),
+    THANG: pick("THÁNG", "Tháng", "thang"),
     MST: pick("MST", "Mã số thuế"),
     TEN: pick("TÊN CTY", "TÊN CÔNG TY", "TÊN ĐƠN VỊ", "Tên công ty"),
 
@@ -311,7 +306,7 @@ export async function exportChiHoaHongXlsx(args: ExportArgs) {
   const missing: string[] = []
   ;[
     ["TÊN SP", H.LOAI],
-    ["NGÀY KÍCH HOẠT", H.NGAY],
+    ["THÁNG KÍCH HOẠT", H.THANG],
     ["MST", H.MST],
     ["TÊN CTY", H.TEN],
     ["BQ", H.BANQUYEN],
@@ -362,10 +357,6 @@ export async function exportChiHoaHongXlsx(args: ExportArgs) {
   const zip = isAll ? new JSZip() : null
   let zipCount = 0
   const errors: string[] = []
-
-  const now = new Date()
-  const timestamp = now.toISOString().slice(0, 10).replace(/-/g, "")
-
   const exportOneDealer = async (dealerName: string) => {
     const wantedDealer = norm(dealerName)
 

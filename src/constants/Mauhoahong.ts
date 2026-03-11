@@ -1,6 +1,6 @@
 export const COL_HOA_HONG = {
   STT: 0, // A
-  NGAY: 1, // B
+  THANG: 1, // B
   MST: 2, // C
   TEN: 3, // D
   BANQUYEN: 4, // E  (BQ)

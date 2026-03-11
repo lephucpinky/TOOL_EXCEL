@@ -503,8 +503,10 @@ export const fillDataRowsXuatHD = (
   dataRows: any[],
   H: ReturnType<typeof buildHeaderMapHD>
 ) => {
-  const pickRaw = (row: any, header: string) => (header ? row[header] : undefined)
-  const pickStr = (row: any, header: string) => String(pickRaw(row, header) ?? "")
+  const pickRaw = (row: any, header: string) =>
+    header ? row[header] : undefined
+  const pickStr = (row: any, header: string) =>
+    String(pickRaw(row, header) ?? "")
 
   for (let i = 0; i < dataRows.length; i++) {
     const r0 = rows.rDataStart + i
@@ -531,27 +533,12 @@ export const fillDataRowsXuatHD = (
     setTextKeepStyle(
       ws,
       r0,
-      COL_XUATHD.NGAY_PHAT_SINH,
-      dayText(pickRaw(row, H.NGAY_KICH_HOAT))
+      COL_XUATHD.THANG_PHAT_SINH,
+      dayText(pickRaw(row, H.THANG))
     )
-    setTextKeepStyle(
-      ws,
-      r0,
-      COL_XUATHD.MA_SO_THUE,
-      pickStr(row, H.MST)
-    )
-    setTextKeepStyle(
-      ws,
-      r0,
-      COL_XUATHD.TEN_DON_VI,
-      pickStr(row, H.TEN_CTY)
-    )
-    setTextKeepStyle(
-      ws,
-      r0,
-      COL_XUATHD.LOAI_SP,
-      pickStr(row, H.TIEU_DE)
-    )
+    setTextKeepStyle(ws, r0, COL_XUATHD.MA_SO_THUE, pickStr(row, H.MST))
+    setTextKeepStyle(ws, r0, COL_XUATHD.TEN_DON_VI, pickStr(row, H.TEN_CTY))
+    setTextKeepStyle(ws, r0, COL_XUATHD.LOAI_SP, pickStr(row, H.TIEU_DE))
 
     setNumberKeepStyle(ws, r0, COL_XUATHD.BAN_QUYEN, banQuyen)
     setNumberKeepStyle(ws, r0, COL_XUATHD.SO_LUONG, soLuong)
@@ -604,10 +591,7 @@ export const applyTotalRowXuatHD = (
   dataCount: number
 ) => {
   for (let c0 = 0; c0 <= COL_XUATHD.GHI_CHU; c0++) {
-    if (
-      c0 === COL_XUATHD.STT ||
-      isSumTargetCol(c0)
-    ) {
+    if (c0 === COL_XUATHD.STT || isSumTargetCol(c0)) {
       continue
     }
     setTextKeepStyle(ws, rows.rTotal, c0, "")

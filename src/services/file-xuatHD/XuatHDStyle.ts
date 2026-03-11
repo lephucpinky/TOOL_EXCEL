@@ -142,7 +142,7 @@ const getHorizontalAlign = (c0: number): "left" | "center" | "right" => {
 
   if (
     c0 === COL_XUATHD.STT ||
-    c0 === COL_XUATHD.NGAY_PHAT_SINH ||
+    c0 === COL_XUATHD.THANG_PHAT_SINH ||
     c0 === COL_XUATHD.MA_SO_THUE ||
     c0 === COL_XUATHD.LOAI_SP
   ) {
@@ -195,13 +195,13 @@ const setRowStyle = (
 const applyHeaderRowsManual = (ws: XLSX.WorkSheet) => {
   setRowStyle(ws, 4, 0, COL_XUATHD.GHI_CHU, () => ({
     font: fontBold,
-    alignment: { horizontal: "center", vertical: "center", wrapText: true },
+    alignment: { horizontal: "center", vertical: "bottom", wrapText: true },
     fill: WHITE_FILL,
   }))
 
   setRowStyle(ws, 5, 0, COL_XUATHD.GHI_CHU, () => ({
     font: fontItalicBold,
-    alignment: { horizontal: "center", vertical: "center", wrapText: true },
+    alignment: { horizontal: "center", vertical: "bottom", wrapText: true },
     fill: WHITE_FILL,
   }))
 
@@ -210,7 +210,7 @@ const applyHeaderRowsManual = (ws: XLSX.WorkSheet) => {
       font: fontBold,
       alignment: {
         horizontal: "center",
-        vertical: "center",
+        vertical: "bottom",
         wrapText: true,
       },
       border: THIN_BORDER,
@@ -232,7 +232,7 @@ const applyDataRowManual = (ws: XLSX.WorkSheet, r0: number) => {
       fill: WHITE_FILL,
       border: THIN_BORDER,
       alignment: {
-        vertical: "center",
+        vertical: "bottom",
         horizontal: getHorizontalAlign(c0),
         wrapText: true,
       },
@@ -248,7 +248,7 @@ const applyTotalRowManual = (ws: XLSX.WorkSheet, r0: number) => {
       fill: HEADER_FILL,
       border: THIN_BORDER,
       alignment: {
-        vertical: "center",
+        vertical: "bottom",
         horizontal: c0 === COL_XUATHD.STT ? "left" : getHorizontalAlign(c0),
         wrapText: true,
       },
@@ -272,7 +272,7 @@ const applyFooterRowManual = (
       fill: WHITE_FILL,
       border: THIN_BORDER,
       alignment: {
-        vertical: "center",
+        vertical: "bottom",
         horizontal: c0 === COL_XUATHD.STT ? "left" : getHorizontalAlign(c0),
         wrapText: true,
       },
@@ -338,7 +338,7 @@ export const applyTemplateVisualStyleXuatHD = (
   for (let c0 = 9; c0 <= 14; c0++) {
     setCellStyle(ws, signDateRow, c0, {
       font: { ...fontBase, italic: true },
-      alignment: { horizontal: "center", vertical: "center", wrapText: true },
+      alignment: { horizontal: "center", vertical: "bottom", wrapText: true },
       fill: WHITE_FILL,
     })
   }
@@ -346,7 +346,7 @@ export const applyTemplateVisualStyleXuatHD = (
   for (let c0 = 2; c0 <= 14; c0++) {
     setCellStyle(ws, signTitleRow, c0, {
       font: fontBold,
-      alignment: { horizontal: "center", vertical: "center", wrapText: true },
+      alignment: { horizontal: "center", vertical: "bottom", wrapText: true },
       fill: WHITE_FILL,
     })
   }
@@ -409,7 +409,7 @@ export const applySignDateXuatHD = (
   patchCellStyle(ws, signPos.r0, signPos.c0, {
     alignment: style.alignment ?? {
       horizontal: "center",
-      vertical: "center",
+      vertical: "bottom",
       wrapText: true,
     },
     font: style.font ?? { ...fontBase, italic: true },

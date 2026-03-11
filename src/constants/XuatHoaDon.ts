@@ -1,6 +1,6 @@
 export const COL_XUATHD = {
   STT: 0,
-  NGAY_PHAT_SINH: 1,
+  THANG_PHAT_SINH: 1,
   MA_SO_THUE: 2,
   TEN_DON_VI: 3,
   LOAI_SP: 4,

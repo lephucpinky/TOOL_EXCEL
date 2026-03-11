@@ -93,7 +93,28 @@ export const setAlignmentCellMergeAware = (
   cell.s = cell.s || {}
   cell.s.alignment = { ...(cell.s.alignment || {}), ...alignment }
 }
+const setRowVerticalBottom = (
+  ws: XLSX.WorkSheet,
+  rStart0: number,
+  rEnd0: number,
+  cStart0: number,
+  cEnd0: number
+) => {
+  for (let r0 = rStart0; r0 <= rEnd0; r0++) {
+    for (let c0 = cStart0; c0 <= cEnd0; c0++) {
+      const tl = getTopLeftOfMerge(ws, r0, c0)
+      const addr = XLSX.utils.encode_cell({ r: tl.r, c: tl.c })
+      const cell: any =
+        (ws as any)[addr] || ((ws as any)[addr] = { t: "s", v: "" })
 
+      cell.s = cell.s || {}
+      cell.s.alignment = {
+        ...(cell.s.alignment || {}),
+        vertical: "bottom",
+      }
+    }
+  }
+}
 export const setColAlignmentMergeAware = (
   ws: XLSX.WorkSheet,
   rStart0: number,
@@ -373,7 +394,7 @@ const mergeLabelCG = (ws: XLSX.WorkSheet, r0: number, text: string) => {
 
   // style cho ô top-left của merge
   patchCellStyle(ws, r0, 2, {
-    alignment: { horizontal: "left", vertical: "center", wrapText: false },
+    alignment: { horizontal: "left", vertical: "bottom", wrapText: false },
     font: { bold: true },
   })
 }
@@ -404,13 +425,6 @@ export const applyHoaHongTableStyle = (
     wrapText: false,
   })
 
-  // TÊN: left + wrap
-  setColAlignmentMergeAware(ws, top0, bot0, COL_HOA_HONG.TEN, {
-    horizontal: "left",
-    vertical: "center",
-    wrapText: true,
-  })
-
   // header row: wrap
   setAlignmentRange(ws, headerRow0, headerRow0, 0, maxCol, {
     horizontal: "center",
@@ -419,10 +433,22 @@ export const applyHoaHongTableStyle = (
   })
   setRowHeight(ws, headerRow0, 55)
 
-  // data: numeric cols right
   const dataStart = headerRow0 + 1
-  const dataEnd = bot0
+  const dataEnd = bot0 - 1
 
+  // ✅ toàn bộ vùng dữ liệu canh xuống bottom
+  if (dataEnd >= dataStart) {
+    setRowVerticalBottom(ws, dataStart, dataEnd, 0, maxCol)
+  }
+
+  // TÊN: left + wrap + bottom
+  setColAlignmentMergeAware(ws, dataStart, dataEnd, COL_HOA_HONG.TEN, {
+    horizontal: "left",
+    vertical: "bottom",
+    wrapText: true,
+  })
+
+  // data: numeric cols right + bottom
   const rightCols: number[] = [
     COL_HOA_HONG.BANQUYEN,
     COL_HOA_HONG.SL_MOI,
@@ -439,10 +465,26 @@ export const applyHoaHongTableStyle = (
     COL_HOA_HONG.DT_MINVOICE,
     COL_HOA_HONG.CHENH_LECH,
   ]
+
   for (const c0 of rightCols) {
     setColAlignmentMergeAware(ws, dataStart, dataEnd, c0, {
       horizontal: "right",
-      vertical: "center",
+      vertical: "bottom",
+      wrapText: false,
+    })
+  }
+
+  // các cột text/ngày/mst/mã sp... cũng bottom để đồng bộ
+  const leftOrCenterCols = [
+    COL_HOA_HONG.STT,
+    COL_HOA_HONG.THANG,
+    COL_HOA_HONG.MST,
+  ]
+
+  for (const c0 of leftOrCenterCols) {
+    setColAlignmentMergeAware(ws, dataStart, dataEnd, c0, {
+      horizontal: "center",
+      vertical: "bottom",
       wrapText: false,
     })
   }
@@ -453,16 +495,16 @@ export const applyHoaHongTableStyle = (
     for (let r0 = cksStart; r0 <= cksEnd; r0++) {
       setAlignmentCellMergeAware(ws, r0, COL_HOA_HONG.BANQUYEN, {
         horizontal: "center",
-        vertical: "center",
+        vertical: "bottom",
         wrapText: true,
       })
     }
   }
 
-  // ghi chú: left + wrap
+  // ghi chú: left + wrap + bottom
   setColAlignmentMergeAware(ws, dataStart, dataEnd, COL_HOA_HONG.GHI_CHU, {
     horizontal: "left",
-    vertical: "center",
+    vertical: "bottom",
     wrapText: true,
   })
 
@@ -479,6 +521,11 @@ export const applyHoaHongTableStyle = (
 
   // header
   paintTitleRow(headerRow0)
+  setAlignmentRange(ws, rows.rTOTAL, rows.rTOTAL, 0, maxCol, {
+    horizontal: "center",
+    vertical: "bottom",
+    wrapText: false,
+  })
 
   // section rows + TOTAL
   ;[
@@ -499,10 +546,6 @@ export const applyHoaHongTableStyle = (
   // total row
   setRowHeight(ws, rows.rTOTAL, 32)
   setRowFont(ws, rows.rTOTAL, 0, maxCol, RED_FONT)
-
-  // ✅ merge title:
-  // - các khu khác: A..D
-  // - riêng CKS (rows.rF): A..C để không che "F. GIÁ TRỊ CHỮ KÝ SỐ" ở cột D
   ;[
     rows.rA,
     rows.rB,
@@ -513,10 +556,9 @@ export const applyHoaHongTableStyle = (
     rows.rG,
     rows.rH,
   ].forEach((r0) => {
-    // merge A..C (không đụng cột D)
     mergeCells(ws, r0, 0, 2)
     patchCellStyle(ws, r0, 0, {
-      alignment: { horizontal: "left", vertical: "center", wrapText: false },
+      alignment: { horizontal: "left", vertical: "bottom", wrapText: false },
     })
   })
 }
@@ -548,7 +590,7 @@ export const formatAllNumbers = (ws: XLSX.WorkSheet) => {
   ]
 
   for (let r0 = 0; r0 <= rEnd0; r0++) {
-    const dateCell: any = (ws as any)[addrRC(r0, COL_HOA_HONG.NGAY)]
+    const dateCell: any = (ws as any)[addrRC(r0, COL_HOA_HONG.THANG)]
     if (dateCell) {
       const v = dateCell.v
 
@@ -661,7 +703,7 @@ export const boldFooterBlock = (
         font: { ...(cell.s?.font || {}), sz: 11, bold: true },
         alignment: {
           ...(cell.s?.alignment || {}),
-          vertical: "center",
+          vertical: "bottom",
           horizontal: (cell.s?.alignment as any)?.horizontal || "left",
           wrapText: false,
         },
