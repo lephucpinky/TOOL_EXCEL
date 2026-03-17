@@ -528,10 +528,10 @@ export const fillDataRowsXuatHD = (
     const dtKhac = toNumber(pickRaw(row, H.KHAC))
     const giaTriNiemYet = banQuyen + goiHoaDon + dtKhac
 
+    const giaTriTheoHoaDon = toNumber(pickRaw(row, H.GIA_TRI_HOA_DON))
     const giaMinvThuVe = toNumber(pickRaw(row, H.DT_MINVOICE))
-    const hoaHongDL = toNumber(pickRaw(row, H.HH))
+    const hoaHongDL = giaTriTheoHoaDon - giaMinvThuVe
     const congNoThuKhach = toNumber(pickRaw(row, H.SO_TIEN))
-
     if (soLuong <= 0 && giaTriNiemYet > 0) soLuong = 1
 
     setNumberKeepStyle(ws, r0, COL_XUATHD.STT, i + 1)
@@ -563,7 +563,14 @@ export const fillDataRowsXuatHD = (
     )
 
     setNumberKeepStyle(ws, r0, COL_XUATHD.GIA_MINV_THU_VE, giaMinvThuVe)
-    setNumberKeepStyle(ws, r0, COL_XUATHD.HOA_HONG_DL, hoaHongDL)
+    setFormulaKeepStyle(
+      ws,
+      r0,
+      COL_XUATHD.HOA_HONG_DL,
+      `=${addrRC(r0, COL_XUATHD.GIA_TRI_HOA_DON)}-${addrRC(r0, COL_XUATHD.GIA_MINV_THU_VE)}`,
+      NUM_PARENS_FMT,
+      hoaHongDL
+    )
     setNumberKeepStyle(ws, r0, COL_XUATHD.CONG_NO_THU_KHACH, congNoThuKhach)
 
     setFormulaKeepStyle(

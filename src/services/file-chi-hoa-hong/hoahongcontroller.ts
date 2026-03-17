@@ -620,6 +620,7 @@ export const applyGrandTotal = (
     rows.rE,
     rows.rF,
     rows.rG,
+    rows.rH,
   ]
   const mk = (c0: number) => {
     const col = XLSX.utils.encode_col(c0)
