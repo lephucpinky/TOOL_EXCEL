@@ -377,6 +377,7 @@ export const buildHeaderMapHD = (salesHeaders: string[]) => {
     SL_TANG: pick("SL TẶNG", "SL TANG"),
     GOI_HOA_DON: pick("GÓI HÓA ĐƠN", "GOI HOA DON", "GÓI HĐ"),
     KHAC: pick("KHÁC", "KHAC"),
+    GIA_TRI_HOA_DON: pick("TỔNG XUẤT HĐ", "tổng xuất hoá đơn"),
     DT_MINVOICE: pick("DT MINVOICE", "DT_MINVOICE"),
     SO_TIEN: pick("SỐ TIỀN", "SO TIEN", "TIỀN THU", "TIEN THU"),
     HH: hhFromAA,
@@ -397,6 +398,7 @@ export const validateHeaderMapHD = (H: ReturnType<typeof buildHeaderMapHD>) => {
     ["BQ", H.BQ],
     ["GÓI HÓA ĐƠN", H.GOI_HOA_DON],
     ["KHÁC", H.KHAC],
+    ["TỔNG XUẤT HĐ", H.GIA_TRI_HOA_DON],
     ["DT MINVOICE", H.DT_MINVOICE],
     ["HH", H.HH],
   ].forEach(([label, value]) => {
@@ -512,13 +514,16 @@ export const fillDataRowsXuatHD = (
     const r0 = rows.rDataStart + i
     const row = dataRows[i]
 
+    const loaiSP = pickStr(row, H.TIEU_DE).trim()
+    const isCKS = normalize(loaiSP) === normalize("CKS")
+
     const slMoi = toNumber(pickRaw(row, H.SL_MOI))
     const slGh = toNumber(pickRaw(row, H.SL_GH))
     const slTang = toNumber(pickRaw(row, H.SL_TANG))
 
     let soLuong = slMoi + slGh + slTang
 
-    const banQuyen = toNumber(pickRaw(row, H.BQ))
+    const banQuyen = isCKS ? 0 : toNumber(pickRaw(row, H.BQ))
     const goiHoaDon = toNumber(pickRaw(row, H.GOI_HOA_DON))
     const dtKhac = toNumber(pickRaw(row, H.KHAC))
     const giaTriNiemYet = banQuyen + goiHoaDon + dtKhac
@@ -538,9 +543,14 @@ export const fillDataRowsXuatHD = (
     )
     setTextKeepStyle(ws, r0, COL_XUATHD.MA_SO_THUE, pickStr(row, H.MST))
     setTextKeepStyle(ws, r0, COL_XUATHD.TEN_DON_VI, pickStr(row, H.TEN_CTY))
-    setTextKeepStyle(ws, r0, COL_XUATHD.LOAI_SP, pickStr(row, H.TIEU_DE))
+    setTextKeepStyle(ws, r0, COL_XUATHD.LOAI_SP, loaiSP)
 
-    setNumberKeepStyle(ws, r0, COL_XUATHD.BAN_QUYEN, banQuyen)
+    if (isCKS) {
+      setTextKeepStyle(ws, r0, COL_XUATHD.BAN_QUYEN, "")
+    } else {
+      setNumberKeepStyle(ws, r0, COL_XUATHD.BAN_QUYEN, banQuyen)
+    }
+
     setNumberKeepStyle(ws, r0, COL_XUATHD.SO_LUONG, soLuong)
     setNumberKeepStyle(ws, r0, COL_XUATHD.GOI_HOA_DON, goiHoaDon)
     setNumberKeepStyle(ws, r0, COL_XUATHD.DT_KHAC, dtKhac)
@@ -548,13 +558,8 @@ export const fillDataRowsXuatHD = (
     setFormulaKeepStyle(
       ws,
       r0,
-      COL_XUATHD.GIA_TRI_NIEM_YET,
-      `=${addrRC(r0, COL_XUATHD.BAN_QUYEN)}+${addrRC(
-        r0,
-        COL_XUATHD.GOI_HOA_DON
-      )}+${addrRC(r0, COL_XUATHD.DT_KHAC)}`,
-      NUM_PARENS_FMT,
-      giaTriNiemYet
+      COL_XUATHD.GIA_TRI_HOA_DON,
+      pickStr(row, H.GIA_TRI_HOA_DON)
     )
 
     setNumberKeepStyle(ws, r0, COL_XUATHD.GIA_MINV_THU_VE, giaMinvThuVe)
@@ -565,7 +570,7 @@ export const fillDataRowsXuatHD = (
       ws,
       r0,
       COL_XUATHD.CON_LAI,
-      `=${addrRC(r0, COL_XUATHD.GIA_TRI_NIEM_YET)}-${addrRC(
+      `=${addrRC(r0, COL_XUATHD.GIA_TRI_HOA_DON)}-${addrRC(
         r0,
         COL_XUATHD.CONG_NO_THU_KHACH
       )}`,
@@ -573,13 +578,11 @@ export const fillDataRowsXuatHD = (
       giaTriNiemYet - congNoThuKhach
     )
 
-    const tieuDe = pickStr(row, H.TIEU_DE).trim()
-    const ghiChu =
-      normalize(tieuDe) === normalize("CKS")
-        ? String(
-            pickRaw(row, H.GHI_CHU_SRC) || pickRaw(row, H.TEN_SP) || ""
-          ).trim()
-        : ""
+    const ghiChu = isCKS
+      ? String(
+          pickRaw(row, H.GHI_CHU_SRC) || pickRaw(row, H.TEN_SP) || ""
+        ).trim()
+      : ""
 
     setTextKeepStyle(ws, r0, COL_XUATHD.GHI_CHU, ghiChu)
   }
@@ -628,7 +631,7 @@ export const applyTotalRowXuatHD = (
     ws,
     rows.rFooter4,
     COL_XUATHD.CONG_NO_THU_KHACH,
-    `=${addrRC(rows.rTotal, COL_XUATHD.GIA_TRI_NIEM_YET)}-${addrRC(
+    `=${addrRC(rows.rTotal, COL_XUATHD.GIA_TRI_HOA_DON)}-${addrRC(
       rows.rTotal,
       COL_XUATHD.HOA_HONG_DL
     )}-${addrRC(rows.rTotal, COL_XUATHD.CONG_NO_THU_KHACH)}`,

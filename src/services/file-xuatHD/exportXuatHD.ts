@@ -74,7 +74,7 @@ export async function exportXuatHoaDonXlsx({
 
   const filteredRows = salesRows.filter((row: any) => {
     const dealerValue = String(
-      pickField(row, ["Đại Lý", "ĐẠI LÝ", "Dealer", "Tên đại lý"]) ?? ""
+      pickField(row, ["Đại Lý", "ĐẠI LÝ", "Tên đại lý"]) ?? ""
     ).trim()
 
     return dealerName === "__ALL__" || !dealerName || dealerValue === dealerName

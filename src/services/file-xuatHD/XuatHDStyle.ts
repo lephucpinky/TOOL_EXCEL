@@ -109,8 +109,13 @@ const WHITE_FILL = {
 
 const fontBase = {
   name: "Times New Roman",
-  sz: 11,
+  sz: 10,
   color: { rgb: "000000" },
+}
+const fontTitle = {
+  ...fontBase,
+  sz: 16,
+  bold: true,
 }
 
 const fontBold = {
@@ -130,7 +135,7 @@ const isNumberCol = (c0: number) =>
     COL_XUATHD.SO_LUONG,
     COL_XUATHD.GOI_HOA_DON,
     COL_XUATHD.DT_KHAC,
-    COL_XUATHD.GIA_TRI_NIEM_YET,
+    COL_XUATHD.GIA_TRI_HOA_DON,
     COL_XUATHD.GIA_MINV_THU_VE,
     COL_XUATHD.HOA_HONG_DL,
     COL_XUATHD.CONG_NO_THU_KHACH,
@@ -194,7 +199,7 @@ const setRowStyle = (
 
 const applyHeaderRowsManual = (ws: XLSX.WorkSheet) => {
   setRowStyle(ws, 4, 0, COL_XUATHD.GHI_CHU, () => ({
-    font: fontBold,
+    font: fontTitle,
     alignment: { horizontal: "center", vertical: "bottom", wrapText: true },
     fill: WHITE_FILL,
   }))
@@ -205,18 +210,29 @@ const applyHeaderRowsManual = (ws: XLSX.WorkSheet) => {
     fill: WHITE_FILL,
   }))
 
-  for (const r0 of [7, 8, 9]) {
+  for (const r0 of [7, 8]) {
     setRowStyle(ws, r0, 0, COL_XUATHD.GHI_CHU, () => ({
       font: fontBold,
       alignment: {
         horizontal: "center",
-        vertical: "bottom",
+        vertical: "center",
         wrapText: true,
       },
       border: THIN_BORDER,
       fill: HEADER_FILL,
     }))
   }
+
+  setRowStyle(ws, 9, 0, COL_XUATHD.GHI_CHU, () => ({
+    font: fontBold,
+    alignment: {
+      horizontal: "center",
+      vertical: "bottom",
+      wrapText: true,
+    },
+    border: THIN_BORDER,
+    fill: HEADER_FILL,
+  }))
 }
 
 const applyDataRowManual = (ws: XLSX.WorkSheet, r0: number) => {
@@ -224,7 +240,7 @@ const applyDataRowManual = (ws: XLSX.WorkSheet, r0: number) => {
     setCellStyle(ws, r0, c0, {
       font: {
         name: "Times New Roman",
-        sz: 11,
+        sz: 10,
         bold: false,
         italic: false,
         color: { rgb: "000000" },
@@ -309,7 +325,7 @@ export const applyTemplateVisualStyleXuatHD = (
     applyDataRowManual(ws, r0)
   }
 
-  syncRowHeight(ws, 11, rows.rTotal)
+  syncRowHeight(ws, 10, rows.rTotal)
   setRowHeight(ws, rows.rTotal, 24)
   applyTotalRowManual(ws, rows.rTotal)
 
@@ -438,7 +454,7 @@ export const formatAllNumbersXuatHD = (
     COL_XUATHD.SO_LUONG,
     COL_XUATHD.GOI_HOA_DON,
     COL_XUATHD.DT_KHAC,
-    COL_XUATHD.GIA_TRI_NIEM_YET,
+    COL_XUATHD.GIA_TRI_HOA_DON,
     COL_XUATHD.GIA_MINV_THU_VE,
     COL_XUATHD.HOA_HONG_DL,
     COL_XUATHD.CONG_NO_THU_KHACH,
