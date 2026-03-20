@@ -33,6 +33,47 @@ export const WIDTH_COL_XUATHD = [
   15, // N
   8.375, // O
 ]
+export const NUM_PARENS_FMT = `_-* #,##0_-;[Red]_* (#,##0);_-* "-"_-;_-@_-`
+export const THIN_BORDER = {
+  top: { style: "thin", color: { rgb: "000000" } },
+  bottom: { style: "thin", color: { rgb: "000000" } },
+  left: { style: "thin", color: { rgb: "000000" } },
+  right: { style: "thin", color: { rgb: "000000" } },
+}
+
+export const HEADER_FILL = {
+  patternType: "solid",
+  fgColor: { rgb: "D9D9D9" },
+  bgColor: { rgb: "D9D9D9" },
+}
+
+export const WHITE_FILL = {
+  patternType: "solid",
+  fgColor: { rgb: "FFFFFF" },
+  bgColor: { rgb: "FFFFFF" },
+}
+
+export const fontBase = {
+  name: "Times New Roman",
+  sz: 10,
+  color: { rgb: "000000" },
+}
+export const fontTitle = {
+  ...fontBase,
+  sz: 16,
+  bold: true,
+}
+
+export const fontBold = {
+  ...fontBase,
+  bold: true,
+}
+
+export const fontItalicBold = {
+  ...fontBase,
+  bold: true,
+  italic: true,
+}
 
 export const sumTargetsHD = [
   COL_XUATHD.BAN_QUYEN,

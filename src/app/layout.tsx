@@ -1,5 +1,5 @@
 "use client"
-import { store } from "@/store/store"
+
 import { Geist, Geist_Mono } from "next/font/google"
 import { Provider } from "react-redux"
 import "./globals.css"
@@ -28,7 +28,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <Provider store={store}>{children}</Provider>
+        {children}
       </body>
     </html>
   )

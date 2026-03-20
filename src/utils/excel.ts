@@ -1,7 +1,11 @@
 import * as XLSX from "xlsx-js-style"
-const FONT_TNR = { name: "Times New Roman" }
 export type ExcelRow = Record<string, any>
 
+export const addrRC = (r0: number, c0: number) =>
+  XLSX.utils.encode_cell({ r: r0, c: c0 })
+export function deepClone<T>(v: T): T {
+  return JSON.parse(JSON.stringify(v))
+}
 export const normalize = (s: any) =>
   String(s ?? "")
     .trim()
@@ -13,45 +17,235 @@ export const normalize = (s: any) =>
     .replace(/\s+/g, " ")
     .replace(/[^a-z0-9]+/g, "")
 
-// Excel serial (1900) -> dd/mm/yyyy
-export const excelSerialToDateString = (serial: any) => {
-  const n = Number(serial)
-  if (!Number.isFinite(n)) return String(serial ?? "")
-  const utcDays = Math.floor(n - 25569)
-  const date = new Date(utcDays * 86400 * 1000)
-  const dd = String(date.getDate()).padStart(2, "0")
-  const mm = String(date.getMonth() + 1).padStart(2, "0")
-  const yyyy = date.getFullYear()
-  return `${dd}/${mm}/${yyyy}`
+export const toNumber = (v: any) => {
+  if (v == null || v === "") return 0
+  if (typeof v === "number") return Number.isFinite(v) ? v : 0
+
+  let s = String(v).trim()
+  if (!s) return 0
+  s = s.replace(/\s+/g, "")
+
+  if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) {
+    s = s.replace(/\./g, "").replace(",", ".")
+  } else {
+    s = s.replace(/,/g, "")
+  }
+
+  const n = Number(s)
+  return Number.isFinite(n) ? n : 0
 }
-export const clearRange = (
+
+export const getKeepStyle = (ws: XLSX.WorkSheet, addr: string) => {
+  const cell = (ws as any)[addr]
+  return { s: cell?.s, z: cell?.z }
+}
+
+export const setCellValueKeepStyle = (
+  ws: XLSX.WorkSheet,
+  r0: number,
+  c0: number,
+  value: any
+) => {
+  const cell = ensureCell(ws, r0, c0)
+  const keepS = cell.s
+  const keepZ = cell.z
+
+  ;(ws as any)[addrRC(r0, c0)] =
+    typeof value === "number"
+      ? { t: "n", v: value, s: keepS, z: keepZ }
+      : { t: "s", v: value == null ? "" : String(value), s: keepS, z: keepZ }
+}
+
+const putCellKeepStyle = (
+  ws: XLSX.WorkSheet,
+  addr: string,
+  next: { t: "s" | "n"; v: any; s?: any; z?: any }
+) => {
+  delete (ws as any)[addr]?.f
+  ;(ws as any)[addr] = { ...(ws as any)[addr], ...next }
+}
+
+export const setTextKeepStyle = (
+  ws: XLSX.WorkSheet,
+  r0: number,
+  c0: number,
+  value: string
+) => {
+  const addr = addrRC(r0, c0)
+  const keep = getKeepStyle(ws, addr)
+  putCellKeepStyle(ws, addr, {
+    t: "s",
+    v: value == null ? "" : String(value),
+    s: keep.s,
+    z: keep.z,
+  })
+}
+
+export const setNumberKeepStyle = (
+  ws: XLSX.WorkSheet,
+  r0: number,
+  c0: number,
+  value: number
+) => {
+  const addr = addrRC(r0, c0)
+  const keep = getKeepStyle(ws, addr)
+  putCellKeepStyle(ws, addr, {
+    t: "n",
+    v: Number.isFinite(value) ? value : 0,
+    s: keep.s,
+    z: keep.z,
+  })
+}
+
+export const clearDataKeepStyle = (
   ws: XLSX.WorkSheet,
   rStart0: number,
   rEnd0: number,
   cStart0: number,
-  cEnd0: number
+  cEnd0: number,
+  isNumericCol: (c0: number) => boolean
 ) => {
   if (rEnd0 < rStart0 || cEnd0 < cStart0) return
+
   for (let r0 = rStart0; r0 <= rEnd0; r0++) {
     for (let c0 = cStart0; c0 <= cEnd0; c0++) {
-      const addr = XLSX.utils.encode_cell({ r: r0, c: c0 })
-      delete (ws as any)[addr] // xoá luôn cả text mẫu như "XĂNG DẦU"
+      if (isNumericCol(c0)) setNumberKeepStyle(ws, r0, c0, 0)
+      else setTextKeepStyle(ws, r0, c0, "")
     }
   }
 }
+export const setFormulaKeepStyle = (
+  ws: XLSX.WorkSheet,
+  r0: number,
+  c0: number,
+  formula: string,
+  fmt?: string,
+  cachedValue?: number
+) => {
+  const addr = addrRC(r0, c0)
+  const old = (ws as any)[addr] || {}
+  const keepS = old.s || {}
+  const keepZ = old.z
 
-export const removeAllFormulas = (ws: XLSX.WorkSheet) => {
-  for (const addr in ws) {
-    if (addr.startsWith("!")) continue
-    const cell: any = (ws as any)[addr]
-    if (cell?.f) delete cell.f
+  ;(ws as any)[addr] = {
+    t: "n",
+    v: Number.isFinite(cachedValue as number) ? Number(cachedValue) : 0,
+    f: formula.startsWith("=") ? formula.slice(1) : formula,
+    s: fmt ? { ...keepS, numFmt: fmt } : keepS,
+    z: fmt || keepZ,
+  }
+
+  delete (ws as any)[addr].r
+  delete (ws as any)[addr].h
+  delete (ws as any)[addr].w
+}
+
+export const copyRowStyle = (
+  ws: XLSX.WorkSheet,
+  srcRow0: number,
+  dstRow0: number,
+  cStart0: number,
+  cEnd0: number
+) => {
+  for (let c0 = cStart0; c0 <= cEnd0; c0++) {
+    const srcCell: any = (ws as any)[addrRC(srcRow0, c0)]
+    const dstAddr = addrRC(dstRow0, c0)
+
+    if (!srcCell) {
+      delete (ws as any)[dstAddr]
+      continue
+    }
+
+    const dstCell = (ws as any)[dstAddr] || { t: "s", v: "" }
+    ;(ws as any)[dstAddr] = {
+      ...dstCell,
+      s: srcCell.s ? deepClone(srcCell.s) : dstCell.s,
+      z: srcCell.z ?? dstCell.z,
+    }
+
+    if ((ws as any)[dstAddr].v == null) {
+      ;(ws as any)[dstAddr].v = ""
+      ;(ws as any)[dstAddr].t = "s"
+    }
+
+    delete (ws as any)[dstAddr].f
+    delete (ws as any)[dstAddr].w
+  }
+
+  const rows: any[] = (ws as any)["!rows"] || []
+  if (rows[srcRow0]) rows[dstRow0] = deepClone(rows[srcRow0])
+  ;(ws as any)["!rows"] = rows
+}
+
+export const copyRowStyleBlock = (
+  ws: XLSX.WorkSheet,
+  srcRow0: number,
+  startDstRow0: number,
+  count: number,
+  cStart0: number,
+  cEnd0: number
+) => {
+  for (let i = 0; i < count; i++) {
+    copyRowStyle(ws, srcRow0, startDstRow0 + i, cStart0, cEnd0)
   }
 }
 
-export const findSheetName = (wb: XLSX.WorkBook, wanted: string) => {
-  const w = normalize(wanted)
-  return wb.SheetNames.find((n) => normalize(n) === w) || ""
+export const findTitleRowA = (
+  ws: XLSX.WorkSheet,
+  label: string,
+  opts?: { startsWith?: boolean; scanRows?: number }
+) => {
+  const want = normalize(label)
+  const range = XLSX.utils.decode_range((ws as any)["!ref"] || "A1")
+  const maxR = Math.min(range.e.r, (opts?.scanRows ?? 5000) - 1)
+
+  for (let r0 = 0; r0 <= maxR; r0++) {
+    const s = normalize((ws as any)[addrRC(r0, 0)]?.v ?? "")
+    if (!s) continue
+    if (opts?.startsWith ? s.startsWith(want) : s === want) return r0
+  }
+  return -1
 }
+
+export const findRowContains = (
+  ws: XLSX.WorkSheet,
+  label: string,
+  opts?: { scanRows?: number; scanCols?: number }
+) => {
+  const want = normalize(label)
+  const range = XLSX.utils.decode_range((ws as any)["!ref"] || "A1")
+  const maxR = Math.min(range.e.r, (opts?.scanRows ?? 200) - 1)
+  const maxC = Math.min(range.e.c, (opts?.scanCols ?? 20) - 1)
+
+  for (let r0 = 0; r0 <= maxR; r0++) {
+    for (let c0 = 0; c0 <= maxC; c0++) {
+      const s = normalize((ws as any)[addrRC(r0, c0)]?.v ?? "")
+      if (s && s.includes(want)) return r0
+    }
+  }
+  return -1
+}
+
+export const buildSalesIndex = (salesHeaders: string[]) => {
+  const idx = new Map<string, string>()
+  ;(Array.isArray(salesHeaders) ? salesHeaders : []).forEach((h) => {
+    const key = normalize(h)
+    if (key && !idx.has(key)) idx.set(key, h)
+  })
+  return idx
+}
+
+export const pickHeaderFromIndex = (
+  idx: Map<string, string>,
+  ...aliases: string[]
+) => {
+  for (const a of aliases) {
+    const h = idx.get(normalize(a))
+    if (h) return h
+  }
+  return ""
+}
+
 export const unmergeInRange = (
   ws: XLSX.WorkSheet,
   rStart0: number,
@@ -69,74 +263,28 @@ export const unmergeInRange = (
   ;(ws as any)["!merges"] = kept
 }
 
-export const forceLeftTitleRow = (
-  ws: XLSX.WorkSheet,
-  r0: number,
-  startCol0 = 0, // A
-  endCol0 = 10 // K
-) => {
-  // 1) gom text đang nằm ở đâu đó trong hàng A..K
-  let title = ""
-  for (let c0 = startCol0; c0 <= endCol0; c0++) {
-    const addr = XLSX.utils.encode_cell({ r: r0, c: c0 })
-    const cell = ws[addr] as any
-    const v = cell?.v
-    if (!title && v !== undefined && v !== null && String(v).trim() !== "") {
-      title = String(v).trim()
-    }
-  }
-
-  // 2) clear toàn bộ cell trong hàng (để khỏi bị center từ cell cũ)
-  for (let c0 = startCol0; c0 <= endCol0; c0++) {
-    const addr = XLSX.utils.encode_cell({ r: r0, c: c0 })
-    delete (ws as any)[addr]
-  }
-
-  // 3) xoá mọi merge đụng tới row này (không chỉ s.r === r0)
-  const merges = ((ws as any)["!merges"] || []) as XLSX.Range[]
-  ;(ws as any)["!merges"] = merges.filter((m) => !(m.s.r <= r0 && m.e.r >= r0))
-
-  // 4) tạo merge chuẩn A..K cho row này
-  ;(ws as any)["!merges"] = [
-    ...(((ws as any)["!merges"] || []) as XLSX.Range[]),
-    { s: { r: r0, c: startCol0 }, e: { r: r0, c: endCol0 } },
-  ]
-
-  // 5) set lại ô A chứa title + style LEFT
-  const aAddr = XLSX.utils.encode_cell({ r: r0, c: startCol0 })
-  ;(ws as any)[aAddr] = {
-    t: "s",
-    v: title,
-    s: {
-      font: { ...FONT_TNR, bold: true },
-      fill: { patternType: "solid", fgColor: { rgb: "DFF3E3" } },
-      // border: BORDER_THIN_VACOM,
-      alignment: {
-        vertical: "center",
-        horizontal: "left",
-        wrapText: false,
-        indent: 0,
-      },
-    },
-  }
+export const ensureCell = (ws: XLSX.WorkSheet, r0: number, c0: number) => {
+  const addr = addrRC(r0, c0)
+  if (!(ws as any)[addr]) (ws as any)[addr] = { t: "s", v: "" }
+  return (ws as any)[addr]
 }
 
-export const getSheetAOA = (ws: XLSX.WorkSheet) =>
-  XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false }) as any[][]
-
-export const deepCloneSheet = (ws: XLSX.WorkSheet) =>
-  JSON.parse(JSON.stringify(ws)) as XLSX.WorkSheet
-
-export const ensureRefIncludes = (
+export const patchCellStyle = (
   ws: XLSX.WorkSheet,
-  maxR: number,
-  maxC: number
+  r0: number,
+  c0: number,
+  patch: any
 ) => {
-  const ref = ws["!ref"] || "A1"
-  const range = XLSX.utils.decode_range(ref)
-  if (maxR > range.e.r) range.e.r = maxR
-  if (maxC > range.e.c) range.e.c = maxC
-  ws["!ref"] = XLSX.utils.encode_range(range)
+  const cell = ensureCell(ws, r0, c0)
+  const s0 = cell.s || {}
+  cell.s = {
+    ...s0,
+    ...patch,
+    border: patch.border ?? s0.border,
+    alignment: patch.alignment ?? s0.alignment,
+    fill: patch.fill ?? s0.fill,
+    font: patch.font ?? s0.font,
+  }
 }
 
 /** insert rows: shift tất cả cell từ startRow trở xuống */
@@ -190,68 +338,6 @@ export const insertRows = (
 }
 
 /** tìm row section title theo text A./B./C./E./D. */
-export const findSectionTitleRow = (
-  aoa: any[][],
-  label: string,
-  scanRows = 5000
-) => {
-  const key = normalize(label)
-  for (let r = 0; r < Math.min(scanRows, aoa.length); r++) {
-    const line = normalize((aoa[r] || []).map((x) => String(x ?? "")).join(" "))
-    if (line.includes(key)) return r
-  }
-  return -1
-}
-
-export const toNumberLoose = (v: any) => {
-  if (v === null || v === undefined || v === "") return null
-  if (typeof v === "number" && Number.isFinite(v)) return v
-
-  const s = String(v).trim()
-  if (!s) return null
-
-  // bỏ phân cách tiền: "1,280,000" / "1.280.000" / "1 280 000"
-  const cleaned = s
-    .replace(/\s+/g, "")
-    .replace(/,/g, "")
-    .replace(/\.(?=\d{3}(\D|$))/g, "") // xóa dấu . ngăn cách hàng nghìn
-
-  const n = Number(cleaned)
-  return Number.isFinite(n) ? n : null
-}
-export const monthKey = (v: any): string => {
-  if (v == null || v === "") return ""
-  if (typeof v === "number" && Number.isFinite(v)) {
-    const d = XLSX.SSF.parse_date_code(v)
-    if (!d?.m || !d?.y) return ""
-    return `${String(d.m).padStart(2, "0")}/${String(d.y)}`
-  }
-  const s = String(v).trim()
-  if (!s) return ""
-
-  // dd/mm/yyyy
-  const m1 = s.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/)
-  if (m1) {
-    const mm = Number(m1[2])
-    const yy = Number(m1[3])
-    if (mm >= 1 && mm <= 12) return `${String(mm).padStart(2, "0")}/${yy}`
-  }
-  // yyyy-mm-dd
-  const m2 = s.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/)
-  if (m2) {
-    const yy = Number(m2[1])
-    const mm = Number(m2[2])
-    if (mm >= 1 && mm <= 12) return `${String(mm).padStart(2, "0")}/${yy}`
-  }
-  // mm/yyyy
-  const m3 = s.match(/^(\d{1,2})[\/\-](\d{4})$/)
-  if (m3) {
-    const mm = Number(m3[1])
-    const yy = Number(m3[2])
-    if (mm >= 1 && mm <= 12) return `${String(mm).padStart(2, "0")}/${yy}`
-  }
-  return ""
-}
 
 export const setCell = (
   ws: XLSX.WorkSheet,
@@ -279,16 +365,6 @@ export const setCell = (
   // ---- STT ----
   if (opts?.kind === "stt") {
     ws[addr] = { t: "n", v: Number(v) || 0 }
-    return
-  }
-
-  // ---- DATE ----
-  if (opts?.kind === "date") {
-    const n = Number(v)
-    ws[addr] = {
-      t: "s",
-      v: Number.isFinite(n) ? excelSerialToDateString(n) : String(v ?? ""),
-    }
     return
   }
 

@@ -1,36 +1,75 @@
 import * as XLSX from "xlsx-js-style"
-import { normalize } from "@/utils/excel"
+import {
+  addrRC,
+  buildSalesIndex,
+  clearDataKeepStyle,
+  copyRowStyleBlock,
+  ensureCell,
+  findRowContains,
+  findTitleRowA,
+  insertRows,
+  normalize,
+  patchCellStyle,
+  pickHeaderFromIndex,
+  setCell,
+  setFormulaKeepStyle,
+  setTextKeepStyle,
+  toNumber,
+  unmergeInRange,
+  type ExcelRow,
+} from "@/utils/excel"
 import {
   BORDER_THICK,
   BORDER_THIN,
+  COL_HOA_HONG,
   HOA_HONG_COL_WIDTHS,
+  NUM_PARENS_FMT,
+  sumTargets,
 } from "@/constants/Mauhoahong"
 
 let _exemptTncnSet: Set<string> | null = null
 
+type Sec = "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H"
+const SECS: Sec[] = ["A", "B", "C", "D", "E", "F", "G", "H"]
+
+export const pickSheetNameChiHoaHong = (
+  workbook: XLSX.WorkBook,
+  preferred?: string
+) => {
+  if (preferred && workbook.SheetNames.includes(preferred)) return preferred
+
+  const names = workbook.SheetNames.map((raw) => ({ raw, n: normalize(raw) }))
+  for (const candidate of [
+    "MẪU CHI HOA HỒNG",
+    "CHI HOA HONG",
+    "HOA HONG",
+    "Sheet1",
+  ]) {
+    const hit = names.find((x) => x.n.includes(normalize(candidate)))
+    if (hit) return hit.raw
+  }
+
+  return workbook.SheetNames[0] || ""
+}
+
 export const extractAgencyNameFromTemplate = (ws: XLSX.WorkSheet) => {
   const ref = (ws as any)["!ref"] || "A1"
   const range = XLSX.utils.decode_range(ref)
-
   const maxR = Math.min(range.e.r, range.s.r + 80)
   const maxC = Math.min(range.e.c, range.s.c + 25)
 
   for (let r = range.s.r; r <= maxR; r++) {
     for (let c = range.s.c; c <= maxC; c++) {
       const addr = XLSX.utils.encode_cell({ r, c })
-      const v = (ws as any)[addr]?.v
-      const s = normalize(v ?? "")
+      const s = normalize((ws as any)[addr]?.v ?? "")
       if (!s) continue
 
-      // ✅ template mới: label "ĐẠI LÝ/CTV" ở I6, value ở K6
       if (s.includes(normalize("ĐẠI LÝ/CTV"))) {
-        // ưu tiên lấy ô cách 2 cột bên phải (I -> K)
         const vAddr = XLSX.utils.encode_cell({ r, c: c + 2 })
         const v2 = (ws as any)[vAddr]?.v
         const name = String(v2 ?? "").trim()
         if (name) return name
 
-        // fallback: ô ngay bên phải
         const rightAddr = XLSX.utils.encode_cell({ r, c: c + 1 })
         const rightV = (ws as any)[rightAddr]?.v
         const nameRight = String(rightV ?? "").trim()
@@ -41,69 +80,29 @@ export const extractAgencyNameFromTemplate = (ws: XLSX.WorkSheet) => {
   return ""
 }
 
-export const setNumFmtKeepStyle = (
-  ws: XLSX.WorkSheet,
-  r0: number,
-  c0: number,
-  numFmt: string
-) => {
-  const cell = ensureCell(ws, r0, c0)
-  const s0 = cell.s || {}
-  cell.s = { ...s0, numFmt } // ✅ quan trọng
-  cell.z = numFmt // (phụ) để tương thích
-}
-
 export const getExemptTncnAgentsClient = async () => {
   if (_exemptTncnSet) return _exemptTncnSet
 
   const res = await fetch("/templates/DS DL KO CHỊU THUẾ TNCN.xlsx")
-  if (!res.ok)
+  if (!res.ok) {
     throw new Error("Không tải được file DS DL KO CHỊU THUẾ TNCN.xlsx")
+  }
 
   const ab = await res.arrayBuffer()
   const wb = XLSX.read(ab, { type: "array" })
   const ws = wb.Sheets[wb.SheetNames[0]]
-
   const ref = (ws as any)["!ref"] || "A1"
   const range = XLSX.utils.decode_range(ref)
 
   const s = new Set<string>()
   for (let r = range.s.r; r <= range.e.r; r++) {
-    const addr = XLSX.utils.encode_cell({ r, c: 0 }) // cột A
-    const v = (ws as any)[addr]?.v
-    const key = normalize(v ?? "")
+    const addr = XLSX.utils.encode_cell({ r, c: 0 })
+    const key = normalize((ws as any)[addr]?.v ?? "")
     if (key) s.add(key)
   }
 
   _exemptTncnSet = s
   return s
-}
-
-export const addrRC = (r0: number, c0: number) =>
-  XLSX.utils.encode_cell({ r: r0, c: c0 })
-
-export const ensureCell = (ws: XLSX.WorkSheet, r0: number, c0: number) => {
-  const addr = addrRC(r0, c0)
-  if (!(ws as any)[addr]) (ws as any)[addr] = { t: "s", v: "" }
-  return (ws as any)[addr]
-}
-
-export const patchCellStyle = (
-  ws: XLSX.WorkSheet,
-  r0: number,
-  c0: number,
-  patch: any
-) => {
-  const cell = ensureCell(ws, r0, c0)
-  const s0 = cell.s || {}
-  cell.s = {
-    ...s0,
-    ...patch,
-    border: patch.border ?? s0.border,
-    alignment: patch.alignment ?? s0.alignment,
-    fill: patch.fill ?? s0.fill,
-    font: patch.font ?? s0.font,
-  }
 }
 
 export const mergeCells = (
@@ -117,93 +116,6 @@ export const mergeCells = (
   ;(ws as any)["!merges"] = merges
 }
 
-export const setTextKeepStyle = (
-  ws: XLSX.WorkSheet,
-  r0: number,
-  c0: number,
-  value: string
-) => {
-  const addr = addrRC(r0, c0)
-  const keepS = (ws as any)[addr]?.s
-  const keepZ = (ws as any)[addr]?.z
-  const old = (ws as any)[addr] || {}
-  ;(ws as any)[addr] = { ...old, t: "s", v: value, s: keepS, z: keepZ }
-}
-
-export const setFormulaKeepStyle = (
-  ws: XLSX.WorkSheet,
-  r0: number,
-  c0: number,
-  formula: string,
-  fmt?: string
-) => {
-  const addr = addrRC(r0, c0)
-  const keepS = (ws as any)[addr]?.s
-  const keepZ = (ws as any)[addr]?.z
-  const keepNumFmt = (ws as any)[addr]?.s?.numFmt // ✅ thêm
-
-  const old = (ws as any)[addr] || {}
-  delete old.v
-  delete old.w
-  delete old.vt
-
-  const finalFmt = fmt || keepNumFmt || keepZ
-
-  ;(ws as any)[addr] = {
-    ...old,
-    t: "n",
-    v: 0,
-    f: formula.startsWith("=") ? formula.slice(1) : formula,
-    s: { ...(keepS || {}), ...(finalFmt ? { numFmt: finalFmt } : {}) }, // ✅ giữ numFmt
-    z: finalFmt,
-  }
-}
-
-export const copyRowStyle = (
-  ws: XLSX.WorkSheet,
-  srcRow0: number,
-  dstRow0: number,
-  cStart0: number,
-  cEnd0: number
-) => {
-  for (let c0 = cStart0; c0 <= cEnd0; c0++) {
-    const srcAddr = addrRC(srcRow0, c0)
-    const dstAddr = addrRC(dstRow0, c0)
-
-    const srcCell: any = (ws as any)[srcAddr]
-    const dstCell: any = (ws as any)[dstAddr]
-    if (!srcCell) continue
-
-    const keepV = dstCell?.v ?? ""
-    const keepT = dstCell?.t ?? "s"
-
-    ;(ws as any)[dstAddr] = {
-      ...dstCell,
-      t: keepT,
-      v: keepV,
-      s: srcCell.s ? JSON.parse(JSON.stringify(srcCell.s)) : dstCell?.s,
-      z: srcCell.z ?? dstCell?.z,
-    }
-  }
-
-  const rows: any[] = (ws as any)["!rows"] || []
-  if (rows[srcRow0]) {
-    rows[dstRow0] = { ...rows[srcRow0] }
-    ;(ws as any)["!rows"] = rows
-  }
-}
-
-export const copyRowStyleBlock = (
-  ws: XLSX.WorkSheet,
-  srcRow0: number,
-  startDstRow0: number,
-  count: number,
-  cStart0: number,
-  cEnd0: number
-) => {
-  for (let i = 0; i < count; i++)
-    copyRowStyle(ws, srcRow0, startDstRow0 + i, cStart0, cEnd0)
-}
 export const mergeRange = (
   ws: XLSX.WorkSheet,
   rStart0: number,
@@ -214,67 +126,6 @@ export const mergeRange = (
   const merges = ((ws as any)["!merges"] || []) as XLSX.Range[]
   merges.push({ s: { r: rStart0, c: cStart0 }, e: { r: rEnd0, c: cEnd0 } })
   ;(ws as any)["!merges"] = merges
-}
-
-export const clearDataKeepStyle = (
-  ws: XLSX.WorkSheet,
-  rStart0: number,
-  rEnd0: number,
-  cStart0: number,
-  cEnd0: number,
-  isNumericCol: (c0: number) => boolean
-) => {
-  if (rEnd0 < rStart0 || cEnd0 < cStart0) return
-  for (let r0 = rStart0; r0 <= rEnd0; r0++) {
-    for (let c0 = cStart0; c0 <= cEnd0; c0++) {
-      const addr = addrRC(r0, c0)
-      const cell: any = (ws as any)[addr]
-      if (!cell) continue
-      const s = cell.s
-      const z = cell.z
-      ;(ws as any)[addr] = isNumericCol(c0)
-        ? { t: "n", v: 0, s, z }
-        : { t: "s", v: "", s, z }
-    }
-  }
-}
-
-export const findTitleRowA = (
-  ws: XLSX.WorkSheet,
-  label: string,
-  opts?: { startsWith?: boolean; scanRows?: number }
-) => {
-  const want = normalize(label)
-  const range = XLSX.utils.decode_range(ws["!ref"] || "A1")
-  const maxR = Math.min(range.e.r, (opts?.scanRows ?? 5000) - 1)
-
-  for (let r0 = 0; r0 <= maxR; r0++) {
-    const v = (ws as any)[addrRC(r0, 0)]?.v
-    const s = normalize(v ?? "")
-    if (!s) continue
-    if (opts?.startsWith ? s.startsWith(want) : s === want) return r0
-  }
-  return -1
-}
-
-export const findRowContains = (
-  ws: XLSX.WorkSheet,
-  label: string,
-  opts?: { scanRows?: number; scanCols?: number }
-) => {
-  const want = normalize(label)
-  const range = XLSX.utils.decode_range(ws["!ref"] || "A1")
-  const maxR = Math.min(range.e.r, (opts?.scanRows ?? 200) - 1)
-  const maxC = Math.min(range.e.c, (opts?.scanCols ?? 20) - 1)
-
-  for (let r0 = 0; r0 <= maxR; r0++) {
-    for (let c0 = 0; c0 <= maxC; c0++) {
-      const v = (ws as any)[addrRC(r0, c0)]?.v
-      const s = normalize(v ?? "")
-      if (s && s.includes(want)) return r0
-    }
-  }
-  return -1
 }
 
 export const setColumnWidthsHoaHong = (ws: XLSX.WorkSheet) => {
@@ -289,8 +140,9 @@ export const applyInnerThinBorders = (
   cEnd0: number
 ) => {
   for (let r0 = rStart0; r0 <= rEnd0; r0++) {
-    for (let c0 = cStart0; c0 <= cEnd0; c0++)
+    for (let c0 = cStart0; c0 <= cEnd0; c0++) {
       patchCellStyle(ws, r0, c0, { border: BORDER_THIN })
+    }
   }
 }
 
@@ -315,6 +167,7 @@ export const applyOuterThickBorder = (
       },
     })
   }
+
   for (let r0 = rStart0; r0 <= rEnd0; r0++) {
     patchCellStyle(ws, r0, cStart0, {
       border: {
@@ -338,8 +191,9 @@ export const applyFillRow = (
   cEnd0: number,
   fill: any
 ) => {
-  for (let c0 = cStart0; c0 <= cEnd0; c0++)
+  for (let c0 = cStart0; c0 <= cEnd0; c0++) {
     patchCellStyle(ws, row0, c0, { fill })
+  }
 }
 
 export const setRowFont = (
@@ -356,7 +210,6 @@ export const setRowFont = (
   }
 }
 
-// ✅ set font all cells (Times New Roman)
 export const setFontAll = (ws: XLSX.WorkSheet, name = "Times New Roman") => {
   for (const addr of Object.keys(ws)) {
     if (addr.startsWith("!")) continue
@@ -367,4 +220,753 @@ export const setFontAll = (ws: XLSX.WorkSheet, name = "Times New Roman") => {
       font: { ...font0, name },
     }
   }
+}
+
+const pickLoaiSanPhamHeader = (salesHeaders: string[], salesRows: any[]) => {
+  const headers = (salesHeaders || []).filter(Boolean).map(String)
+  const candidates = headers.filter((h) => {
+    const nh = normalize(h)
+    return (
+      nh.includes(normalize("tên sp")) ||
+      nh.includes(normalize("ten sp")) ||
+      nh.includes(normalize("loại sp")) ||
+      nh.includes(normalize("loai sp"))
+    )
+  })
+
+  if (!candidates.length) return ""
+  if (candidates.length === 1) return candidates[0]
+
+  const sampleN = Math.min(200, salesRows.length)
+  const score = (header: string) => {
+    let sc = 0
+    for (let i = 0; i < sampleN; i++) {
+      const s = normalize((salesRows[i] as any)?.[header] ?? "")
+      if (!s) continue
+      const hit =
+        s === normalize("HD") ||
+        s === normalize("MTT") ||
+        s === normalize("TNCN") ||
+        s === normalize("BHXH") ||
+        s === normalize("SMI") ||
+        s === normalize("CKS") ||
+        s.startsWith(normalize("ICA")) ||
+        s.includes("hddt") ||
+        (s.includes("hoadon") && s.includes("dientu")) ||
+        s.includes("maytinhtien")
+
+      if (hit) sc += 5
+      if (s.length <= 5) sc += 1
+    }
+    return sc
+  }
+
+  return candidates.sort((a, b) => score(b) - score(a))[0]
+}
+
+const pickLoaiCodeHeader = (salesHeaders: string[], salesRows: any[]) => {
+  const headers = (salesHeaders || []).filter(Boolean).map(String)
+  const candidates = headers.filter((h) =>
+    normalize(h).includes(normalize("tên sp"))
+  )
+  if (!candidates.length) return ""
+
+  const sampleN = Math.min(200, salesRows.length)
+  const score = (header: string) => {
+    let sc = 0
+    for (let i = 0; i < sampleN; i++) {
+      const s = normalize((salesRows[i] as any)?.[header] ?? "")
+      if (!s) continue
+
+      if (
+        s === normalize("HD") ||
+        s === normalize("CKS") ||
+        s === normalize("TH") ||
+        s === normalize("PM")
+      )
+        sc += 5
+      if (s.length <= 4) sc += 1
+
+      if (
+        s.startsWith(normalize("ICA")) ||
+        s.startsWith(normalize("INT")) ||
+        s.includes("KIOT") ||
+        s === normalize("MTT")
+      )
+        sc -= 3
+    }
+    return sc
+  }
+
+  return candidates.sort((a, b) => score(b) - score(a))[0]
+}
+
+const pickLoaiCksTextHeader = (
+  salesHeaders: string[],
+  salesRows: any[],
+  loaiCodeHeader: string
+) => {
+  const headers = (salesHeaders || []).filter(Boolean).map(String)
+  const candidates = headers.filter((h) =>
+    normalize(h).includes(normalize("tên sp"))
+  )
+  if (!candidates.length) return ""
+
+  const pool = candidates.filter((h) => h !== loaiCodeHeader)
+  const source = pool.length ? pool : candidates
+  const sampleN = Math.min(200, salesRows.length)
+
+  const score = (header: string) => {
+    let sc = 0
+    for (let i = 0; i < sampleN; i++) {
+      const s = normalize((salesRows[i] as any)?.[header] ?? "")
+      if (!s) continue
+
+      if (
+        s.startsWith(normalize("ICA")) ||
+        s.startsWith(normalize("INT")) ||
+        s.startsWith(normalize("TOKEN")) ||
+        s.includes("KIOT") ||
+        s === normalize("MTT")
+      )
+        sc += 5
+
+      if (
+        s === normalize("HD") ||
+        s === normalize("CKS") ||
+        s === normalize("TH") ||
+        s === normalize("PM")
+      )
+        sc -= 4
+    }
+    return sc
+  }
+
+  return source.sort((a, b) => score(b) - score(a))[0]
+}
+
+const pickTienHoaHongHeader = (salesHeaders: string[]) => {
+  const headers = (salesHeaders || []).filter(Boolean).map(String)
+  const moneyLabel = normalize("TIỀN HOA HỒNG")
+  const byMoneyName = headers.find((h) => normalize(h).includes(moneyLabel))
+  if (byMoneyName) return byMoneyName
+
+  return headers.find((h) => {
+    const raw = String(h).toLowerCase()
+    const s = normalize(h)
+    const looksLikeHH =
+      s === normalize("hh") ||
+      s === normalize("tien hoa hong") ||
+      s.includes(normalize("hoa hong"))
+
+    const isPercent =
+      raw.includes("%") ||
+      s.includes(normalize("phan tram")) ||
+      s.includes(normalize("percent")) ||
+      s.includes(normalize("ty le")) ||
+      s.includes(normalize("ti le"))
+
+    return looksLikeHH && !isPercent
+  })
+}
+
+export const buildHeaderMapHH = (
+  salesHeaders: string[],
+  salesRows: any[] = []
+) => {
+  const idx = buildSalesIndex(salesHeaders)
+  const pick = (...aliases: string[]) => pickHeaderFromIndex(idx, ...aliases)
+
+  const loaiCodeHeader = pickLoaiCodeHeader(salesHeaders, salesRows)
+
+  return {
+    LOAI:
+      pickLoaiSanPhamHeader(salesHeaders, salesRows) ||
+      pick("TÊN SP", "LOẠI SP"),
+    THANG: pick("THÁNG", "Tháng", "thang"),
+    MST: pick("MST", "Mã số thuế"),
+    TEN: pick("TÊN CTY", "TÊN CÔNG TY", "TÊN ĐƠN VỊ", "Tên công ty"),
+    LOAI_CODE: loaiCodeHeader,
+    LOAI_CKS_TEXT: pickLoaiCksTextHeader(
+      salesHeaders,
+      salesRows,
+      loaiCodeHeader
+    ),
+    BANQUYEN: pick("BQ", "BẢN QUYỀN"),
+    SL_MOI: pick("SL MỚI", "SLMOI"),
+    SL_GH: pick("SL GH", "SLGH"),
+    SL_TANG: pick("SL TẶNG", "SL TANG", "SLTANG"),
+    DT_GOI_HD: pick("GÓI HÓA ĐƠN", "GOI HOA DON", "GÓI HĐ"),
+    DT_KHAC: pick("KHÁC", "KHAC"),
+    TRI_GIA_XUAT_HD: pick(
+      "TỔNG XUẤT HD",
+      "TONG XUAT HD",
+      "TỔNG XUẤT HĐ",
+      "tổng suất hd"
+    ),
+    VUOT_GIA: pick("VIẾT CHÊNH", "VIET CHENH", "VƯỢT GIÁ"),
+    TIEN_HOA_HONG:
+      pickTienHoaHongHeader(salesHeaders) ||
+      pick("TIỀN HOA HỒNG", "TIEN HOA HONG", "HH"),
+    PHI_VIET_CHENH: pick(
+      "DT VIẾT CHÊNH",
+      "DT VIET CHENH",
+      "T VIẾT CHÊNH",
+      "T VIET CHENH",
+      "PHÍ VIẾT CHÊNH",
+      "PHI VIET CHENH",
+      "PHAIRTRA CHÊNH",
+      "PHAI TRA CHENH"
+    ),
+    DT_MINVOICE: pick(
+      "SỐ TIỀN",
+      "SO TIEN",
+      "SOTIEN",
+      "SỐ TIỀN THU",
+      "SO TIEN THU",
+      "TIỀN THU",
+      "TIEN THU"
+    ),
+    GHI_CHU: pick("CHI CHÚ", "CHI CHU", "GHI CHÚ", "GHI CHU"),
+    DEALER: pick("Tên đại lý", "Đại lý", "Dealer"),
+    CATEGORY: pick("PHÒNG BAN", "Danh mục", "Category") || "",
+  }
+}
+
+export const validateHeaderMapHH = (H: ReturnType<typeof buildHeaderMapHH>) => {
+  const missing: string[] = []
+
+  ;[
+    ["TÊN SP", H.LOAI],
+    ["THÁNG KÍCH HOẠT", H.THANG],
+    ["MST", H.MST],
+    ["TÊN CTY", H.TEN],
+    ["BQ", H.BANQUYEN],
+    ["SL MỚI", H.SL_MOI],
+    ["SL GH", H.SL_GH],
+    ["SL TẶNG", H.SL_TANG],
+    ["GÓI HÓA ĐƠN", H.DT_GOI_HD],
+    ["KHÁC", H.DT_KHAC],
+    ["TỔNG XUẤT HĐ", H.TRI_GIA_XUAT_HD],
+    ["VIẾT CHÊNH", H.VUOT_GIA],
+    ["TIỀN HOA HỒNG", H.TIEN_HOA_HONG],
+    ["DT VIẾT CHÊNH", H.PHI_VIET_CHENH],
+    ["SỐ TIỀN", H.DT_MINVOICE],
+    ["Đại Lý", H.DEALER],
+  ].forEach(([label, value]) => {
+    if (!value) missing.push(label as string)
+  })
+
+  if (missing.length) {
+    throw new Error(
+      "❌ Thiếu cột trong file theo dõi doanh số: " +
+        Array.from(new Set(missing)).join(", ")
+    )
+  }
+}
+
+export const classifyProductToSectionHoaHong = (v: any): Sec => {
+  const s = normalize(v)
+
+  if (
+    s === normalize("HD") ||
+    s.includes("hddt") ||
+    s.includes("hoadondientu") ||
+    (s.includes("hoadon") && s.includes("dientu"))
+  )
+    return "A"
+
+  if (
+    s === normalize("MTT") ||
+    s.includes("maytinhtien") ||
+    s.includes("may tinh tien")
+  )
+    return "B"
+
+  if (
+    s === normalize("TNCN") ||
+    s.includes("tncn") ||
+    s.includes("khautru") ||
+    s.includes("khau tru") ||
+    s.includes("chungtu") ||
+    s.includes("chung tu")
+  )
+    return "C"
+
+  if (s === normalize("BHXH") || s.includes("bhxh")) return "D"
+  if (s === normalize("SMI") || s.includes("smi")) return "E"
+  if (s === normalize("XANG") || s.includes("xang")) return "F"
+
+  if (
+    s.startsWith(normalize("ICA")) ||
+    s.startsWith(normalize("INT")) ||
+    s.startsWith(normalize("EAS")) ||
+    s.startsWith(normalize("TOKEN")) ||
+    s.includes("cks") ||
+    s.includes("chukyso") ||
+    s.includes("chu ky so") ||
+    s.includes("chukiso")
+  )
+    return "G"
+
+  return "H"
+}
+
+export const resolveTemplateRowsHoaHong = (ws: XLSX.WorkSheet) => {
+  const rA = findRowContains(ws, "A. GIÁ TRỊ HÓA ĐƠN ĐIỆN TỬ", {
+    scanRows: 500,
+    scanCols: 30,
+  })
+  const rB = findRowContains(ws, "B. MÁY TÍNH TIỀN", {
+    scanRows: 500,
+    scanCols: 30,
+  })
+  const rC = findRowContains(ws, "C. CHỨNG TỪ KHẤU TRỪ THUẾ TNCN", {
+    scanRows: 800,
+    scanCols: 30,
+  })
+  const rD = findRowContains(ws, "D. BHXH", { scanRows: 800, scanCols: 30 })
+  const rE = findRowContains(ws, "E. QUẢN LÝ HÓA ĐƠN SMI", {
+    scanRows: 1000,
+    scanCols: 30,
+  })
+  const rF = findRowContains(ws, "F. XĂNG DẦU", { scanRows: 800, scanCols: 30 })
+  const rG = findRowContains(ws, "G. GIÁ TRỊ CHỮ KÝ SỐ", {
+    scanRows: 1200,
+    scanCols: 30,
+  })
+  let rH = findRowContains(ws, "H. KHAC", { scanRows: 1500, scanCols: 30 })
+  if (rH === -1) {
+    rH = findRowContains(ws, "H. KHÁC", { scanRows: 1500, scanCols: 30 })
+  }
+
+  const rTOTAL = findTitleRowA(ws, "CỘNG", {
+    startsWith: false,
+    scanRows: 5000,
+  })
+
+  if ([rA, rB, rC, rD, rE, rF, rG, rH, rTOTAL].some((x) => x === -1)) {
+    throw new Error(
+      "❌ Không tìm thấy đủ khu A..H hoặc dòng CỘNG trong template."
+    )
+  }
+
+  return { rA, rB, rC, rD, rE, rF, rG, rH, rTOTAL }
+}
+
+export const ensureAllSectionsHaveSpaceHoaHong = (
+  ws: XLSX.WorkSheet,
+  filteredRows: ExcelRow[],
+  H_LOAI: string
+) => {
+  const group: Record<Sec, ExcelRow[]> = {
+    A: [],
+    B: [],
+    C: [],
+    D: [],
+    E: [],
+    F: [],
+    G: [],
+    H: [],
+  }
+
+  filteredRows.forEach((row) => {
+    const sec = classifyProductToSectionHoaHong((row as any)[H_LOAI])
+    group[sec].push(row)
+  })
+
+  const maxCol = COL_HOA_HONG.GHI_CHU
+
+  const ensureSpace = (
+    sec: Sec,
+    titleLabel: string,
+    boundaryLabel: string,
+    boundaryExact = false
+  ) => {
+    const titleRow = findRowContains(ws, titleLabel, {
+      scanRows: 2000,
+      scanCols: 30,
+    })
+    const boundaryRow = boundaryExact
+      ? findTitleRowA(ws, boundaryLabel, { startsWith: false, scanRows: 5000 })
+      : findRowContains(ws, boundaryLabel, { scanRows: 2000, scanCols: 30 })
+
+    if (titleRow === -1 || boundaryRow === -1) return
+
+    const start = titleRow + 1
+    const placeholder = Math.max(0, boundaryRow - start)
+    const needInsert = Math.max(0, group[sec].length - placeholder)
+    if (needInsert <= 0) return
+
+    insertRows(ws, boundaryRow, needInsert)
+    const srcStyleRow0 = Math.max(titleRow + 1, boundaryRow - 1)
+    copyRowStyleBlock(ws, srcStyleRow0, boundaryRow, needInsert, 0, maxCol)
+  }
+
+  ensureSpace("H", "H. KHAC", "CỘNG", true)
+  ensureSpace("G", "G. GIÁ TRỊ CHỮ KÝ SỐ", "H. KHAC")
+  ensureSpace("F", "F. XĂNG DẦU", "G. GIÁ TRỊ CHỮ KÝ SỐ")
+  ensureSpace("E", "E. QUẢN LÝ HÓA ĐƠN SMI", "F. XĂNG DẦU")
+  ensureSpace("D", "D. BHXH", "E. QUẢN LÝ HÓA ĐƠN SMI")
+  ensureSpace("C", "C. CHỨNG TỪ KHẤU TRỪ THUẾ TNCN", "D. BHXH")
+  ensureSpace("B", "B. MÁY TÍNH TIỀN", "C. CHỨNG TỪ KHẤU TRỪ THUẾ TNCN")
+  ensureSpace("A", "A. GIÁ TRỊ HÓA ĐƠN ĐIỆN TỬ", "B. MÁY TÍNH TIỀN")
+
+  return group
+}
+
+export const clearAllSectionBlocksHoaHong = (
+  ws: XLSX.WorkSheet,
+  rows: ReturnType<typeof resolveTemplateRowsHoaHong>
+) => {
+  Object.assign(rows, resolveTemplateRowsHoaHong(ws))
+
+  const numericCols = new Set<number>([
+    COL_HOA_HONG.STT,
+    COL_HOA_HONG.BANQUYEN,
+    COL_HOA_HONG.SL_MOI,
+    COL_HOA_HONG.SL_GH,
+    COL_HOA_HONG.SL_TANG,
+    COL_HOA_HONG.DT_GOI_HD,
+    COL_HOA_HONG.DT_KHAC,
+    COL_HOA_HONG.TRI_GIA_XUAT_HD,
+    COL_HOA_HONG.GIA_DOI_SOAT,
+    COL_HOA_HONG.VUOT_GIA,
+    COL_HOA_HONG.TIEN_HOA_HONG,
+    COL_HOA_HONG.PHI_VIET_CHENH,
+    COL_HOA_HONG.TONG_TRA_DOI_TAC,
+    COL_HOA_HONG.DT_MINVOICE,
+    COL_HOA_HONG.CHENH_LECH,
+  ])
+
+  const isNumericCol = (c0: number) => numericCols.has(c0)
+  const clearBlock = (startRow0: number, endRow0: number) => {
+    if (endRow0 < startRow0) return
+    clearDataKeepStyle(
+      ws,
+      startRow0,
+      endRow0,
+      0,
+      COL_HOA_HONG.GHI_CHU,
+      isNumericCol
+    )
+    unmergeInRange(ws, startRow0, endRow0)
+  }
+
+  clearBlock(rows.rA + 1, rows.rB - 1)
+  clearBlock(rows.rB + 1, rows.rC - 1)
+  clearBlock(rows.rC + 1, rows.rD - 1)
+  clearBlock(rows.rD + 1, rows.rE - 1)
+  clearBlock(rows.rE + 1, rows.rF - 1)
+  clearBlock(rows.rF + 1, rows.rG - 1)
+  clearBlock(rows.rG + 1, rows.rH - 1)
+  clearBlock(rows.rH + 1, rows.rTOTAL - 1)
+}
+
+export const fillAllSectionsHoaHong = (
+  ws: XLSX.WorkSheet,
+  rows: ReturnType<typeof resolveTemplateRowsHoaHong>,
+  group: Record<Sec, ExcelRow[]>,
+  H: ReturnType<typeof buildHeaderMapHH>
+) => {
+  const start: Record<Sec, number> = {
+    A: rows.rA + 1,
+    B: rows.rB + 1,
+    C: rows.rC + 1,
+    D: rows.rD + 1,
+    E: rows.rE + 1,
+    F: rows.rF + 1,
+    G: rows.rG + 1,
+    H: rows.rH + 1,
+  }
+
+  const isEmptyValue = (v: any) => v == null || String(v).trim() === ""
+  const setNumKeepStyle = (r0: number, c0: number, value: any) => {
+    const addr = addrRC(r0, c0)
+    const keepS = (ws as any)[addr]?.s
+    const keepZ = (ws as any)[addr]?.z
+    const vNum = isEmptyValue(value) ? 0 : toNumber(value)
+
+    ;(ws as any)[addr] = {
+      t: "n",
+      v: vNum,
+      s: keepS,
+      z: keepZ || NUM_PARENS_FMT,
+    }
+
+    patchCellStyle(ws, r0, c0, { numFmt: keepZ || NUM_PARENS_FMT })
+  }
+
+  const fillSection = (sec: Sec) => {
+    const rowsData = group[sec]
+    for (let i = 0; i < rowsData.length; i++) {
+      const r0 = start[sec] + i
+      const row = rowsData[i] as any
+      const isCKS = classifyProductToSectionHoaHong(row[H.LOAI_CODE]) === "G"
+
+      setCell(ws, r0, COL_HOA_HONG.STT, i + 1, { kind: "stt", force: true })
+      setCell(ws, r0, COL_HOA_HONG.THANG, row[H.THANG], {
+        kind: "text",
+        force: true,
+      })
+      setCell(ws, r0, COL_HOA_HONG.MST, row[H.MST], {
+        kind: "text",
+        force: true,
+      })
+      setCell(ws, r0, COL_HOA_HONG.TEN, row[H.TEN], {
+        kind: "text",
+        force: true,
+      })
+
+      if (isCKS) {
+        unmergeInRange(ws, r0, r0)
+        setCell(ws, r0, COL_HOA_HONG.BANQUYEN, "", {
+          kind: "text",
+          force: true,
+        })
+        mergeCells(ws, r0, COL_HOA_HONG.BANQUYEN, COL_HOA_HONG.DT_KHAC)
+
+        const cksText = H.LOAI_CKS_TEXT && row[H.LOAI_CKS_TEXT]
+        setCell(ws, r0, COL_HOA_HONG.BANQUYEN, cksText, {
+          kind: "text",
+          force: true,
+        })
+        patchCellStyle(ws, r0, COL_HOA_HONG.BANQUYEN, {
+          alignment: {
+            horizontal: "center",
+            vertical: "center",
+            wrapText: true,
+          },
+        })
+
+        setNumKeepStyle(
+          r0,
+          COL_HOA_HONG.TRI_GIA_XUAT_HD,
+          row[H.TRI_GIA_XUAT_HD]
+        )
+        const giaDoiSoat =
+          toNumber(row[H.BANQUYEN]) + toNumber(row[H.DT_GOI_HD])
+        setNumKeepStyle(r0, COL_HOA_HONG.GIA_DOI_SOAT, giaDoiSoat)
+      } else {
+        setNumKeepStyle(r0, COL_HOA_HONG.BANQUYEN, row[H.BANQUYEN])
+        setNumKeepStyle(r0, COL_HOA_HONG.SL_MOI, row[H.SL_MOI])
+        setNumKeepStyle(r0, COL_HOA_HONG.SL_GH, row[H.SL_GH])
+        setNumKeepStyle(r0, COL_HOA_HONG.SL_TANG, row[H.SL_TANG])
+        setNumKeepStyle(r0, COL_HOA_HONG.DT_GOI_HD, row[H.DT_GOI_HD])
+        setNumKeepStyle(r0, COL_HOA_HONG.DT_KHAC, row[H.DT_KHAC])
+        setNumKeepStyle(
+          r0,
+          COL_HOA_HONG.TRI_GIA_XUAT_HD,
+          row[H.TRI_GIA_XUAT_HD]
+        )
+        setFormulaKeepStyle(
+          ws,
+          r0,
+          COL_HOA_HONG.GIA_DOI_SOAT,
+          `=${addrRC(r0, COL_HOA_HONG.BANQUYEN)}+${addrRC(r0, COL_HOA_HONG.DT_GOI_HD)}+${addrRC(r0, COL_HOA_HONG.DT_KHAC)}`
+        )
+      }
+
+      setNumKeepStyle(r0, COL_HOA_HONG.VUOT_GIA, row[H.VUOT_GIA])
+      setNumKeepStyle(r0, COL_HOA_HONG.TIEN_HOA_HONG, row[H.TIEN_HOA_HONG])
+      setNumKeepStyle(r0, COL_HOA_HONG.PHI_VIET_CHENH, row[H.PHI_VIET_CHENH])
+      setFormulaKeepStyle(
+        ws,
+        r0,
+        COL_HOA_HONG.TONG_TRA_DOI_TAC,
+        `=${addrRC(r0, COL_HOA_HONG.TIEN_HOA_HONG)}+${addrRC(r0, COL_HOA_HONG.VUOT_GIA)}-${addrRC(r0, COL_HOA_HONG.PHI_VIET_CHENH)}`
+      )
+      setNumKeepStyle(r0, COL_HOA_HONG.DT_MINVOICE, row[H.DT_MINVOICE])
+      setFormulaKeepStyle(
+        ws,
+        r0,
+        COL_HOA_HONG.CHENH_LECH,
+        `=${addrRC(r0, COL_HOA_HONG.TRI_GIA_XUAT_HD)}-${addrRC(r0, COL_HOA_HONG.DT_MINVOICE)}`
+      )
+
+      if (H.GHI_CHU) {
+        setCell(ws, r0, COL_HOA_HONG.GHI_CHU, row[H.GHI_CHU], {
+          kind: "text",
+          force: true,
+        })
+      }
+    }
+  }
+
+  SECS.forEach(fillSection)
+}
+
+const deleteRows = (ws: XLSX.WorkSheet, startRow0: number, nRows: number) => {
+  if (nRows <= 0) return
+
+  const newWs: XLSX.WorkSheet = { ...ws }
+  const keys = Object.keys(newWs).filter((k) => !k.startsWith("!"))
+
+  keys
+    .map((addr) => ({ addr, cell: (newWs as any)[addr] }))
+    .sort(
+      (a, b) =>
+        XLSX.utils.decode_cell(a.addr).r - XLSX.utils.decode_cell(b.addr).r
+    )
+    .forEach(({ addr, cell }) => {
+      const { r, c } = XLSX.utils.decode_cell(addr)
+      if (r >= startRow0 && r < startRow0 + nRows) {
+        delete (newWs as any)[addr]
+        return
+      }
+      if (r >= startRow0 + nRows) {
+        const newAddr = XLSX.utils.encode_cell({ r: r - nRows, c })
+        ;(newWs as any)[newAddr] = cell
+        delete (newWs as any)[addr]
+      }
+    })
+
+  const merges = ((newWs as any)["!merges"] || []) as XLSX.Range[]
+  const kept: XLSX.Range[] = []
+  for (const m of merges) {
+    if (m.e.r < startRow0) kept.push(m)
+    else if (m.s.r >= startRow0 + nRows) {
+      kept.push({
+        s: { r: m.s.r - nRows, c: m.s.c },
+        e: { r: m.e.r - nRows, c: m.e.c },
+      })
+    } else if (m.s.r < startRow0 && m.e.r >= startRow0 + nRows) {
+      kept.push({
+        s: { r: m.s.r, c: m.s.c },
+        e: { r: m.e.r - nRows, c: m.e.c },
+      })
+    }
+  }
+  ;(newWs as any)["!merges"] = kept
+
+  const ref = (newWs as any)["!ref"] || "A1"
+  const range = XLSX.utils.decode_range(ref)
+  range.e.r = Math.max(range.s.r, range.e.r - nRows)
+  ;(newWs as any)["!ref"] = XLSX.utils.encode_range(range)
+
+  Object.keys(ws).forEach((k) => delete (ws as any)[k])
+  Object.assign(ws, newWs)
+}
+
+export const compactSectionsHoaHong = (
+  ws: XLSX.WorkSheet,
+  group: Record<Sec, ExcelRow[]>
+) => {
+  let rows = resolveTemplateRowsHoaHong(ws)
+
+  const compactBetween = (
+    titleRow0: number,
+    nextTitleRow0: number,
+    dataLen: number
+  ) => {
+    const start = titleRow0 + 1 + Math.max(0, dataLen)
+    const end = nextTitleRow0 - 1
+    const nDel = Math.max(0, end - start + 1)
+    if (nDel > 0) deleteRows(ws, start, nDel)
+  }
+
+  rows = resolveTemplateRowsHoaHong(ws)
+  compactBetween(rows.rH, rows.rTOTAL, group.H.length)
+  rows = resolveTemplateRowsHoaHong(ws)
+  compactBetween(rows.rG, rows.rH, group.G.length)
+  rows = resolveTemplateRowsHoaHong(ws)
+  compactBetween(rows.rF, rows.rG, group.F.length)
+  rows = resolveTemplateRowsHoaHong(ws)
+  compactBetween(rows.rE, rows.rF, group.E.length)
+  rows = resolveTemplateRowsHoaHong(ws)
+  compactBetween(rows.rD, rows.rE, group.D.length)
+  rows = resolveTemplateRowsHoaHong(ws)
+  compactBetween(rows.rC, rows.rD, group.C.length)
+  rows = resolveTemplateRowsHoaHong(ws)
+  compactBetween(rows.rB, rows.rC, group.B.length)
+  rows = resolveTemplateRowsHoaHong(ws)
+  compactBetween(rows.rA, rows.rB, group.A.length)
+
+  return resolveTemplateRowsHoaHong(ws)
+}
+
+const setSectionSumRow = (
+  ws: XLSX.WorkSheet,
+  titleRow0: number,
+  dataStartRow0: number,
+  dataEndRow0: number
+) => {
+  const rStart1 = dataStartRow0 + 1
+  const rEnd1 = dataEndRow0 + 1
+  const mkSum = (colIdx: number) => {
+    const col = XLSX.utils.encode_col(colIdx)
+    return dataEndRow0 >= dataStartRow0
+      ? `SUM(${col}${rStart1}:${col}${rEnd1})`
+      : "0"
+  }
+
+  sumTargets.forEach((c0) => {
+    setFormulaKeepStyle(ws, titleRow0, c0, `=${mkSum(c0)}`, NUM_PARENS_FMT)
+  })
+
+  setTextKeepStyle(ws, titleRow0, COL_HOA_HONG.GHI_CHU, "")
+}
+
+export const applyAllSectionSumsHoaHong = (
+  ws: XLSX.WorkSheet,
+  rows: ReturnType<typeof resolveTemplateRowsHoaHong>,
+  group: Record<Sec, ExcelRow[]>
+) => {
+  const start: Record<Sec, number> = {
+    A: rows.rA + 1,
+    B: rows.rB + 1,
+    C: rows.rC + 1,
+    D: rows.rD + 1,
+    E: rows.rE + 1,
+    F: rows.rF + 1,
+    G: rows.rG + 1,
+    H: rows.rH + 1,
+  }
+
+  const end: Record<Sec, number> = {
+    A: start.A + group.A.length - 1,
+    B: start.B + group.B.length - 1,
+    C: start.C + group.C.length - 1,
+    D: start.D + group.D.length - 1,
+    E: start.E + group.E.length - 1,
+    F: start.F + group.F.length - 1,
+    G: start.G + group.G.length - 1,
+    H: start.H + group.H.length - 1,
+  }
+
+  setSectionSumRow(ws, rows.rA, start.A, end.A)
+  setSectionSumRow(ws, rows.rB, start.B, end.B)
+  setSectionSumRow(ws, rows.rC, start.C, end.C)
+  setSectionSumRow(ws, rows.rD, start.D, end.D)
+  setSectionSumRow(ws, rows.rE, start.E, end.E)
+  setSectionSumRow(ws, rows.rF, start.F, end.F)
+  setSectionSumRow(ws, rows.rG, start.G, end.G)
+  setSectionSumRow(ws, rows.rH, start.H, end.H)
+}
+
+export const applyGrandTotalHoaHong = (
+  ws: XLSX.WorkSheet,
+  rows: ReturnType<typeof resolveTemplateRowsHoaHong>
+) => {
+  const titleRows0 = [
+    rows.rA,
+    rows.rB,
+    rows.rC,
+    rows.rD,
+    rows.rE,
+    rows.rF,
+    rows.rG,
+    rows.rH,
+  ]
+
+  const mk = (c0: number) => {
+    const col = XLSX.utils.encode_col(c0)
+    return titleRows0.map((r0) => `${col}${r0 + 1}`).join("+")
+  }
+
+  sumTargets.forEach((c0) => {
+    setFormulaKeepStyle(ws, rows.rTOTAL, c0, `=${mk(c0)}`, NUM_PARENS_FMT)
+  })
+
+  setTextKeepStyle(ws, rows.rTOTAL, COL_HOA_HONG.GHI_CHU, "")
 }

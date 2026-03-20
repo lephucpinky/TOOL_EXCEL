@@ -1,221 +1,49 @@
 import * as XLSX from "xlsx-js-style"
-import { normalize } from "@/utils/excel"
-import { COL_XUATHD, sumTargetsHD } from "@/constants/XuatHoaDon"
-import { NUM_PARENS_FMT } from "./XuatHDStyle"
+import {
+  addrRC,
+  buildSalesIndex,
+  clearDataKeepStyle,
+  copyRowStyleBlock,
+  deepClone,
+  findRowContains,
+  findTitleRowA,
+  normalize,
+  pickHeaderFromIndex,
+  setFormulaKeepStyle,
+  setNumberKeepStyle,
+  setTextKeepStyle,
+  toNumber,
+} from "@/utils/excel"
+import {
+  COL_XUATHD,
+  NUM_PARENS_FMT,
+  sumTargetsHD,
+} from "@/constants/XuatHoaDon"
+export const pickSheetNameXuatHD = (
+  workbook: XLSX.WorkBook,
+  preferred?: string
+) => {
+  if (preferred && workbook.SheetNames.includes(preferred)) return preferred
 
-export const addrRC = (r0: number, c0: number) =>
-  XLSX.utils.encode_cell({ r: r0, c: c0 })
+  const names = workbook.SheetNames.map((raw) => ({
+    raw,
+    n: normalize(raw),
+  }))
 
-function deepClone<T>(v: T): T {
-  return JSON.parse(JSON.stringify(v))
+  for (const candidate of [
+    "mẫu xuất hd",
+    "xuất hd",
+    "xuat hoa don",
+    "sheet1",
+  ]) {
+    const hit = names.find((x) => x.n.includes(normalize(candidate)))
+    if (hit) return hit.raw
+  }
+
+  return workbook.SheetNames[0] || ""
 }
-
 const isSumTargetCol = (c0: number) =>
   (sumTargetsHD as readonly number[]).includes(c0)
-
-export const ensureCell = (ws: XLSX.WorkSheet, r0: number, c0: number) => {
-  const addr = addrRC(r0, c0)
-  if (!(ws as any)[addr]) (ws as any)[addr] = { t: "s", v: "" }
-  return (ws as any)[addr]
-}
-
-const getKeepStyle = (ws: XLSX.WorkSheet, addr: string) => {
-  const cell = (ws as any)[addr]
-  return { s: cell?.s, z: cell?.z }
-}
-
-const putCellKeepStyle = (
-  ws: XLSX.WorkSheet,
-  addr: string,
-  next: { t: "s" | "n"; v: any; s?: any; z?: any }
-) => {
-  delete (ws as any)[addr]?.f
-  ;(ws as any)[addr] = {
-    ...(ws as any)[addr],
-    ...next,
-  }
-}
-
-export const patchCellStyle = (
-  ws: XLSX.WorkSheet,
-  r0: number,
-  c0: number,
-  patch: any
-) => {
-  const cell = ensureCell(ws, r0, c0)
-  const s0 = cell.s || {}
-  cell.s = {
-    ...s0,
-    ...patch,
-    border: patch.border ?? s0.border,
-    alignment: patch.alignment ?? s0.alignment,
-    fill: patch.fill ?? s0.fill,
-    font: patch.font ?? s0.font,
-  }
-}
-
-export const setTextKeepStyle = (
-  ws: XLSX.WorkSheet,
-  r0: number,
-  c0: number,
-  value: string
-) => {
-  const addr = addrRC(r0, c0)
-  const keep = getKeepStyle(ws, addr)
-  putCellKeepStyle(ws, addr, {
-    t: "s",
-    v: value == null ? "" : String(value),
-    s: keep.s,
-    z: keep.z,
-  })
-}
-
-export const setNumberKeepStyle = (
-  ws: XLSX.WorkSheet,
-  r0: number,
-  c0: number,
-  value: number
-) => {
-  const addr = addrRC(r0, c0)
-  const keep = getKeepStyle(ws, addr)
-  putCellKeepStyle(ws, addr, {
-    t: "n",
-    v: Number.isFinite(value) ? value : 0,
-    s: keep.s,
-    z: keep.z,
-  })
-}
-
-export const setFormulaKeepStyle = (
-  ws: XLSX.WorkSheet,
-  r0: number,
-  c0: number,
-  formula: string,
-  fmt?: string,
-  cachedValue?: number
-) => {
-  const addr = addrRC(r0, c0)
-  const old = (ws as any)[addr] || {}
-  const keepS = old.s || {}
-  const keepZ = old.z
-
-  ;(ws as any)[addr] = {
-    t: "n",
-    v: Number.isFinite(cachedValue as number) ? Number(cachedValue) : 0,
-    f: formula.startsWith("=") ? formula.slice(1) : formula,
-    s: fmt ? { ...keepS, numFmt: fmt } : keepS,
-    z: fmt || keepZ,
-  }
-
-  delete (ws as any)[addr].r
-  delete (ws as any)[addr].h
-  delete (ws as any)[addr].w
-}
-
-export const copyRowStyle = (
-  ws: XLSX.WorkSheet,
-  srcRow0: number,
-  dstRow0: number,
-  cStart0: number,
-  cEnd0: number
-) => {
-  for (let c0 = cStart0; c0 <= cEnd0; c0++) {
-    const srcCell: any = (ws as any)[addrRC(srcRow0, c0)]
-    const dstAddr = addrRC(dstRow0, c0)
-
-    if (!srcCell) {
-      delete (ws as any)[dstAddr]
-      continue
-    }
-
-    const dstCell = (ws as any)[dstAddr] || { t: "s", v: "" }
-
-    ;(ws as any)[dstAddr] = {
-      ...dstCell,
-      s: srcCell.s ? deepClone(srcCell.s) : dstCell.s,
-      z: srcCell.z ?? dstCell.z,
-    }
-
-    if ((ws as any)[dstAddr].v == null) {
-      ;(ws as any)[dstAddr].v = ""
-      ;(ws as any)[dstAddr].t = "s"
-    }
-
-    delete (ws as any)[dstAddr].f
-    delete (ws as any)[dstAddr].w
-  }
-
-  const rows: any[] = (ws as any)["!rows"] || []
-  if (rows[srcRow0]) rows[dstRow0] = deepClone(rows[srcRow0])
-  ;(ws as any)["!rows"] = rows
-}
-
-export const copyRowStyleBlock = (
-  ws: XLSX.WorkSheet,
-  srcRow0: number,
-  startDstRow0: number,
-  count: number,
-  cStart0: number,
-  cEnd0: number
-) => {
-  for (let i = 0; i < count; i++) {
-    copyRowStyle(ws, srcRow0, startDstRow0 + i, cStart0, cEnd0)
-  }
-}
-
-export const clearDataKeepStyle = (
-  ws: XLSX.WorkSheet,
-  rStart0: number,
-  rEnd0: number,
-  cStart0: number,
-  cEnd0: number,
-  isNumericCol: (c0: number) => boolean
-) => {
-  if (rEnd0 < rStart0 || cEnd0 < cStart0) return
-
-  for (let r0 = rStart0; r0 <= rEnd0; r0++) {
-    for (let c0 = cStart0; c0 <= cEnd0; c0++) {
-      if (isNumericCol(c0)) setNumberKeepStyle(ws, r0, c0, 0)
-      else setTextKeepStyle(ws, r0, c0, "")
-    }
-  }
-}
-
-export const findTitleRowA = (
-  ws: XLSX.WorkSheet,
-  label: string,
-  opts?: { startsWith?: boolean; scanRows?: number }
-) => {
-  const want = normalize(label)
-  const range = XLSX.utils.decode_range((ws as any)["!ref"] || "A1")
-  const maxR = Math.min(range.e.r, (opts?.scanRows ?? 5000) - 1)
-
-  for (let r0 = 0; r0 <= maxR; r0++) {
-    const s = normalize((ws as any)[addrRC(r0, 0)]?.v ?? "")
-    if (!s) continue
-    if (opts?.startsWith ? s.startsWith(want) : s === want) return r0
-  }
-  return -1
-}
-
-export const findRowContains = (
-  ws: XLSX.WorkSheet,
-  label: string,
-  opts?: { scanRows?: number; scanCols?: number }
-) => {
-  const want = normalize(label)
-  const range = XLSX.utils.decode_range((ws as any)["!ref"] || "A1")
-  const maxR = Math.min(range.e.r, (opts?.scanRows ?? 200) - 1)
-  const maxC = Math.min(range.e.c, (opts?.scanCols ?? 20) - 1)
-
-  for (let r0 = 0; r0 <= maxR; r0++) {
-    for (let c0 = 0; c0 <= maxC; c0++) {
-      const s = normalize((ws as any)[addrRC(r0, c0)]?.v ?? "")
-      if (s && s.includes(want)) return r0
-    }
-  }
-  return -1
-}
 
 const getRefRange = (ws: XLSX.WorkSheet) => {
   const ref = (ws as any)["!ref"]
@@ -293,24 +121,6 @@ const shiftRowsDown = (
   setRefRange(ws, rng.e.r + offset, endCol0)
 }
 
-const toNumber = (v: any) => {
-  if (v == null || v === "") return 0
-  if (typeof v === "number") return Number.isFinite(v) ? v : 0
-
-  let s = String(v).trim()
-  if (!s) return 0
-  s = s.replace(/\s+/g, "")
-
-  if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) {
-    s = s.replace(/\./g, "").replace(",", ".")
-  } else {
-    s = s.replace(/,/g, "")
-  }
-
-  const n = Number(s)
-  return Number.isFinite(n) ? n : 0
-}
-
 const dayText = (v: any) => {
   if (v == null || v === "") return ""
 
@@ -333,26 +143,6 @@ const dayText = (v: any) => {
   if (m3) return m3[3]
 
   return raw
-}
-
-export const buildSalesIndex = (salesHeaders: string[]) => {
-  const idx = new Map<string, string>()
-  ;(Array.isArray(salesHeaders) ? salesHeaders : []).forEach((h) => {
-    const key = normalize(h)
-    if (key && !idx.has(key)) idx.set(key, h)
-  })
-  return idx
-}
-
-export const pickHeaderFromIndex = (
-  idx: Map<string, string>,
-  ...aliases: string[]
-) => {
-  for (const a of aliases) {
-    const hit = idx.get(normalize(a))
-    if (hit) return hit
-  }
-  return ""
 }
 
 export const buildHeaderMapHD = (salesHeaders: string[]) => {

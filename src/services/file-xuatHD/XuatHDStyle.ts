@@ -1,55 +1,24 @@
 import * as XLSX from "xlsx-js-style"
-import { normalize } from "@/utils/excel"
-import { COL_XUATHD, WIDTH_COL_XUATHD } from "@/constants/XuatHoaDon"
-
-export const NUM_PARENS_FMT = `_-* #,##0_-;[Red]_* (#,##0);_-* "-"_-;_-@_-`
-
-const addrRC = (r0: number, c0: number) =>
-  XLSX.utils.encode_cell({ r: r0, c: c0 })
-
-function deepClone<T>(v: T): T {
-  return JSON.parse(JSON.stringify(v))
-}
-
-const ensureCell = (ws: XLSX.WorkSheet, r0: number, c0: number) => {
-  const addr = addrRC(r0, c0)
-  if (!(ws as any)[addr]) (ws as any)[addr] = { t: "s", v: "" }
-  return (ws as any)[addr]
-}
-
-const patchCellStyle = (
-  ws: XLSX.WorkSheet,
-  r0: number,
-  c0: number,
-  patch: any
-) => {
-  const cell = ensureCell(ws, r0, c0)
-  const s0 = cell.s || {}
-  cell.s = {
-    ...s0,
-    ...patch,
-    border: patch.border ?? s0.border,
-    alignment: patch.alignment ?? s0.alignment,
-    fill: patch.fill ?? s0.fill,
-    font: patch.font ?? s0.font,
-  }
-}
-
-const setCellValueKeepStyle = (
-  ws: XLSX.WorkSheet,
-  r0: number,
-  c0: number,
-  value: any
-) => {
-  const cell = ensureCell(ws, r0, c0)
-  const keepS = cell.s
-  const keepZ = cell.z
-
-  ;(ws as any)[addrRC(r0, c0)] =
-    typeof value === "number"
-      ? { t: "n", v: value, s: keepS, z: keepZ }
-      : { t: "s", v: value == null ? "" : String(value), s: keepS, z: keepZ }
-}
+import {
+  addrRC,
+  deepClone,
+  ensureCell,
+  normalize,
+  patchCellStyle,
+  setCellValueKeepStyle,
+} from "@/utils/excel"
+import {
+  COL_XUATHD,
+  fontBase,
+  fontBold,
+  fontItalicBold,
+  fontTitle,
+  HEADER_FILL,
+  NUM_PARENS_FMT,
+  THIN_BORDER,
+  WHITE_FILL,
+  WIDTH_COL_XUATHD,
+} from "@/constants/XuatHoaDon"
 
 const findCellByText = (
   ws: XLSX.WorkSheet,
@@ -86,47 +55,6 @@ const setRowHeight = (ws: XLSX.WorkSheet, r0: number, hpt: number) => {
     hpx: Math.round(hpt * 1.333),
   }
   ;(ws as any)["!rows"] = rows
-}
-
-const THIN_BORDER = {
-  top: { style: "thin", color: { rgb: "000000" } },
-  bottom: { style: "thin", color: { rgb: "000000" } },
-  left: { style: "thin", color: { rgb: "000000" } },
-  right: { style: "thin", color: { rgb: "000000" } },
-}
-
-const HEADER_FILL = {
-  patternType: "solid",
-  fgColor: { rgb: "D9D9D9" },
-  bgColor: { rgb: "D9D9D9" },
-}
-
-const WHITE_FILL = {
-  patternType: "solid",
-  fgColor: { rgb: "FFFFFF" },
-  bgColor: { rgb: "FFFFFF" },
-}
-
-const fontBase = {
-  name: "Times New Roman",
-  sz: 10,
-  color: { rgb: "000000" },
-}
-const fontTitle = {
-  ...fontBase,
-  sz: 16,
-  bold: true,
-}
-
-const fontBold = {
-  ...fontBase,
-  bold: true,
-}
-
-const fontItalicBold = {
-  ...fontBase,
-  bold: true,
-  italic: true,
 }
 
 const isNumberCol = (c0: number) =>
@@ -487,28 +415,4 @@ export const applyXuatHDTableStyle = (
   }
 ) => {
   applyTemplateVisualStyleXuatHD(ws, rows)
-}
-
-export const pickSheetNameXuatHD = (
-  workbook: XLSX.WorkBook,
-  preferred?: string
-) => {
-  if (preferred && workbook.SheetNames.includes(preferred)) return preferred
-
-  const names = workbook.SheetNames.map((raw) => ({
-    raw,
-    n: normalize(raw),
-  }))
-
-  for (const candidate of [
-    "mẫu xuất hd",
-    "xuất hd",
-    "xuat hoa don",
-    "sheet1",
-  ]) {
-    const hit = names.find((x) => x.n.includes(normalize(candidate)))
-    if (hit) return hit.raw
-  }
-
-  return workbook.SheetNames[0] || ""
 }

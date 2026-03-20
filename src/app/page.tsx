@@ -46,7 +46,6 @@ function parseSalesWorkbook(wb: XLSX.WorkBook): {
   rows: ExcelRow[]
   keyDealer: string
   keyDate: string
-  keyCategory: string
 } {
   const first = wb.SheetNames[0]
   const ws = wb.Sheets[first]
@@ -54,32 +53,14 @@ function parseSalesWorkbook(wb: XLSX.WorkBook): {
   const headers = json.length ? Object.keys(json[0]) : []
   const sample = json[0] || {}
 
-  const keyDealer =
-    pickKeyFromRow(sample, ["Đại Lý", "ĐẠI LÝ", "Dealer", "Tên đại lý"]) ||
-    "Đại Lý"
-
-  const keyDate =
-    pickKeyFromRow(sample, [
-      "NGÀY KÍCH HOẠT",
-      "NGÀY PHÁT SINH",
-      "Ngày phát sinh",
-    ]) || "NGÀY KÍCH HOẠT"
-
-  const keyCategory =
-    pickKeyFromRow(sample, [
-      "PHÒNG BAN",
-      "Danh mục",
-      "Category",
-      "Loại sản phẩm",
-      "TIÊU ĐỀ",
-    ]) || "PHÒNG BAN"
+  const keyDealer = pickKeyFromRow(sample, ["Đại Lý"])
+  const keyDate = pickKeyFromRow(sample, ["NGÀY KÍCH HOẠT"])
 
   return {
     headers,
     rows: json as unknown as ExcelRow[],
     keyDealer,
     keyDate,
-    keyCategory,
   }
 }
 
@@ -98,7 +79,6 @@ export default function HomePage() {
 
   const [keyDealer, setKeyDealer] = useState<string>("Đại Lý")
   const [keyDate, setKeyDate] = useState<string>("NGÀY KÍCH HOẠT")
-  const [keyCategory, setKeyCategory] = useState<string>("PHÒNG BAN")
 
   const [dealers, setDealers] = useState<string[]>([])
   const [dealerName, setDealerName] = useState<string>(ALL_VALUE)
@@ -207,7 +187,6 @@ export default function HomePage() {
       setSalesRows(parsed.rows)
       setKeyDealer(parsed.keyDealer)
       setKeyDate(parsed.keyDate)
-      setKeyCategory(parsed.keyCategory)
 
       const dls = uniqueSorted(parsed.rows.map((r: any) => r[parsed.keyDealer]))
       setDealers(dls)
@@ -293,19 +272,14 @@ export default function HomePage() {
                   }}
                   className={`rounded-xl border p-4 text-left transition ${
                     isActive
-                      ? "border-slate-900 bg-slate-900 text-white shadow"
+                      ? "border-slate-400 bg-slate-100 text-slate-500 shadow"
                       : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
                   }`}
                 >
-                  <div className="text-sm font-semibold">Danh mục</div>
-                  <div className="mt-1 text-base font-bold">{item.label}</div>
-                  <div
-                    className={`mt-2 text-xs ${
-                      isActive ? "text-slate-200" : "text-slate-500"
-                    }`}
-                  >
-                    Dùng chung file doanh số, nhưng mỗi mẫu có template và cách
-                    xuất riêng
+                  <div className="flex flex-col justify-center text-center">
+                    {" "}
+                    <div className="text-sm font-semibold">Danh mục</div>
+                    <div className="mt-1 text-base font-bold">{item.label}</div>
                   </div>
                 </button>
               )
@@ -432,9 +406,9 @@ export default function HomePage() {
           <button
             onClick={onExport}
             disabled={!canExport}
-            className={`mt-4 rounded-lg px-5 py-3 text-sm font-semibold shadow-sm transition ${
+            className={`mt-4 rounded-lg border-LightSilver px-5 py-3 text-sm font-semibold shadow-sm transition ${
               canExport
-                ? "bg-slate-900 text-white hover:bg-slate-800"
+                ? "bg-slate-500 text-white hover:bg-slate-800"
                 : "bg-slate-200 text-slate-500"
             }`}
           >
