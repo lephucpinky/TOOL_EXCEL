@@ -324,7 +324,7 @@ export const applyHeaderDealerMonth = (
     const tl = getTopLeftOfMerge(ws, rTITLE, 7)
     setTextKeepStyle(ws, tl.r, tl.c, "BẢNG ĐỐI SOÁT DOANH THU THÁNG ")
     patchCellStyle(ws, tl.r, tl.c, {
-      font: { bold: true, sz: 18 },
+      font: { bold: true, sz: 16 },
       alignment: { horizontal: "left", vertical: "center", wrapText: false },
     })
     setRowHeight(ws, rTITLE, 30)
@@ -443,7 +443,7 @@ export const applyFooterFormulasAndHighlight = (
     })
   })
 
-  setRowsHeight(ws, footerRows, 35)
+  setRowsHeight(ws, footerRows, 20)
 
   return { rowTongCong }
 }
@@ -515,6 +515,34 @@ export const applyHoaHongTableStyle = (ws: XLSX.WorkSheet, rows: TableRows) => {
   setFontAll(ws, "Times New Roman")
   setFontSizeAll(ws, 10)
   applyTopCompanyHeaderHeight(ws)
+  const rTITLE = findRowContains(ws, "BẢNG ĐỐI SOÁT DOANH THU THÁNG", {
+    scanRows: 100,
+    scanCols: 30,
+  })
+
+  if (rTITLE !== -1) {
+    const tl = getTopLeftOfMerge(ws, rTITLE, 7)
+    patchCellStyle(ws, tl.r, tl.c, {
+      font: { name: "Times New Roman", bold: true, sz: 16 },
+    })
+  }
+  const rDealer = findRowContains(ws, "CTV", {
+    scanRows: 80,
+    scanCols: 30,
+  })
+
+  if (rDealer !== -1) {
+    const tlDealer = getTopLeftOfMerge(ws, rDealer, 8) // vùng label ĐẠI LÝ/CTV
+    patchCellStyle(ws, tlDealer.r, tlDealer.c, {
+      font: { name: "Times New Roman", bold: true, sz: 14 },
+      alignment: { horizontal: "center", vertical: "center", wrapText: false },
+    })
+
+    patchCellStyle(ws, rDealer, 10, {
+      font: { name: "Times New Roman", bold: true, sz: 14 },
+      alignment: { horizontal: "left", vertical: "center", wrapText: false },
+    })
+  }
   applyInnerThinBorders(ws, top0, bot0, 0, maxCol)
   applyOuterThickBorder(ws, top0, bot0, 0, maxCol)
 
@@ -639,7 +667,7 @@ export const boldFooterBlock = (
   ].filter((x) => x !== -1)
 
   const endFooter0 = marks.length ? Math.max(...marks) : startFooter0 + 5
-  setRowHeightRange(ws, startFooter0, endFooter0, 35)
+  setRowHeightRange(ws, startFooter0, endFooter0, 20)
 
   eachCell(startFooter0, endFooter0, 0, maxCol, (r0, c0) => {
     const cell = ensureCell(ws, r0, c0)
