@@ -241,13 +241,23 @@ export async function addLogoToA1_OOXML(
   xlsxArrayBuffer: ArrayBuffer,
   sheetName: string,
   logoBase64: string,
-  opts?: { widthPx?: number; heightPx?: number }
+  opts?: {
+    widthPx?: number
+    heightPx?: number
+    col?: number
+    row?: number
+    colOffPx?: number
+    rowOffPx?: number
+  }
 ): Promise<ArrayBuffer> {
   const widthPx = opts?.widthPx ?? 150
   const heightPx = opts?.heightPx ?? 85
+  const col = opts?.col ?? 8
+  const row = opts?.row ?? 0
+  const colOffPx = opts?.colOffPx ?? 10
+  const rowOffPx = opts?.rowOffPx ?? 5
 
   const zip = await JSZip.loadAsync(xlsxArrayBuffer)
-  const allNames = Object.keys(zip.files)
 
   // Ensure [Content_Types]
   let ctXml = await zip.file("[Content_Types].xml")!.async("text")
@@ -309,15 +319,18 @@ export async function addLogoToA1_OOXML(
     Target: `../media/image${imgIdx}.png`,
   })
 
-  // Append anchor to drawing xml
   const cx = pxToEmu(widthPx)
   const cy = pxToEmu(heightPx)
+  const colOff = pxToEmu(colOffPx)
+  const rowOff = pxToEmu(rowOffPx)
 
   const anchor = `
   <xdr:oneCellAnchor>
     <xdr:from>
-      <xdr:col>0</xdr:col><xdr:colOff>0</xdr:colOff>
-      <xdr:row>0</xdr:row><xdr:rowOff>0</xdr:rowOff>
+      <xdr:col>${col}</xdr:col>
+      <xdr:colOff>${colOff}</xdr:colOff>
+      <xdr:row>${row}</xdr:row>
+      <xdr:rowOff>${rowOff}</xdr:rowOff>
     </xdr:from>
     <xdr:ext cx="${cx}" cy="${cy}"/>
     <xdr:pic>
@@ -339,6 +352,7 @@ export async function addLogoToA1_OOXML(
   if (!drawingXml.includes("</xdr:wsDr>")) {
     throw new Error("drawing.xml không hợp lệ: thiếu </xdr:wsDr>")
   }
+
   drawingXml = drawingXml.replace("</xdr:wsDr>", `${anchor}\n</xdr:wsDr>`)
 
   // Write back files

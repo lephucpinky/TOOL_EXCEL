@@ -129,8 +129,12 @@ export async function exportChiHoaHongXlsx({
     }) as ArrayBuffer
 
     const finalBuf = await addLogoToA1_OOXML(out, builtSheetName, logoBase64, {
-      widthPx: 150,
-      heightPx: 85,
+      widthPx: 80,
+      heightPx: 45,
+      col: 0,
+      row: 0,
+      colOffPx: 40,
+      rowOffPx: 20,
     })
 
     const safeDealer = sanitizeFileNamePart(dealerName)
