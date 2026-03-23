@@ -298,7 +298,7 @@ export const applyTopCompanyHeaderHeight = (ws: XLSX.WorkSheet) => {
   })
   if (rCompany === -1) return
 
-  setRowHeightRange(ws, rCompany, rCompany + 2, 28)
+  setRowHeightRange(ws, rCompany, rCompany + 2, 20)
 
   eachCell(rCompany, rCompany + 2, 0, 20, (r0, c0) => {
     if (!hasCell(ws, r0, c0)) return

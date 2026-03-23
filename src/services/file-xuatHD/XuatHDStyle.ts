@@ -19,7 +19,75 @@ import {
   WHITE_FILL,
   WIDTH_COL_XUATHD,
 } from "@/constants/XuatHoaDon"
+const applyCompanyHeaderBlock = (ws: XLSX.WorkSheet) => {
+  const merges: any[] = ((ws as any)["!merges"] ||= [])
 
+  const addMerge = (sR: number, sC: number, eR: number, eC: number) => {
+    const exists = merges.some(
+      (m) =>
+        m?.s?.r === sR && m?.s?.c === sC && m?.e?.r === eR && m?.e?.c === eC
+    )
+    if (!exists) merges.push({ s: { r: sR, c: sC }, e: { r: eR, c: eC } })
+  }
+
+  // 👉 LOGO (A1:B3)
+  addMerge(0, 0, 2, 1)
+
+  setCellStyle(ws, 0, 0, {
+    alignment: {
+      horizontal: "center",
+      vertical: "center",
+    },
+  })
+
+  // 👉 TEXT (C1:F1, C2:F2, C3:F3)
+  addMerge(0, 2, 0, 5)
+  addMerge(1, 2, 1, 5)
+  addMerge(2, 2, 2, 5)
+
+  // dòng 1
+  setCellStyle(ws, 0, 2, {
+    font: {
+      name: "Times New Roman",
+      sz: 11,
+      bold: true,
+    },
+    alignment: {
+      horizontal: "left",
+      vertical: "center",
+    },
+  })
+
+  // dòng 2
+  setCellStyle(ws, 1, 2, {
+    font: {
+      name: "Times New Roman",
+      sz: 11,
+      bold: true,
+    },
+    alignment: {
+      horizontal: "left",
+      vertical: "center",
+    },
+  })
+
+  // dòng 3
+  setCellStyle(ws, 2, 2, {
+    font: {
+      name: "Times New Roman",
+      sz: 11,
+      bold: true,
+    },
+    alignment: {
+      horizontal: "left",
+      vertical: "center",
+    },
+  })
+
+  setRowHeight(ws, 0, 15)
+  setRowHeight(ws, 1, 15)
+  setRowHeight(ws, 2, 15)
+}
 const findCellByText = (
   ws: XLSX.WorkSheet,
   keywords: string[],
@@ -126,6 +194,9 @@ const setRowStyle = (
 }
 
 const applyHeaderRowsManual = (ws: XLSX.WorkSheet) => {
+  setRowStyle(ws, 4, 0, COL_XUATHD.GHI_CHU, () => ({
+    font: fontBold,
+  }))
   setRowStyle(ws, 4, 0, COL_XUATHD.GHI_CHU, () => ({
     font: fontTitle,
     alignment: { horizontal: "center", vertical: "bottom", wrapText: true },
@@ -238,6 +309,7 @@ export const applyTemplateVisualStyleXuatHD = (
     rSignTitle?: number
   }
 ) => {
+  applyCompanyHeaderBlock(ws)
   applyHeaderRowsManual(ws)
 
   // nới header
@@ -254,23 +326,23 @@ export const applyTemplateVisualStyleXuatHD = (
   }
 
   syncRowHeight(ws, 10, rows.rTotal)
-  setRowHeight(ws, rows.rTotal, 24)
+  setRowHeight(ws, rows.rTotal, 20)
   applyTotalRowManual(ws, rows.rTotal)
 
   syncRowHeight(ws, 12, rows.rFooter1)
-  setRowHeight(ws, rows.rFooter1, 22)
+  setRowHeight(ws, rows.rFooter1, 15)
   applyFooterRowManual(ws, rows.rFooter1)
 
   syncRowHeight(ws, 13, rows.rFooter2)
-  setRowHeight(ws, rows.rFooter2, 22)
+  setRowHeight(ws, rows.rFooter2, 15)
   applyFooterRowManual(ws, rows.rFooter2)
 
   syncRowHeight(ws, 14, rows.rFooter3)
-  setRowHeight(ws, rows.rFooter3, 22)
+  setRowHeight(ws, rows.rFooter3, 15)
   applyFooterRowManual(ws, rows.rFooter3)
 
   syncRowHeight(ws, 15, rows.rFooter4)
-  setRowHeight(ws, rows.rFooter4, 24)
+  setRowHeight(ws, rows.rFooter4, 15)
   applyFooterRowManual(ws, rows.rFooter4, { redText: true })
 
   const signDateRow = rows.rSignDate ?? 17

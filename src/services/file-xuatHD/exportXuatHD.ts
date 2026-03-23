@@ -102,7 +102,11 @@ export async function exportXuatHoaDonXlsx({
 
   const finalBuf = await addLogoToA1_OOXML(out, sheetName, logoBase64, {
     widthPx: 100,
-    heightPx: 60,
+    heightPx: 55,
+    col: 0,
+    row: 0,
+    colOffPx: 0,
+    rowOffPx: 10,
   })
 
   const safeDealer =
