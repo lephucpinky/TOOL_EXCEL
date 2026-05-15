@@ -47,7 +47,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
   return (
     <div
       className={cn(
-        "flex cursor-pointer flex-col items-center rounded border border-solid border-[rgba(61,61,61,1)] bg-white px-[57px] py-12 text-center leading-[18px] transition-colors hover:bg-gray-50 max-md:px-5",
+        "hover:bg-gray-50 flex cursor-pointer flex-col items-center rounded border border-solid border-[rgba(61,61,61,1)] bg-white px-[57px] py-12 text-center leading-[18px] transition-colors max-md:px-5",
         dragOver && "border-blue-500 bg-blue-50",
         className
       )}

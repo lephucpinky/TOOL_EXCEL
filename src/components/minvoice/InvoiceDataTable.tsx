@@ -1,0 +1,791 @@
+"use client"
+
+import { useEffect, useMemo, useState } from "react"
+
+import type { InvoiceApiRow } from "@/types/invoice"
+import type { Agency } from "@/types/agency"
+import type { Department } from "@/types/department"
+import type { Employee } from "@/types/employee"
+import type { Product } from "@/types/product"
+
+import { APIGetAgencies } from "@/services/agency"
+import { APIGetDepartments } from "@/services/department"
+import { APIGetEmployees } from "@/services/employee"
+import { APIGetProducts } from "@/services/product"
+
+import DataTable, { DataTableColumn } from "../common/Datatable"
+import { Printer } from "lucide-react"
+type Props = {
+  rows: InvoiceApiRow[]
+  loading?: boolean
+  onEdit?: (row: InvoiceApiRow) => void
+  onView?: (row: InvoiceApiRow) => void
+  onDelete?: (row: InvoiceApiRow) => void
+  onViewMInvoicePdf?: (row: InvoiceApiRow) => void
+}
+function toNumber(value: unknown) {
+  const numberValue = Number(value)
+  return Number.isFinite(numberValue) ? numberValue : 0
+}
+
+function formatMoney(value: unknown) {
+  return new Intl.NumberFormat("vi-VN").format(toNumber(value))
+}
+
+function formatDate(value?: string) {
+  if (!value) return ""
+
+  const textValue = String(value).trim()
+
+  const ddmmyyyy = textValue.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
+  if (ddmmyyyy) return `${ddmmyyyy[1]}/${ddmmyyyy[2]}/${ddmmyyyy[3]}`
+
+  const date = new Date(textValue)
+
+  if (!Number.isNaN(date.getTime())) {
+    return new Intl.DateTimeFormat("vi-VN", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    }).format(date)
+  }
+
+  return textValue
+}
+
+function unwrapListResponse(response: any) {
+  const raw =
+    response?.data?.data ??
+    response?.data?.content ??
+    response?.data?.items ??
+    response?.data?.result ??
+    response?.data ??
+    response?.content ??
+    response?.items ??
+    response?.result ??
+    response ??
+    []
+
+  if (!Array.isArray(raw)) return []
+
+  return raw.map((item: any) => item?.content ?? item).filter(Boolean)
+}
+
+function getId(value: any) {
+  if (!value) return ""
+  if (typeof value === "string") return value
+  return value._id || value.id || ""
+}
+
+function getItems(invoice: InvoiceApiRow): any[] {
+  const rawItems = (invoice as any).items
+
+  if (Array.isArray(rawItems)) return rawItems
+  if (rawItems) return [rawItems]
+
+  return []
+}
+
+function getMonth(invoice: InvoiceApiRow) {
+  const value = invoice.inv_invoiceIssuedDate || ""
+  const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
+
+  if (match) return `${match[2]}/${match[3]}`
+
+  const date = new Date(value)
+  if (!Number.isNaN(date.getTime())) {
+    return `${String(date.getMonth() + 1).padStart(
+      2,
+      "0"
+    )}/${date.getFullYear()}`
+  }
+
+  return ""
+}
+
+function getPaidStatus(invoice: InvoiceApiRow) {
+  const paidAmount = toNumber((invoice as any).paidAmount)
+  return (invoice as any).isPaid || paidAmount > 0 ? "paid" : "unpaid"
+}
+
+function getMInvoiceData(invoice: InvoiceApiRow) {
+  const row = invoice as any
+
+  return (
+    row.content?.data ||
+    row.content ||
+    row.exportInvoiceData?.data ||
+    row.exportInvoiceData ||
+    row.data?.data ||
+    row.data ||
+    row
+  )
+}
+
+function getExportInvoiceId(invoice: InvoiceApiRow) {
+  const row = invoice as any
+  const mInvoiceData = getMInvoiceData(invoice)
+
+  return String(
+    mInvoiceData?.id ||
+      mInvoiceData?.inv_invoiceCreatedId ||
+      row?.id ||
+      row?.inv_invoiceCreatedId ||
+      ""
+  ).trim()
+}
+
+function getExportInvoiceStatus(invoice: InvoiceApiRow) {
+  return getExportInvoiceId(invoice) ? "exported" : "not_exported"
+}
+function getRemainingAmount(invoice: InvoiceApiRow) {
+  const totalAmount = toNumber(invoice.inv_TotalAmount)
+  const paidAmount = toNumber((invoice as any).paidAmount)
+
+  if ((invoice as any).remainingAmount !== undefined) {
+    return toNumber((invoice as any).remainingAmount)
+  }
+
+  return Math.max(totalAmount - paidAmount, 0)
+}
+
+function getRevenue(invoice: InvoiceApiRow) {
+  return getItems(invoice).reduce((sum, item) => {
+    return sum + toNumber(item?.revenue)
+  }, 0)
+}
+
+function getCommissionAmount(invoice: InvoiceApiRow, agency?: Agency | null) {
+  const itemCommissionAmount = getItems(invoice).reduce((sum, item) => {
+    return sum + toNumber(item?.commissionAmount)
+  }, 0)
+
+  if (itemCommissionAmount > 0) return itemCommissionAmount
+
+  const commissionPercent = toNumber((agency as any)?.commissionPercent)
+  const totalBeforeTax = toNumber(invoice.inv_TotalAmountWithoutVAT)
+
+  return (totalBeforeTax * commissionPercent) / 100
+}
+
+export default function InvoiceDataTable({
+  rows,
+  loading = false,
+  onEdit,
+  onView,
+  onViewMInvoicePdf,
+}: Props) {
+  const [keyword, setKeyword] = useState("")
+  const [paidFilter, setPaidFilter] = useState("")
+  const [exportFilter, setExportFilter] = useState("")
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
+
+  const [agencies, setAgencies] = useState<Agency[]>([])
+  const [departments, setDepartments] = useState<Department[]>([])
+  const [employees, setEmployees] = useState<Employee[]>([])
+  const [products, setProducts] = useState<Product[]>([])
+
+  useEffect(() => {
+    const fetchCatalogs = async () => {
+      try {
+        const [agencyRes, departmentRes, employeeRes, productRes] =
+          await Promise.all([
+            APIGetAgencies(),
+            APIGetDepartments(),
+            APIGetEmployees(),
+            APIGetProducts(),
+          ])
+
+        setAgencies(
+          unwrapListResponse(agencyRes).filter((item: Agency) => item?._id)
+        )
+
+        setDepartments(
+          unwrapListResponse(departmentRes).filter(
+            (item: Department) => item?._id
+          )
+        )
+
+        setEmployees(
+          unwrapListResponse(employeeRes).filter((item: Employee) => item?._id)
+        )
+
+        setProducts(
+          unwrapListResponse(productRes).filter((item: Product) => item?._id)
+        )
+      } catch (err) {
+        console.error("Fetch invoice datatable catalogs error:", err)
+      }
+    }
+
+    fetchCatalogs()
+  }, [])
+
+  const agencyMap = useMemo(() => {
+    return new Map(agencies.map((item) => [item._id, item]))
+  }, [agencies])
+
+  const departmentMap = useMemo(() => {
+    return new Map(departments.map((item) => [item._id, item]))
+  }, [departments])
+
+  const employeeMap = useMemo(() => {
+    return new Map(employees.map((item) => [item._id, item]))
+  }, [employees])
+
+  const productMap = useMemo(() => {
+    return new Map(products.map((item) => [item._id, item]))
+  }, [products])
+
+  const getAgency = (invoice: InvoiceApiRow) => {
+    const value = (invoice as any).agencyId
+
+    if (value && typeof value === "object") return value as Agency
+
+    return agencyMap.get(getId(value)) || null
+  }
+
+  const getDepartment = (invoice: InvoiceApiRow) => {
+    const value = (invoice as any).departmentId
+
+    if (value && typeof value === "object") return value as Department
+
+    return departmentMap.get(getId(value)) || null
+  }
+
+  const getEmployee = (invoice: InvoiceApiRow) => {
+    const value = (invoice as any).employeeId
+
+    if (value && typeof value === "object") return value as Employee
+
+    return employeeMap.get(getId(value)) || null
+  }
+
+  const getProduct = (invoice: InvoiceApiRow) => {
+    const firstItem = getItems(invoice)[0]
+
+    if (!firstItem) return null
+
+    if (firstItem.productId && typeof firstItem.productId === "object") {
+      return firstItem.productId as Product
+    }
+
+    if (firstItem.product && typeof firstItem.product === "object") {
+      return firstItem.product as Product
+    }
+
+    const productId = getId(firstItem.productId || firstItem.product)
+
+    if (productId && productMap.has(productId)) {
+      return productMap.get(productId) || null
+    }
+
+    if (firstItem.inv_itemName || firstItem.inv_itemCode) {
+      return firstItem
+    }
+
+    return null
+  }
+
+  const getSearchText = (invoice: InvoiceApiRow) => {
+    const agency = getAgency(invoice)
+    const department = getDepartment(invoice)
+    const employee = getEmployee(invoice)
+    const product = getProduct(invoice)
+    const mInvoiceData = getMInvoiceData(invoice)
+
+    return [
+      invoice.inv_invoiceSeries,
+      invoice.invoiceNo,
+      invoice.inv_invoiceNumber,
+      invoice.so_hoa_don,
+      invoice.inv_invoiceIssuedDate,
+      agency?.name,
+      department?.departmentName,
+      employee?.employeeName,
+      invoice.inv_buyerTaxCode,
+      invoice.inv_buyerDisplayName,
+      invoice.inv_buyerLegalName,
+      invoice.inv_buyerEmail,
+      invoice.inv_buyerAddressLine,
+      invoice.inv_buyerBankName,
+      product?.inv_itemCode,
+      product?.inv_itemName,
+      mInvoiceData?.id,
+      mInvoiceData?.inv_invoiceCreatedId,
+      mInvoiceData?.macqt,
+      mInvoiceData?.sobaomat,
+      mInvoiceData?.shdon,
+      mInvoiceData?.inv_invoiceNumber,
+
+      getExportInvoiceStatus(invoice) === "exported" ? "đã tạo" : "chưa tạo",
+      (invoice as any).note,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase()
+  }
+
+  const filteredRows = useMemo(() => {
+    const searchValue = keyword.trim().toLowerCase()
+
+    return rows.filter((invoice) => {
+      const matchKeyword = searchValue
+        ? getSearchText(invoice).includes(searchValue)
+        : true
+
+      const matchPaid = paidFilter
+        ? getPaidStatus(invoice) === paidFilter
+        : true
+
+      const matchExport = exportFilter
+        ? getExportInvoiceStatus(invoice) === exportFilter
+        : true
+
+      return matchKeyword && matchPaid && matchExport
+    })
+  }, [
+    rows,
+    keyword,
+    paidFilter,
+    exportFilter,
+    agencyMap,
+    departmentMap,
+    employeeMap,
+    productMap,
+  ])
+
+  const totalPages = Math.max(Math.ceil(filteredRows.length / pageSize), 1)
+  const safePage = Math.min(page, totalPages)
+  const startIndex = (safePage - 1) * pageSize
+  const pageRows = filteredRows.slice(startIndex, startIndex + pageSize)
+
+  const summary = useMemo(() => {
+    return filteredRows.reduce(
+      (acc, invoice) => {
+        acc.totalAmount += toNumber(invoice.inv_TotalAmount)
+        acc.totalBeforeTax += toNumber(invoice.inv_TotalAmountWithoutVAT)
+        acc.vatAmount += toNumber(invoice.inv_vatAmount)
+        acc.paidAmount += toNumber((invoice as any).paidAmount)
+        acc.remainingAmount += getRemainingAmount(invoice)
+        acc.minvoiceRevenue += toNumber(
+          (invoice as any).minvoiceRevenue || getRevenue(invoice)
+        )
+        acc.ds += toNumber(
+          (invoice as any).ds || invoice.inv_TotalAmountWithoutVAT
+        )
+
+        return acc
+      },
+      {
+        totalAmount: 0,
+        totalBeforeTax: 0,
+        vatAmount: 0,
+        paidAmount: 0,
+        remainingAmount: 0,
+        minvoiceRevenue: 0,
+        ds: 0,
+      }
+    )
+  }, [filteredRows])
+
+  const columns: DataTableColumn<InvoiceApiRow>[] = [
+    {
+      key: "month",
+      title: "Tháng",
+      className: "whitespace-nowrap text-center",
+      headerClassName: "text-center",
+      render: (invoice) => getMonth(invoice),
+    },
+    {
+      key: "inv_invoiceIssuedDate",
+      title: "Ngày HĐ",
+      className: "whitespace-nowrap text-center",
+      headerClassName: "text-center",
+      render: (invoice) => formatDate(invoice.inv_invoiceIssuedDate),
+    },
+    {
+      key: "exportInvoiceStatus",
+      title: "Trạng thái xuất HĐ",
+      className: "whitespace-nowrap text-center",
+      headerClassName: "text-center",
+      render: (invoice) => {
+        const exported = getExportInvoiceStatus(invoice) === "exported"
+
+        return (
+          <div className="flex flex-col items-center gap-1">
+            <span
+              className={`inline-flex min-w-[92px] justify-center rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                exported
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : "border-slate-200 bg-slate-50 text-slate-600"
+              }`}
+            >
+              {exported ? "Đã tạo" : "Chưa tạo"}
+            </span>
+          </div>
+        )
+      },
+    },
+    // {
+    //   key: "mInvoicePdf",
+    //   title: "Mẫu HĐ",
+    //   className: "whitespace-nowrap text-center",
+    //   headerClassName: "text-center",
+    //   render: (invoice) => {
+    //     const exported = getExportInvoiceStatus(invoice) === "exported"
+
+    //     if (!exported) {
+    //       return <span className="text-xs text-slate-400">-</span>
+    //     }
+
+    //     return (
+    //       <button
+    //         type="button"
+    //         onClick={(e) => {
+    //           e.stopPropagation()
+    //           onViewMInvoicePdf?.(invoice)
+    //         }}
+    //         className="inline-flex h-8 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 px-3 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+    //       >
+    //         Xem PDF
+    //       </button>
+    //     )
+    //   },
+    // },
+    {
+      key: "agencyId",
+      title: "Đại lý",
+      className: "min-w-[180px]",
+      render: (invoice) => getAgency(invoice)?.name || "-",
+    },
+    {
+      key: "departmentId",
+      title: "Phòng ban",
+      className: "min-w-[150px]",
+      render: (invoice) => getDepartment(invoice)?.departmentName || "-",
+    },
+    {
+      key: "employeeId",
+      title: "NVKD",
+      className: "min-w-[160px]",
+      render: (invoice) => getEmployee(invoice)?.employeeName || "-",
+    },
+    {
+      key: "inv_buyerTaxCode",
+      title: "MST",
+      className: "whitespace-nowrap",
+      render: (invoice) => invoice.inv_buyerTaxCode || "-",
+    },
+    {
+      key: "companyName",
+      title: "Tên công ty",
+      className: "min-w-[260px]",
+      render: (invoice) =>
+        invoice.inv_buyerLegalName || invoice.inv_buyerDisplayName || "-",
+    },
+    {
+      key: "inv_quantity",
+      title: "SL",
+      className: "text-center font-semibold",
+      headerClassName: "text-center",
+      render: (invoice) => toNumber(invoice.inv_quantity),
+    },
+    {
+      key: "invoiceNo",
+      title: "Số đơn hàng",
+      className: "whitespace-nowrap text-center min-w-[160px]",
+      headerClassName: "text-center",
+      render: (invoice) => invoice.orderNumber || "-",
+    },
+    {
+      key: "productName",
+      title: "Tên SP",
+      className: "min-w-[220px]",
+      render: (invoice) => getProduct(invoice)?.inv_itemName || "-",
+    },
+    {
+      key: "inv_TotalAmountWithoutVAT",
+      title: "Tổng giá trị",
+      className: "whitespace-nowrap text-right font-semibold",
+      headerClassName: "text-right",
+      render: (invoice) => formatMoney(invoice.inv_TotalAmountWithoutVAT),
+    },
+    {
+      key: "inv_vatAmount",
+      title: "Tiền thuế",
+      className: "whitespace-nowrap text-right font-semibold",
+      headerClassName: "text-right",
+      render: (invoice) => formatMoney(invoice.inv_vatAmount),
+    },
+    {
+      key: "inv_TotalAmount",
+      title: "Tổng xuất HĐ",
+      className: "whitespace-nowrap text-right font-semibold",
+      headerClassName: "text-right",
+      render: (invoice) => formatMoney(invoice.inv_TotalAmount),
+    },
+    {
+      key: "commissionRate",
+      title: "%HH",
+      className: "text-center font-semibold",
+      headerClassName: "text-center",
+      render: (invoice) =>
+        `${toNumber(getAgency(invoice)?.commissionPercent)}%`,
+    },
+    {
+      key: "commissionAmount",
+      title: "HH",
+      className: "whitespace-nowrap text-right font-semibold",
+      headerClassName: "text-right",
+      render: (invoice) =>
+        formatMoney(getCommissionAmount(invoice, getAgency(invoice))),
+    },
+    {
+      key: "minvoiceRevenue",
+      title: "DT MINVOICE",
+      className: "whitespace-nowrap text-right font-semibold",
+      headerClassName: "text-right",
+      render: (invoice) =>
+        formatMoney((invoice as any).minvoiceRevenue || getRevenue(invoice)),
+    },
+    {
+      key: "paid",
+      title: "Thu tiền",
+      className: "text-center",
+      headerClassName: "text-center",
+      render: (invoice) => {
+        const isPaid = getPaidStatus(invoice) === "paid"
+
+        return (
+          <span
+            className={`inline-flex min-w-[82px] justify-center rounded px-2 py-1 text-xs font-semibold ${
+              isPaid
+                ? "bg-emerald-100 text-emerald-700"
+                : "bg-amber-100 text-amber-700"
+            }`}
+          >
+            {isPaid ? "Đã thu" : "Chưa thu"}
+          </span>
+        )
+      },
+    },
+    {
+      key: "paidAmount",
+      title: "Số tiền",
+      className: "whitespace-nowrap text-right font-semibold",
+      headerClassName: "text-right",
+      render: (invoice) => formatMoney((invoice as any).paidAmount),
+    },
+    {
+      key: "remainingAmount",
+      title: "Còn lại",
+      className: "whitespace-nowrap text-right font-semibold",
+      headerClassName: "text-right",
+      render: (invoice) => formatMoney(getRemainingAmount(invoice)),
+    },
+    {
+      key: "note",
+      title: "Ghi chú",
+      className: "min-w-[220px]",
+      render: (invoice) => (invoice as any).note || "-",
+    },
+  ]
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3 bg-white p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          className="focus:border-indigo-500 h-9 w-full max-w-[360px] rounded border border-slate-300 bg-white px-3 text-sm outline-none"
+          value={keyword}
+          onChange={(e) => {
+            setPage(1)
+            setKeyword(e.target.value)
+          }}
+          placeholder="Tìm theo MST, công ty, đại lý, nhân viên, sản phẩm..."
+        />
+
+        <select
+          className="focus:border-indigo-500 h-9 rounded border border-slate-300 bg-white px-3 text-sm outline-none"
+          value={paidFilter}
+          onChange={(e) => {
+            setPage(1)
+            setPaidFilter(e.target.value)
+          }}
+        >
+          <option value="">Tất cả thu tiền</option>
+          <option value="paid">Đã thu</option>
+          <option value="unpaid">Chưa thu</option>
+        </select>
+
+        <select
+          className="focus:border-indigo-500 h-9 rounded border border-slate-300 bg-white px-3 text-sm outline-none"
+          value={exportFilter}
+          onChange={(e) => {
+            setPage(1)
+            setExportFilter(e.target.value)
+          }}
+        >
+          <option value="">Tất cả xuất HĐ</option>
+          <option value="exported">Đã tạo HĐ</option>
+          <option value="not_exported">Chưa tạo HĐ</option>
+        </select>
+
+        <div className="ml-auto text-sm text-slate-500">
+          Tổng:{" "}
+          <span className="font-semibold text-slate-800">
+            {filteredRows.length}
+          </span>{" "}
+          hóa đơn
+        </div>
+      </div>
+
+      <DataTable<InvoiceApiRow>
+        data={pageRows}
+        columns={columns}
+        loading={loading}
+        emptyText="Không có dữ liệu hóa đơn phù hợp."
+        getRowKey={(invoice) => invoice._id}
+        onView={onView}
+        onEdit={onEdit}
+        renderActions={(invoice) => {
+          const exported = getExportInvoiceStatus(invoice) === "exported"
+
+          if (!exported) return null
+
+          return (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                onViewMInvoicePdf?.(invoice)
+              }}
+              title="Xem mẫu hóa đơn PDF"
+              className="border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-400 hover:bg-emerald-100 hover:text-emerald-800 inline-flex h-8 w-8 items-center justify-center rounded-lg border shadow-sm transition"
+            >
+              <Printer size={15} />
+            </button>
+          )
+        }}
+      />
+
+      <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm md:grid-cols-3 xl:grid-cols-6">
+        <div>
+          <div className="text-xs text-slate-500">Tổng giá trị</div>
+          <div className="font-bold text-slate-800">
+            {formatMoney(summary.totalBeforeTax)}
+          </div>
+        </div>
+
+        <div>
+          <div className="text-xs text-slate-500">Tiền thuế</div>
+          <div className="font-bold text-slate-800">
+            {formatMoney(summary.vatAmount)}
+          </div>
+        </div>
+
+        <div>
+          <div className="text-xs text-slate-500">Tổng xuất HĐ</div>
+          <div className="font-bold text-slate-800">
+            {formatMoney(summary.totalAmount)}
+          </div>
+        </div>
+
+        <div>
+          <div className="text-xs text-slate-500">DT MINVOICE</div>
+          <div className="font-bold text-slate-800">
+            {formatMoney(summary.minvoiceRevenue)}
+          </div>
+        </div>
+
+        <div>
+          <div className="text-xs text-slate-500">Đã thu</div>
+          <div className="text-emerald-700 font-bold">
+            {formatMoney(summary.paidAmount)}
+          </div>
+        </div>
+
+        <div>
+          <div className="text-xs text-slate-500">Còn lại</div>
+          <div className="text-amber-700 font-bold">
+            {formatMoney(summary.remainingAmount)}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
+        <div className="text-xs text-slate-500">
+          Hiển thị{" "}
+          <span className="font-semibold text-slate-700">
+            {filteredRows.length === 0 ? 0 : startIndex + 1}
+          </span>{" "}
+          -{" "}
+          <span className="font-semibold text-slate-700">
+            {Math.min(startIndex + pageSize, filteredRows.length)}
+          </span>{" "}
+          trong{" "}
+          <span className="font-semibold text-slate-700">
+            {filteredRows.length}
+          </span>{" "}
+          bản ghi
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="h-8 rounded border border-slate-300 px-3 text-sm disabled:opacity-40"
+            disabled={safePage <= 1}
+            onClick={() => setPage(1)}
+          >
+            «
+          </button>
+
+          <button
+            type="button"
+            className="h-8 rounded border border-slate-300 px-3 text-sm disabled:opacity-40"
+            disabled={safePage <= 1}
+            onClick={() => setPage((prev) => Math.max(prev - 1, 1))}
+          >
+            ‹
+          </button>
+
+          <div className="bg-indigo-100 text-indigo-700 flex h-8 min-w-[34px] items-center justify-center rounded-full px-3 text-sm font-semibold">
+            {safePage}
+          </div>
+
+          <button
+            type="button"
+            className="h-8 rounded border border-slate-300 px-3 text-sm disabled:opacity-40"
+            disabled={safePage >= totalPages}
+            onClick={() => setPage((prev) => Math.min(prev + 1, totalPages))}
+          >
+            ›
+          </button>
+
+          <button
+            type="button"
+            className="h-8 rounded border border-slate-300 px-3 text-sm disabled:opacity-40"
+            disabled={safePage >= totalPages}
+            onClick={() => setPage(totalPages)}
+          >
+            »
+          </button>
+
+          <select
+            className="h-8 rounded border border-slate-300 bg-white px-2 text-sm"
+            value={pageSize}
+            onChange={(e) => {
+              setPage(1)
+              setPageSize(Number(e.target.value))
+            }}
+          >
+            <option value={20}>20</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  )
+}

@@ -22,7 +22,7 @@ export const FormInput: React.FC<FormInputProps> = ({
       </label>
       <input
         className={cn(
-          "mt-[20px] flex h-10 shrink-0 rounded border border-solid border-gray-400 bg-White px-3 focus:outline-none focus:ring-2 focus:ring-Blue/50",
+          "border-gray-400 mt-[20px] flex h-10 shrink-0 rounded border border-solid bg-white px-3 focus:outline-none focus:ring-2 focus:ring-Blue/50",
           error && "border-Red/50",
           className
         )}

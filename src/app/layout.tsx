@@ -4,6 +4,8 @@ import { Geist, Geist_Mono } from "next/font/google"
 import { Provider } from "react-redux"
 import "./globals.css"
 import { metadata } from "./metadata"
+import { useEffect, useState } from "react"
+import { useRouter, usePathname } from "next/navigation"
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -15,11 +17,31 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 })
 
-export default function RootLayout({
+function RootLayoutContent({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const router = useRouter()
+  const pathname = usePathname()
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    const checkAuth = () => {
+      const token = localStorage.getItem("access_token")
+      const isLoginPage = pathname === "/"
+
+      if (!token && !isLoginPage) {
+        router.replace("/")
+      }
+
+      setIsLoading(false)
+    }
+
+    // Chạy sau khi component mount
+    checkAuth()
+  }, [pathname, router])
+
   return (
     <html lang="en">
       <head>
@@ -28,8 +50,22 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        {isLoading ? (
+          <div className="flex min-h-screen items-center justify-center">
+            Đang tải...
+          </div>
+        ) : (
+          children
+        )}
       </body>
     </html>
   )
+}
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode
+}>) {
+  return <RootLayoutContent>{children}</RootLayoutContent>
 }
