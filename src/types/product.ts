@@ -10,7 +10,6 @@ export interface Product {
 }
 
 export interface ProductPayload {
-  inv_itemCode: string
   inv_itemName: string
   inv_unitCode: string
   inv_unitPrice: number

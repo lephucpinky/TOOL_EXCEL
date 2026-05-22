@@ -18,7 +18,6 @@ import { useForm } from "react-hook-form"
 import DataTable, { DataTableColumn } from "@/components/common/Datatable"
 
 const emptyForm: ProductPayload = {
-  inv_itemCode: "",
   inv_itemName: "",
   inv_unitCode: "",
   inv_unitPrice: 0,
@@ -303,7 +302,6 @@ export default function ProductPage() {
 
   const onSubmit = async (data: ProductPayload) => {
     const body: ProductPayload = {
-      inv_itemCode: data.inv_itemCode.trim(),
       inv_itemName: data.inv_itemName.trim(),
       inv_unitCode: data.inv_unitCode.trim(),
       inv_unitPrice: Number(data.inv_unitPrice),
@@ -341,7 +339,6 @@ export default function ProductPage() {
         setSelectedProduct(detail)
 
         reset({
-          inv_itemCode: detail.inv_itemCode || "",
           inv_itemName: detail.inv_itemName || "",
           inv_unitCode: detail.inv_unitCode || "",
           inv_unitPrice: Number(detail.inv_unitPrice || 0),
@@ -381,7 +378,6 @@ export default function ProductPage() {
         setSelectedProduct(detail)
 
         reset({
-          inv_itemCode: detail.inv_itemCode || "",
           inv_itemName: detail.inv_itemName || "",
           inv_unitCode: detail.inv_unitCode || "",
           inv_unitPrice: Number(detail.inv_unitPrice || 0),
@@ -505,7 +501,7 @@ export default function ProductPage() {
             onSubmit={handleSubmit(onSubmit)}
             className="grid grid-cols-1 gap-4 md:grid-cols-2"
           >
-            <div>
+            {/* <div>
               <label className="mb-1.5 block text-sm font-semibold text-slate-700">
                 Mã sản phẩm
               </label>
@@ -526,7 +522,7 @@ export default function ProductPage() {
                   {errors.inv_itemCode.message}
                 </p>
               )}
-            </div>
+            </div> */}
 
             <div>
               <label className="mb-1.5 block text-sm font-semibold text-slate-700">
@@ -649,7 +645,6 @@ export default function ProductPage() {
                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
                 placeholder="Ví dụ: 0"
                 {...register("inv_discountAmount", {
-                  required: "Vui lòng nhập tiền chiết khấu",
                   valueAsNumber: true,
                   min: {
                     value: 0,

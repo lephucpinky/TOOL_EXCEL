@@ -12,7 +12,10 @@ export enum InvoiceStatus {
 
 export type InvoiceItem = {
   _id?: string
-  productId?: Product | null
+  productId?: Product | string | null
+  product?: Product | string | null
+  quantity?: number
+  inv_quantity?: number
   revenue?: number
   capitalPrice?: number
   totalSalary?: number
@@ -51,18 +54,28 @@ export type InvoiceApiRow = {
   inv_quantity?: number
   inv_discountPercentage?: number
 
-  agencyId?: Agency
-  departmentId?: Department
-  employeeId?: Employee
+  key_api?: string
+  cccdan?: string
+  so_hchieu?: string
+  mdvqhnsach_nmua?: string
+  ma_ch?: string
+  ten_ch?: string
+
+  agencyId?: Agency | string | null
+  departmentId?: Department | string | null
+  employeeId?: Employee | string | null
 
   items?: InvoiceItem[]
 
   paidAmount?: number
+  paidDate?: string
+  paymentDate?: string
   remainingAmount?: number
   minvoiceRevenue?: number
   isPaid?: boolean
   note?: string
   isActive?: boolean
+  exportInvoiceData?: Record<string, any>
 
   createdAt?: string
   updatedAt?: string

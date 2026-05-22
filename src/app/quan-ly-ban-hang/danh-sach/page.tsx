@@ -18,7 +18,7 @@ import AlertOption from "@/components/alert/AlertOption"
 import AlertSuccess from "@/components/alert/AlertSuccess"
 import AlertError from "@/components/alert/AlertError"
 import { APIViewPrintInvoice } from "@/services/mInvoiceReceipt"
-import { toNumber } from "@/utils/invoice"
+import { getId, toNumber } from "@/utils/invoice"
 import { InvoiceApiRow } from "@/types/invoice"
 
 const MINVOICE_TAX_CODE = process.env.NEXT_PUBLIC_MINVOICE_TAX_CODE || ""
@@ -71,6 +71,134 @@ function normalizeSaleTransactionDetail(response: any): InvoiceApiRow | null {
   return detail?._id ? detail : null
 }
 
+function preferDisplayValue(
+  serverValue: any,
+  clientValue: any,
+  fallbackValue?: any
+) {
+  if (serverValue && typeof serverValue === "object") return serverValue
+  if (clientValue && typeof clientValue === "object") return clientValue
+  return serverValue ?? clientValue ?? fallbackValue
+}
+
+function buildClientItems(payload: any) {
+  const items = Array.isArray(payload?.items) ? payload.items : []
+
+  return items.map((item: any) => ({
+    productId: item.product || item.productId || null,
+    product: item.product || item.productId || null,
+    quantity: toNumber(item.quantity ?? item.inv_quantity ?? 0),
+    inv_quantity: toNumber(item.inv_quantity ?? item.quantity ?? 0),
+    revenue: toNumber(item.revenue),
+    capitalPrice: toNumber(item.capitalPrice),
+    totalSalary: toNumber(item.totalSalary),
+    accountingAccountCode: Number(item.accountingAccountCode || 0),
+  }))
+}
+
+function hydrateSaleTransactionDetail(
+  detail: InvoiceApiRow,
+  payload?: any,
+  fallback?: InvoiceApiRow | null
+): InvoiceApiRow {
+  const clientSnapshot = payload?.__clientSnapshot || {}
+  const clientPayment = payload?.__clientPayment || {}
+  const clientItems = buildClientItems(payload)
+
+  const mergedItems =
+    Array.isArray(detail?.items) && detail.items.length
+      ? detail.items.map((item: any, index: number) => {
+          const clientItem = clientItems[index]
+          const fallbackItem = fallback?.items?.[index] as any
+
+          return {
+            ...item,
+            productId: preferDisplayValue(
+              item?.productId,
+              clientItem?.productId,
+              fallbackItem?.productId
+            ),
+            product: preferDisplayValue(
+              item?.product,
+              clientItem?.product,
+              fallbackItem?.product
+            ),
+            quantity:
+              item?.quantity ??
+              item?.inv_quantity ??
+              clientItem?.quantity ??
+              fallbackItem?.quantity,
+            inv_quantity:
+              item?.inv_quantity ??
+              item?.quantity ??
+              clientItem?.inv_quantity ??
+              fallbackItem?.inv_quantity,
+          }
+        })
+      : clientItems.length
+        ? clientItems
+        : fallback?.items || []
+
+  const totalItemQuantity = mergedItems.reduce((sum: number, item: any) => {
+    return sum + toNumber(item?.inv_quantity ?? item?.quantity ?? 0)
+  }, 0)
+
+  return {
+    ...(fallback || {}),
+    ...detail,
+    // activationDate:
+    //   detail.activationDate ??
+    //   payload?.activationDate ??
+    //   fallback?.activationDate,
+    agencyId: preferDisplayValue(
+      detail.agencyId,
+      clientSnapshot.agency,
+      fallback?.agencyId
+    ),
+    departmentId: preferDisplayValue(
+      detail.departmentId,
+      clientSnapshot.department,
+      fallback?.departmentId
+    ),
+    employeeId: preferDisplayValue(
+      detail.employeeId,
+      clientSnapshot.employee,
+      fallback?.employeeId
+    ),
+    bankId: preferDisplayValue(
+      detail.bankId,
+      clientSnapshot.bank,
+      fallback?.bankId
+    ),
+    inv_buyerBankName:
+      detail.inv_buyerBankName ||
+      clientSnapshot.bank?.inv_buyerBankName ||
+      fallback?.inv_buyerBankName ||
+      payload?.inv_buyerBankName ||
+      "",
+    inv_quantity: toNumber(
+      detail.inv_quantity ??
+        payload?.inv_quantity ??
+        fallback?.inv_quantity ??
+        totalItemQuantity
+    ),
+    items: mergedItems,
+    isPaid: detail.isPaid ?? clientPayment.isPaid ?? fallback?.isPaid ?? false,
+    paidAmount:
+      detail.paidAmount ??
+      clientPayment.paidAmount ??
+      fallback?.paidAmount ??
+      0,
+    paidDate:
+      detail.paidDate ?? clientPayment.paidDate ?? fallback?.paidDate ?? "",
+    remainingAmount:
+      detail.remainingAmount ??
+      clientPayment.remainingAmount ??
+      fallback?.remainingAmount ??
+      0,
+  }
+}
+
 function buildCreateApiBody(payload: any): InvoiceApiRow {
   const items = Array.isArray(payload.items) ? payload.items : []
 
@@ -103,26 +231,9 @@ function buildCreateApiBody(payload: any): InvoiceApiRow {
     agencyId: payload.agencyId,
 
     items: items.map((item: any) => ({
-      productId: item.productId,
-
-      // BẮT BUỘC giữ lại để BE calculate đúng
-      price: toNumber(item.price ?? item.unitPrice ?? 0),
-      inv_quantity: toNumber(item.inv_quantity ?? item.quantity ?? 1) || 1,
-      ma_thue: toNumber(item.ma_thue ?? item.taxRate ?? 0),
-
-      // Giữ lại các field FE đã tính để không lệch preview
+      productId: getId(item.productId) || getId(item.product),
+      // Khớp schema BE hiện tại của TransactionItem.
       revenue: toNumber(item.revenue),
-      inv_discountAmount: toNumber(item.inv_discountAmount),
-      inv_discountPercentage: toNumber(item.inv_discountPercentage),
-      inv_TotalAmountWithoutVat: toNumber(
-        item.inv_TotalAmountWithoutVat ??
-          item.inv_TotalAmountWithoutVAT ??
-          item.revenue
-      ),
-      inv_vatAmount: toNumber(item.inv_vatAmount),
-      inv_TotalAmount: toNumber(item.inv_TotalAmount ?? item.totalAmount),
-      inv_unitPrice: toNumber(item.inv_unitPrice ?? item.invUnitPrice),
-
       capitalPrice: toNumber(item.capitalPrice),
       totalSalary: toNumber(item.totalSalary),
       accountingAccountCode: Number(item.accountingAccountCode || 0),
@@ -321,25 +432,26 @@ export default function InvoiceListPage() {
           return
         }
 
+        const nextDetail = hydrateSaleTransactionDetail(detail, null, row)
         setApiRows((prev) => {
-          const existed = prev.some((item) => item._id === detail._id)
+          const existed = prev.some((item) => item._id === nextDetail._id)
 
-          if (!existed) return [detail, ...prev]
+          if (!existed) return [nextDetail, ...prev]
 
           return prev.map((item) => {
-            if (item._id !== detail._id) return item
-            return detail
+            if (item._id !== nextDetail._id) return item
+            return nextDetail
           })
         })
 
-        if (getInvoiceStatus(detail) === "CANCELLED") {
+        if (getInvoiceStatus(nextDetail) === "CANCELLED") {
           showErrorMessage("Hóa đơn đã hủy, không thể chỉnh sửa.")
-          setSelectedInvoiceId(detail._id)
+          setSelectedInvoiceId(nextDetail._id)
           setMode("detail")
           return
         }
 
-        setSelectedInvoiceId(detail._id)
+        setSelectedInvoiceId(nextDetail._id)
         setMode("edit")
       }
     } catch (err: any) {
@@ -367,13 +479,14 @@ export default function InvoiceListPage() {
         }
 
         setApiRows((prev) => {
-          const existed = prev.some((item) => item._id === detail._id)
+          const nextDetail = hydrateSaleTransactionDetail(detail, null, row)
+          const existed = prev.some((item) => item._id === nextDetail._id)
 
-          if (!existed) return [detail, ...prev]
+          if (!existed) return [nextDetail, ...prev]
 
           return prev.map((item) => {
-            if (item._id !== detail._id) return item
-            return detail
+            if (item._id !== nextDetail._id) return item
+            return nextDetail
           })
         })
 
@@ -445,17 +558,9 @@ export default function InvoiceListPage() {
 
       if (res?.status === 200 || res?.status === 201) {
         const detail = normalizeSaleTransactionDetail(res)
-
         if (detail?._id) {
           const nextDetail = {
-            ...detail,
-
-            isPaid: (detail as any).isPaid ?? payload.isPaid,
-            paidAmount: (detail as any).paidAmount ?? payload.paidAmount,
-            paidDate: (detail as any).paidDate ?? payload.paidDate,
-            remainingAmount:
-              (detail as any).remainingAmount ?? payload.remainingAmount,
-
+            ...hydrateSaleTransactionDetail(detail, payload, editingInvoice),
             invoiceStatus:
               (detail as any).invoiceStatus ||
               (editingInvoice ? getInvoiceStatus(editingInvoice) : "DRAFT"),

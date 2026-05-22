@@ -1,7 +1,6 @@
 "use client"
 
 import { Geist, Geist_Mono } from "next/font/google"
-import { Provider } from "react-redux"
 import "./globals.css"
 import { metadata } from "./metadata"
 import { useEffect, useState } from "react"
@@ -17,6 +16,22 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 })
 
+// Các route được phép vào không cần đăng nhập
+const PUBLIC_ROUTES = [
+  "/", // app/page.tsx - trang đối soát hiện tại của bạn
+  "/login",
+] as const
+
+function isPublicRoute(pathname: string) {
+  return PUBLIC_ROUTES.some((route) => {
+    if (route === "/") {
+      return pathname === "/"
+    }
+
+    return pathname === route || pathname.startsWith(`${route}/`)
+  })
+}
+
 function RootLayoutContent({
   children,
 }: Readonly<{
@@ -29,16 +44,23 @@ function RootLayoutContent({
   useEffect(() => {
     const checkAuth = () => {
       const token = localStorage.getItem("access_token")
-      const isLoginPage = pathname === "/login"
+      const publicRoute = isPublicRoute(pathname)
 
-      if (!token && !isLoginPage) {
+      // Nếu chưa đăng nhập và route không public thì mới đá về login
+      if (!token && !publicRoute) {
         router.replace("/login")
+        return
+      }
+
+      // Nếu đã đăng nhập mà vào /login thì đẩy về trang chính
+      if (token && pathname === "/login") {
+        router.replace("/")
+        return
       }
 
       setIsLoading(false)
     }
 
-    // Chạy sau khi component mount
     checkAuth()
   }, [pathname, router])
 
@@ -47,6 +69,7 @@ function RootLayoutContent({
       <head>
         <title>{String(metadata.title) ?? "Default Title"}</title>
       </head>
+
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

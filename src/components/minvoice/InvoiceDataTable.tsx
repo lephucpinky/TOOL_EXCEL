@@ -14,6 +14,36 @@ type Props = {
   onViewMInvoicePdf?: (row: InvoiceApiRow) => void
 }
 
+function getAgencyName(value: InvoiceApiRow["agencyId"]) {
+  if (!value || typeof value === "string") return ""
+  return String(value.agencyName || "")
+}
+
+function getDepartmentName(value: InvoiceApiRow["departmentId"]) {
+  if (!value || typeof value === "string") return ""
+  return String(value.departmentName || "")
+}
+
+function getEmployeeName(value: InvoiceApiRow["employeeId"]) {
+  if (!value || typeof value === "string") return ""
+  return String(value.employeeName || "")
+}
+
+function getProductCode(product: any) {
+  if (!product || typeof product === "string") return ""
+  return String(product.inv_itemCode || "")
+}
+
+function getProductName(product: any) {
+  if (!product || typeof product === "string") return ""
+  return String(product.inv_itemName || "")
+}
+
+function getAgencyCommissionPercent(agency: InvoiceApiRow["agencyId"]) {
+  if (!agency || typeof agency === "string") return 0
+  return Number(agency.commissionPercent || 0)
+}
+
 export default function InvoiceDataTable({
   rows,
   loading = false,
@@ -44,17 +74,17 @@ export default function InvoiceDataTable({
         invoice.inv_invoiceSeries,
         invoice.orderNumber,
         invoice.inv_invoiceIssuedDate,
-        invoice.agencyId?.agencyName,
-        invoice.departmentId?.departmentName,
-        invoice.employeeId?.employeeName,
+        getAgencyName(invoice.agencyId),
+        getDepartmentName(invoice.departmentId),
+        getEmployeeName(invoice.employeeId),
         invoice.inv_buyerTaxCode,
         invoice.inv_buyerDisplayName,
         invoice.inv_buyerLegalName,
         invoice.inv_buyerEmail,
         invoice.inv_buyerAddressLine,
         invoice.inv_buyerBankName,
-        product?.inv_itemCode,
-        product?.inv_itemName,
+        getProductCode(product),
+        getProductName(product),
         invoice.inv_invoiceCreatedId,
         exported ? "đã tạo" : "chưa tạo",
         invoice.note,
@@ -202,19 +232,19 @@ export default function InvoiceDataTable({
       key: "agencyId",
       title: "Đại lý",
       className: "min-w-[180px]",
-      render: (invoice) => invoice.agencyId?.agencyName || "-",
+      render: (invoice) => getAgencyName(invoice.agencyId) || "-",
     },
     {
       key: "departmentId",
       title: "Phòng ban",
       className: "min-w-[150px]",
-      render: (invoice) => invoice.departmentId?.departmentName || "-",
+      render: (invoice) => getDepartmentName(invoice.departmentId) || "-",
     },
     {
       key: "employeeId",
       title: "NVKD",
       className: "min-w-[160px]",
-      render: (invoice) => invoice.employeeId?.employeeName || "-",
+      render: (invoice) => getEmployeeName(invoice.employeeId) || "-",
     },
     {
       key: "inv_buyerTaxCode",
@@ -247,7 +277,8 @@ export default function InvoiceDataTable({
       key: "productName",
       title: "Tên SP",
       className: "min-w-[220px]",
-      render: (invoice) => invoice.items?.[0]?.productId?.inv_itemName || "-",
+      render: (invoice) =>
+        getProductName(invoice.items?.[0]?.productId) || "-",
     },
     {
       key: "inv_TotalAmountWithoutVAT",
@@ -278,8 +309,7 @@ export default function InvoiceDataTable({
       title: "%HH",
       className: "text-center font-semibold",
       headerClassName: "text-center",
-      render: (invoice) =>
-        `${Number(invoice.agencyId?.commissionPercent || 0)}%`,
+      render: (invoice) => `${getAgencyCommissionPercent(invoice.agencyId)}%`,
     },
     {
       key: "commissionAmount",
@@ -289,7 +319,7 @@ export default function InvoiceDataTable({
       render: (invoice) => {
         const amount =
           (Number(invoice.inv_TotalAmountWithoutVAT || 0) *
-            Number(invoice.agencyId?.commissionPercent || 0)) /
+            getAgencyCommissionPercent(invoice.agencyId)) /
           100
 
         return moneyFormatter.format(amount)

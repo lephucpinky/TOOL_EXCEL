@@ -284,6 +284,8 @@ export default function InvoiceCreateForm({
     setGeneral((prev) => ({
       ...prev,
       symbol: initialInvoice.inv_invoiceSeries || "1C26MZZ",
+      activatedDate:
+        normalizeDateInput(initialInvoice.activationDate || undefined) || today,
       invoiceDate:
         normalizeDateInput(initialInvoice.inv_invoiceIssuedDate) || today,
 
@@ -777,6 +779,9 @@ export default function InvoiceCreateForm({
     )
 
     const agencyId = getId(general.agency)
+    const departmentId = getId(general.department)
+    const employeeId = getId(general.employee)
+    const bankId = getId(general.bank)
 
     if (!agencyId) {
       showErrorMessage("Vui lòng chọn đại lý.")
@@ -799,6 +804,7 @@ export default function InvoiceCreateForm({
     }
 
     return {
+      activationDate: general.activatedDate || null,
       inv_invoiceSeries: general.symbol,
       inv_invoiceIssuedDate: general.invoiceDate,
       inv_currencyCode: general.currency,
@@ -806,6 +812,9 @@ export default function InvoiceCreateForm({
       inv_paymentMethodName: general.paymentMethod,
 
       agencyId,
+      // departmentId: departmentId || undefined,
+      employeeId: employeeId || undefined,
+      bankId: bankId || undefined,
 
       inv_buyerTaxCode: general.taxCode.trim(),
       inv_buyerLegalName: general.companyName.trim(),
@@ -813,6 +822,7 @@ export default function InvoiceCreateForm({
       inv_buyerEmail: general.email.trim(),
       inv_buyerAddressLine: general.address.trim(),
       inv_buyerBankAccount: "",
+      inv_buyerBankName: selectedBank?.inv_buyerBankName || "",
 
       so_benh_an: "",
       key_api: "",
@@ -833,28 +843,21 @@ export default function InvoiceCreateForm({
       inv_discountPercentage: 0,
       items: validItems.map((item) => ({
         productId: getId(item.product),
-
-        // Các field input để BE tự calculateItemFields giống công thức đang chạy.
-        price: roundInvoiceMoney(item.price || item.unitPrice || 0),
+        product: item.product,
+        quantity: Number(item.quantity || 1),
         inv_quantity: Number(item.quantity || 1),
-        ma_thue: Number(item.taxRate || 0),
-
-        // Các field dưới đây giữ để FE/BE lưu cùng kết quả tính toán, không lệch preview.
+        // Khớp schema BE hiện tại của TransactionItem.
         revenue: roundInvoiceMoney(item.revenue || 0),
-        inv_discountAmount: 0,
-        inv_discountPercentage: 0,
-        inv_TotalAmountWithoutVat: roundInvoiceMoney(item.revenue || 0),
-        inv_vatAmount: roundInvoiceMoney(item.taxAmount || 0),
-        inv_TotalAmount: roundInvoiceMoney(item.totalAmount || 0),
-        inv_unitPrice: roundInvoiceMoney(item.invUnitPrice || 0),
-
         capitalPrice: Number(item.capitalPrice || 0),
-
-        // Tính lương = Doanh thu
-        totalSalary: roundInvoiceMoney(item.revenue || 0),
-
+        totalSalary: roundInvoiceMoney(item.totalSalary || item.revenue || 0),
         accountingAccountCode: Number(item.accountingAccountCode || 0),
       })),
+      __clientSnapshot: {
+        agency: general.agency,
+        department: general.department,
+        employee: general.employee,
+        bank: general.bank,
+      },
     }
   }
 
@@ -906,16 +909,13 @@ export default function InvoiceCreateForm({
     const payload = buildPayload()
     if (!payload) return
 
-    const { isPaid, paidAmount, paidDate, remainingAmount, ...apiPayload } =
-      payload as any
-
     try {
       setSaveLoading(true)
 
-      console.log("CREATE_INVOICE_FORM_PAYLOAD", apiPayload)
+      console.log("CREATE_INVOICE_FORM_PAYLOAD", payload)
 
       await onSaved?.({
-        ...apiPayload,
+        ...payload,
         __clientPayment: {
           isPaid: Boolean(general.isPaid),
           paidAmount: effectivePaidAmount,
