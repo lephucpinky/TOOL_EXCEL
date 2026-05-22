@@ -1,20 +1,10 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
-
+import { useMemo, useState } from "react"
 import type { InvoiceApiRow } from "@/types/invoice"
-import type { Agency } from "@/types/agency"
-import type { Department } from "@/types/department"
-import type { Employee } from "@/types/employee"
-import type { Product } from "@/types/product"
-
-import { APIGetAgencies } from "@/services/agency"
-import { APIGetDepartments } from "@/services/department"
-import { APIGetEmployees } from "@/services/employee"
-import { APIGetProducts } from "@/services/product"
-
 import DataTable, { DataTableColumn } from "../common/Datatable"
 import { Printer } from "lucide-react"
+
 type Props = {
   rows: InvoiceApiRow[]
   loading?: boolean
@@ -22,150 +12,6 @@ type Props = {
   onView?: (row: InvoiceApiRow) => void
   onDelete?: (row: InvoiceApiRow) => void
   onViewMInvoicePdf?: (row: InvoiceApiRow) => void
-}
-function toNumber(value: unknown) {
-  const numberValue = Number(value)
-  return Number.isFinite(numberValue) ? numberValue : 0
-}
-
-function formatMoney(value: unknown) {
-  return new Intl.NumberFormat("vi-VN").format(toNumber(value))
-}
-
-function formatDate(value?: string) {
-  if (!value) return ""
-
-  const textValue = String(value).trim()
-
-  const ddmmyyyy = textValue.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
-  if (ddmmyyyy) return `${ddmmyyyy[1]}/${ddmmyyyy[2]}/${ddmmyyyy[3]}`
-
-  const date = new Date(textValue)
-
-  if (!Number.isNaN(date.getTime())) {
-    return new Intl.DateTimeFormat("vi-VN", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    }).format(date)
-  }
-
-  return textValue
-}
-
-function unwrapListResponse(response: any) {
-  const raw =
-    response?.data?.data ??
-    response?.data?.content ??
-    response?.data?.items ??
-    response?.data?.result ??
-    response?.data ??
-    response?.content ??
-    response?.items ??
-    response?.result ??
-    response ??
-    []
-
-  if (!Array.isArray(raw)) return []
-
-  return raw.map((item: any) => item?.content ?? item).filter(Boolean)
-}
-
-function getId(value: any) {
-  if (!value) return ""
-  if (typeof value === "string") return value
-  return value._id || value.id || ""
-}
-
-function getItems(invoice: InvoiceApiRow): any[] {
-  const rawItems = (invoice as any).items
-
-  if (Array.isArray(rawItems)) return rawItems
-  if (rawItems) return [rawItems]
-
-  return []
-}
-
-function getMonth(invoice: InvoiceApiRow) {
-  const value = invoice.inv_invoiceIssuedDate || ""
-  const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
-
-  if (match) return `${match[2]}/${match[3]}`
-
-  const date = new Date(value)
-  if (!Number.isNaN(date.getTime())) {
-    return `${String(date.getMonth() + 1).padStart(
-      2,
-      "0"
-    )}/${date.getFullYear()}`
-  }
-
-  return ""
-}
-
-function getPaidStatus(invoice: InvoiceApiRow) {
-  const paidAmount = toNumber((invoice as any).paidAmount)
-  return (invoice as any).isPaid || paidAmount > 0 ? "paid" : "unpaid"
-}
-
-function getMInvoiceData(invoice: InvoiceApiRow) {
-  const row = invoice as any
-
-  return (
-    row.content?.data ||
-    row.content ||
-    row.exportInvoiceData?.data ||
-    row.exportInvoiceData ||
-    row.data?.data ||
-    row.data ||
-    row
-  )
-}
-
-function getExportInvoiceId(invoice: InvoiceApiRow) {
-  const row = invoice as any
-  const mInvoiceData = getMInvoiceData(invoice)
-
-  return String(
-    mInvoiceData?.id ||
-      mInvoiceData?.inv_invoiceCreatedId ||
-      row?.id ||
-      row?.inv_invoiceCreatedId ||
-      ""
-  ).trim()
-}
-
-function getExportInvoiceStatus(invoice: InvoiceApiRow) {
-  return getExportInvoiceId(invoice) ? "exported" : "not_exported"
-}
-function getRemainingAmount(invoice: InvoiceApiRow) {
-  const totalAmount = toNumber(invoice.inv_TotalAmount)
-  const paidAmount = toNumber((invoice as any).paidAmount)
-
-  if ((invoice as any).remainingAmount !== undefined) {
-    return toNumber((invoice as any).remainingAmount)
-  }
-
-  return Math.max(totalAmount - paidAmount, 0)
-}
-
-function getRevenue(invoice: InvoiceApiRow) {
-  return getItems(invoice).reduce((sum, item) => {
-    return sum + toNumber(item?.revenue)
-  }, 0)
-}
-
-function getCommissionAmount(invoice: InvoiceApiRow, agency?: Agency | null) {
-  const itemCommissionAmount = getItems(invoice).reduce((sum, item) => {
-    return sum + toNumber(item?.commissionAmount)
-  }, 0)
-
-  if (itemCommissionAmount > 0) return itemCommissionAmount
-
-  const commissionPercent = toNumber((agency as any)?.commissionPercent)
-  const totalBeforeTax = toNumber(invoice.inv_TotalAmountWithoutVAT)
-
-  return (totalBeforeTax * commissionPercent) / 100
 }
 
 export default function InvoiceDataTable({
@@ -181,180 +27,56 @@ export default function InvoiceDataTable({
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
 
-  const [agencies, setAgencies] = useState<Agency[]>([])
-  const [departments, setDepartments] = useState<Department[]>([])
-  const [employees, setEmployees] = useState<Employee[]>([])
-  const [products, setProducts] = useState<Product[]>([])
-
-  useEffect(() => {
-    const fetchCatalogs = async () => {
-      try {
-        const [agencyRes, departmentRes, employeeRes, productRes] =
-          await Promise.all([
-            APIGetAgencies(),
-            APIGetDepartments(),
-            APIGetEmployees(),
-            APIGetProducts(),
-          ])
-
-        setAgencies(
-          unwrapListResponse(agencyRes).filter((item: Agency) => item?._id)
-        )
-
-        setDepartments(
-          unwrapListResponse(departmentRes).filter(
-            (item: Department) => item?._id
-          )
-        )
-
-        setEmployees(
-          unwrapListResponse(employeeRes).filter((item: Employee) => item?._id)
-        )
-
-        setProducts(
-          unwrapListResponse(productRes).filter((item: Product) => item?._id)
-        )
-      } catch (err) {
-        console.error("Fetch invoice datatable catalogs error:", err)
-      }
-    }
-
-    fetchCatalogs()
+  const moneyFormatter = useMemo(() => {
+    return new Intl.NumberFormat("vi-VN")
   }, [])
-
-  const agencyMap = useMemo(() => {
-    return new Map(agencies.map((item) => [item._id, item]))
-  }, [agencies])
-
-  const departmentMap = useMemo(() => {
-    return new Map(departments.map((item) => [item._id, item]))
-  }, [departments])
-
-  const employeeMap = useMemo(() => {
-    return new Map(employees.map((item) => [item._id, item]))
-  }, [employees])
-
-  const productMap = useMemo(() => {
-    return new Map(products.map((item) => [item._id, item]))
-  }, [products])
-
-  const getAgency = (invoice: InvoiceApiRow) => {
-    const value = (invoice as any).agencyId
-
-    if (value && typeof value === "object") return value as Agency
-
-    return agencyMap.get(getId(value)) || null
-  }
-
-  const getDepartment = (invoice: InvoiceApiRow) => {
-    const value = (invoice as any).departmentId
-
-    if (value && typeof value === "object") return value as Department
-
-    return departmentMap.get(getId(value)) || null
-  }
-
-  const getEmployee = (invoice: InvoiceApiRow) => {
-    const value = (invoice as any).employeeId
-
-    if (value && typeof value === "object") return value as Employee
-
-    return employeeMap.get(getId(value)) || null
-  }
-
-  const getProduct = (invoice: InvoiceApiRow) => {
-    const firstItem = getItems(invoice)[0]
-
-    if (!firstItem) return null
-
-    if (firstItem.productId && typeof firstItem.productId === "object") {
-      return firstItem.productId as Product
-    }
-
-    if (firstItem.product && typeof firstItem.product === "object") {
-      return firstItem.product as Product
-    }
-
-    const productId = getId(firstItem.productId || firstItem.product)
-
-    if (productId && productMap.has(productId)) {
-      return productMap.get(productId) || null
-    }
-
-    if (firstItem.inv_itemName || firstItem.inv_itemCode) {
-      return firstItem
-    }
-
-    return null
-  }
-
-  const getSearchText = (invoice: InvoiceApiRow) => {
-    const agency = getAgency(invoice)
-    const department = getDepartment(invoice)
-    const employee = getEmployee(invoice)
-    const product = getProduct(invoice)
-    const mInvoiceData = getMInvoiceData(invoice)
-
-    return [
-      invoice.inv_invoiceSeries,
-      invoice.invoiceNo,
-      invoice.inv_invoiceNumber,
-      invoice.so_hoa_don,
-      invoice.inv_invoiceIssuedDate,
-      agency?.name,
-      department?.departmentName,
-      employee?.employeeName,
-      invoice.inv_buyerTaxCode,
-      invoice.inv_buyerDisplayName,
-      invoice.inv_buyerLegalName,
-      invoice.inv_buyerEmail,
-      invoice.inv_buyerAddressLine,
-      invoice.inv_buyerBankName,
-      product?.inv_itemCode,
-      product?.inv_itemName,
-      mInvoiceData?.id,
-      mInvoiceData?.inv_invoiceCreatedId,
-      mInvoiceData?.macqt,
-      mInvoiceData?.sobaomat,
-      mInvoiceData?.shdon,
-      mInvoiceData?.inv_invoiceNumber,
-
-      getExportInvoiceStatus(invoice) === "exported" ? "đã tạo" : "chưa tạo",
-      (invoice as any).note,
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase()
-  }
 
   const filteredRows = useMemo(() => {
     const searchValue = keyword.trim().toLowerCase()
 
     return rows.filter((invoice) => {
-      const matchKeyword = searchValue
-        ? getSearchText(invoice).includes(searchValue)
-        : true
+      const firstItem = invoice.items?.[0]
+      const product = firstItem?.productId
 
-      const matchPaid = paidFilter
-        ? getPaidStatus(invoice) === paidFilter
-        : true
+      const exported = Boolean(invoice.inv_invoiceCreatedId)
 
-      const matchExport = exportFilter
-        ? getExportInvoiceStatus(invoice) === exportFilter
-        : true
+      const searchText = [
+        invoice.inv_invoiceSeries,
+        invoice.orderNumber,
+        invoice.inv_invoiceIssuedDate,
+        invoice.agencyId?.agencyName,
+        invoice.departmentId?.departmentName,
+        invoice.employeeId?.employeeName,
+        invoice.inv_buyerTaxCode,
+        invoice.inv_buyerDisplayName,
+        invoice.inv_buyerLegalName,
+        invoice.inv_buyerEmail,
+        invoice.inv_buyerAddressLine,
+        invoice.inv_buyerBankName,
+        product?.inv_itemCode,
+        product?.inv_itemName,
+        invoice.inv_invoiceCreatedId,
+        exported ? "đã tạo" : "chưa tạo",
+        invoice.note,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+
+      const paidStatus =
+        invoice.isPaid || Number(invoice.paidAmount || 0) > 0
+          ? "paid"
+          : "unpaid"
+
+      const exportStatus = exported ? "exported" : "not_exported"
+
+      const matchKeyword = searchValue ? searchText.includes(searchValue) : true
+      const matchPaid = paidFilter ? paidStatus === paidFilter : true
+      const matchExport = exportFilter ? exportStatus === exportFilter : true
 
       return matchKeyword && matchPaid && matchExport
     })
-  }, [
-    rows,
-    keyword,
-    paidFilter,
-    exportFilter,
-    agencyMap,
-    departmentMap,
-    employeeMap,
-    productMap,
-  ])
+  }, [rows, keyword, paidFilter, exportFilter])
 
   const totalPages = Math.max(Math.ceil(filteredRows.length / pageSize), 1)
   const safePage = Math.min(page, totalPages)
@@ -364,16 +86,28 @@ export default function InvoiceDataTable({
   const summary = useMemo(() => {
     return filteredRows.reduce(
       (acc, invoice) => {
-        acc.totalAmount += toNumber(invoice.inv_TotalAmount)
-        acc.totalBeforeTax += toNumber(invoice.inv_TotalAmountWithoutVAT)
-        acc.vatAmount += toNumber(invoice.inv_vatAmount)
-        acc.paidAmount += toNumber((invoice as any).paidAmount)
-        acc.remainingAmount += getRemainingAmount(invoice)
-        acc.minvoiceRevenue += toNumber(
-          (invoice as any).minvoiceRevenue || getRevenue(invoice)
-        )
-        acc.ds += toNumber(
-          (invoice as any).ds || invoice.inv_TotalAmountWithoutVAT
+        const totalAmount = Number(invoice.inv_TotalAmount || 0)
+        const totalBeforeTax = Number(invoice.inv_TotalAmountWithoutVAT || 0)
+        const vatAmount = Number(invoice.inv_vatAmount || 0)
+        const paidAmount = Number(invoice.paidAmount || 0)
+
+        const remainingAmount =
+          invoice.remainingAmount !== undefined
+            ? Number(invoice.remainingAmount || 0)
+            : Math.max(totalAmount - paidAmount, 0)
+
+        const itemRevenue =
+          invoice.items?.reduce((sum, item) => {
+            return sum + Number(item.revenue || 0)
+          }, 0) || 0
+
+        acc.totalAmount += totalAmount
+        acc.totalBeforeTax += totalBeforeTax
+        acc.vatAmount += vatAmount
+        acc.paidAmount += paidAmount
+        acc.remainingAmount += remainingAmount
+        acc.minvoiceRevenue += Number(
+          invoice.minvoiceRevenue || itemRevenue || 0
         )
 
         return acc
@@ -385,7 +119,6 @@ export default function InvoiceDataTable({
         paidAmount: 0,
         remainingAmount: 0,
         minvoiceRevenue: 0,
-        ds: 0,
       }
     )
   }, [filteredRows])
@@ -396,14 +129,51 @@ export default function InvoiceDataTable({
       title: "Tháng",
       className: "whitespace-nowrap text-center",
       headerClassName: "text-center",
-      render: (invoice) => getMonth(invoice),
+      render: (invoice) => {
+        const value = invoice.inv_invoiceIssuedDate || ""
+        const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
+
+        if (match) return `${match[2]}/${match[3]}`
+
+        const date = new Date(value)
+
+        if (!Number.isNaN(date.getTime())) {
+          return `${String(date.getMonth() + 1).padStart(
+            2,
+            "0"
+          )}/${date.getFullYear()}`
+        }
+
+        return "-"
+      },
     },
     {
       key: "inv_invoiceIssuedDate",
       title: "Ngày HĐ",
       className: "whitespace-nowrap text-center",
       headerClassName: "text-center",
-      render: (invoice) => formatDate(invoice.inv_invoiceIssuedDate),
+      render: (invoice) => {
+        const value = invoice.inv_invoiceIssuedDate
+
+        if (!value) return "-"
+
+        const textValue = String(value).trim()
+        const match = textValue.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
+
+        if (match) return `${match[1]}/${match[2]}/${match[3]}`
+
+        const date = new Date(textValue)
+
+        if (!Number.isNaN(date.getTime())) {
+          return new Intl.DateTimeFormat("vi-VN", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+          }).format(date)
+        }
+
+        return textValue
+      },
     },
     {
       key: "exportInvoiceStatus",
@@ -411,7 +181,7 @@ export default function InvoiceDataTable({
       className: "whitespace-nowrap text-center",
       headerClassName: "text-center",
       render: (invoice) => {
-        const exported = getExportInvoiceStatus(invoice) === "exported"
+        const exported = Boolean(invoice.inv_invoiceCreatedId)
 
         return (
           <div className="flex flex-col items-center gap-1">
@@ -428,49 +198,23 @@ export default function InvoiceDataTable({
         )
       },
     },
-    // {
-    //   key: "mInvoicePdf",
-    //   title: "Mẫu HĐ",
-    //   className: "whitespace-nowrap text-center",
-    //   headerClassName: "text-center",
-    //   render: (invoice) => {
-    //     const exported = getExportInvoiceStatus(invoice) === "exported"
-
-    //     if (!exported) {
-    //       return <span className="text-xs text-slate-400">-</span>
-    //     }
-
-    //     return (
-    //       <button
-    //         type="button"
-    //         onClick={(e) => {
-    //           e.stopPropagation()
-    //           onViewMInvoicePdf?.(invoice)
-    //         }}
-    //         className="inline-flex h-8 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 px-3 text-xs font-semibold text-blue-700 hover:bg-blue-100"
-    //       >
-    //         Xem PDF
-    //       </button>
-    //     )
-    //   },
-    // },
     {
       key: "agencyId",
       title: "Đại lý",
       className: "min-w-[180px]",
-      render: (invoice) => getAgency(invoice)?.name || "-",
+      render: (invoice) => invoice.agencyId?.agencyName || "-",
     },
     {
       key: "departmentId",
       title: "Phòng ban",
       className: "min-w-[150px]",
-      render: (invoice) => getDepartment(invoice)?.departmentName || "-",
+      render: (invoice) => invoice.departmentId?.departmentName || "-",
     },
     {
       key: "employeeId",
       title: "NVKD",
       className: "min-w-[160px]",
-      render: (invoice) => getEmployee(invoice)?.employeeName || "-",
+      render: (invoice) => invoice.employeeId?.employeeName || "-",
     },
     {
       key: "inv_buyerTaxCode",
@@ -490,10 +234,10 @@ export default function InvoiceDataTable({
       title: "SL",
       className: "text-center font-semibold",
       headerClassName: "text-center",
-      render: (invoice) => toNumber(invoice.inv_quantity),
+      render: (invoice) => Number(invoice.inv_quantity || 0),
     },
     {
-      key: "invoiceNo",
+      key: "orderNumber",
       title: "Số đơn hàng",
       className: "whitespace-nowrap text-center min-w-[160px]",
       headerClassName: "text-center",
@@ -503,28 +247,31 @@ export default function InvoiceDataTable({
       key: "productName",
       title: "Tên SP",
       className: "min-w-[220px]",
-      render: (invoice) => getProduct(invoice)?.inv_itemName || "-",
+      render: (invoice) => invoice.items?.[0]?.productId?.inv_itemName || "-",
     },
     {
       key: "inv_TotalAmountWithoutVAT",
       title: "Tổng giá trị",
       className: "whitespace-nowrap text-right font-semibold",
       headerClassName: "text-right",
-      render: (invoice) => formatMoney(invoice.inv_TotalAmountWithoutVAT),
+      render: (invoice) =>
+        moneyFormatter.format(Number(invoice.inv_TotalAmountWithoutVAT || 0)),
     },
     {
       key: "inv_vatAmount",
       title: "Tiền thuế",
       className: "whitespace-nowrap text-right font-semibold",
       headerClassName: "text-right",
-      render: (invoice) => formatMoney(invoice.inv_vatAmount),
+      render: (invoice) =>
+        moneyFormatter.format(Number(invoice.inv_vatAmount || 0)),
     },
     {
       key: "inv_TotalAmount",
       title: "Tổng xuất HĐ",
       className: "whitespace-nowrap text-right font-semibold",
       headerClassName: "text-right",
-      render: (invoice) => formatMoney(invoice.inv_TotalAmount),
+      render: (invoice) =>
+        moneyFormatter.format(Number(invoice.inv_TotalAmount || 0)),
     },
     {
       key: "commissionRate",
@@ -532,23 +279,37 @@ export default function InvoiceDataTable({
       className: "text-center font-semibold",
       headerClassName: "text-center",
       render: (invoice) =>
-        `${toNumber(getAgency(invoice)?.commissionPercent)}%`,
+        `${Number(invoice.agencyId?.commissionPercent || 0)}%`,
     },
     {
       key: "commissionAmount",
       title: "HH",
       className: "whitespace-nowrap text-right font-semibold",
       headerClassName: "text-right",
-      render: (invoice) =>
-        formatMoney(getCommissionAmount(invoice, getAgency(invoice))),
+      render: (invoice) => {
+        const amount =
+          (Number(invoice.inv_TotalAmountWithoutVAT || 0) *
+            Number(invoice.agencyId?.commissionPercent || 0)) /
+          100
+
+        return moneyFormatter.format(amount)
+      },
     },
     {
       key: "minvoiceRevenue",
       title: "DT MINVOICE",
       className: "whitespace-nowrap text-right font-semibold",
       headerClassName: "text-right",
-      render: (invoice) =>
-        formatMoney((invoice as any).minvoiceRevenue || getRevenue(invoice)),
+      render: (invoice) => {
+        const itemRevenue =
+          invoice.items?.reduce((sum, item) => {
+            return sum + Number(item.revenue || 0)
+          }, 0) || 0
+
+        return moneyFormatter.format(
+          Number(invoice.minvoiceRevenue || itemRevenue || 0)
+        )
+      },
     },
     {
       key: "paid",
@@ -556,7 +317,7 @@ export default function InvoiceDataTable({
       className: "text-center",
       headerClassName: "text-center",
       render: (invoice) => {
-        const isPaid = getPaidStatus(invoice) === "paid"
+        const isPaid = invoice.isPaid || Number(invoice.paidAmount || 0) > 0
 
         return (
           <span
@@ -576,20 +337,31 @@ export default function InvoiceDataTable({
       title: "Số tiền",
       className: "whitespace-nowrap text-right font-semibold",
       headerClassName: "text-right",
-      render: (invoice) => formatMoney((invoice as any).paidAmount),
+      render: (invoice) =>
+        moneyFormatter.format(Number(invoice.paidAmount || 0)),
     },
     {
       key: "remainingAmount",
       title: "Còn lại",
       className: "whitespace-nowrap text-right font-semibold",
       headerClassName: "text-right",
-      render: (invoice) => formatMoney(getRemainingAmount(invoice)),
+      render: (invoice) => {
+        const totalAmount = Number(invoice.inv_TotalAmount || 0)
+        const paidAmount = Number(invoice.paidAmount || 0)
+
+        const remainingAmount =
+          invoice.remainingAmount !== undefined
+            ? Number(invoice.remainingAmount || 0)
+            : Math.max(totalAmount - paidAmount, 0)
+
+        return moneyFormatter.format(remainingAmount)
+      },
     },
     {
       key: "note",
       title: "Ghi chú",
       className: "min-w-[220px]",
-      render: (invoice) => (invoice as any).note || "-",
+      render: (invoice) => invoice.note || "-",
     },
   ]
 
@@ -597,7 +369,7 @@ export default function InvoiceDataTable({
     <div className="flex min-h-0 flex-1 flex-col gap-3 bg-white p-3">
       <div className="flex flex-wrap items-center gap-2">
         <input
-          className="focus:border-indigo-500 h-9 w-full max-w-[360px] rounded border border-slate-300 bg-white px-3 text-sm outline-none"
+          className="h-9 w-full max-w-[360px] rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-indigo-500"
           value={keyword}
           onChange={(e) => {
             setPage(1)
@@ -607,7 +379,7 @@ export default function InvoiceDataTable({
         />
 
         <select
-          className="focus:border-indigo-500 h-9 rounded border border-slate-300 bg-white px-3 text-sm outline-none"
+          className="h-9 rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-indigo-500"
           value={paidFilter}
           onChange={(e) => {
             setPage(1)
@@ -620,7 +392,7 @@ export default function InvoiceDataTable({
         </select>
 
         <select
-          className="focus:border-indigo-500 h-9 rounded border border-slate-300 bg-white px-3 text-sm outline-none"
+          className="h-9 rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-indigo-500"
           value={exportFilter}
           onChange={(e) => {
             setPage(1)
@@ -650,7 +422,7 @@ export default function InvoiceDataTable({
         onView={onView}
         onEdit={onEdit}
         renderActions={(invoice) => {
-          const exported = getExportInvoiceStatus(invoice) === "exported"
+          const exported = Boolean(invoice.inv_invoiceCreatedId)
 
           if (!exported) return null
 
@@ -662,7 +434,7 @@ export default function InvoiceDataTable({
                 onViewMInvoicePdf?.(invoice)
               }}
               title="Xem mẫu hóa đơn PDF"
-              className="border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-400 hover:bg-emerald-100 hover:text-emerald-800 inline-flex h-8 w-8 items-center justify-center rounded-lg border shadow-sm transition"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm transition hover:border-emerald-400 hover:bg-emerald-100 hover:text-emerald-800"
             >
               <Printer size={15} />
             </button>
@@ -674,42 +446,42 @@ export default function InvoiceDataTable({
         <div>
           <div className="text-xs text-slate-500">Tổng giá trị</div>
           <div className="font-bold text-slate-800">
-            {formatMoney(summary.totalBeforeTax)}
+            {moneyFormatter.format(summary.totalBeforeTax)}
           </div>
         </div>
 
         <div>
           <div className="text-xs text-slate-500">Tiền thuế</div>
           <div className="font-bold text-slate-800">
-            {formatMoney(summary.vatAmount)}
+            {moneyFormatter.format(summary.vatAmount)}
           </div>
         </div>
 
         <div>
           <div className="text-xs text-slate-500">Tổng xuất HĐ</div>
           <div className="font-bold text-slate-800">
-            {formatMoney(summary.totalAmount)}
+            {moneyFormatter.format(summary.totalAmount)}
           </div>
         </div>
 
         <div>
           <div className="text-xs text-slate-500">DT MINVOICE</div>
           <div className="font-bold text-slate-800">
-            {formatMoney(summary.minvoiceRevenue)}
+            {moneyFormatter.format(summary.minvoiceRevenue)}
           </div>
         </div>
 
         <div>
           <div className="text-xs text-slate-500">Đã thu</div>
-          <div className="text-emerald-700 font-bold">
-            {formatMoney(summary.paidAmount)}
+          <div className="font-bold text-emerald-700">
+            {moneyFormatter.format(summary.paidAmount)}
           </div>
         </div>
 
         <div>
           <div className="text-xs text-slate-500">Còn lại</div>
           <div className="text-amber-700 font-bold">
-            {formatMoney(summary.remainingAmount)}
+            {moneyFormatter.format(summary.remainingAmount)}
           </div>
         </div>
       </div>
@@ -750,7 +522,7 @@ export default function InvoiceDataTable({
             ‹
           </button>
 
-          <div className="bg-indigo-100 text-indigo-700 flex h-8 min-w-[34px] items-center justify-center rounded-full px-3 text-sm font-semibold">
+          <div className="flex h-8 min-w-[34px] items-center justify-center rounded-full bg-indigo-100 px-3 text-sm font-semibold text-indigo-700">
             {safePage}
           </div>
 

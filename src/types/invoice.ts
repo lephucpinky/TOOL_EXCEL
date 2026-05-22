@@ -4,22 +4,37 @@ import { Department } from "./department"
 import { Employee } from "./employee"
 import { Product } from "./product"
 
-export type InvoicePaidStatus = "paid" | "unpaid"
+export enum InvoiceStatus {
+  DRAFT = "DRAFT",
+  ISSUED = "ISSUED",
+  CANCELLED = "CANCELLED",
+}
+
+export type InvoiceItem = {
+  _id?: string
+  productId?: Product | null
+  revenue?: number
+  capitalPrice?: number
+  totalSalary?: number
+  accountingAccountCode?: number
+}
 
 export type InvoiceApiRow = {
   _id: string
-  inv_invoiceCreatedId?: string
-  inv_invoiceSeries?: string
-  invoiceNo?: string
-  inv_invoiceNumber?: string
-  so_hoa_don?: string
-  orderNumber?: string
 
+  invoiceStatus?: InvoiceStatus
+  bankId?: Bank | string | null
+
+  activationDate?: string | null
+  inv_invoiceCreatedId?: string | null
+  inv_invoiceSeries?: string
   inv_invoiceIssuedDate?: string
   inv_currencyCode?: string
   inv_exchangeRate?: number
 
+  orderNumber?: string
   so_benh_an?: string
+
   inv_buyerDisplayName?: string
   inv_buyerLegalName?: string
   inv_buyerTaxCode?: string
@@ -33,40 +48,22 @@ export type InvoiceApiRow = {
   inv_TotalAmountWithoutVAT?: number
   inv_vatAmount?: number
   inv_TotalAmount?: number
-
-  key_api?: string
-  cccdan?: string
-  so_hchieu?: string
-  mdvqhnsach_nmua?: string
-  ma_ch?: string
-  ten_ch?: string
-
   inv_quantity?: number
   inv_discountPercentage?: number
 
   agencyId?: Agency
   departmentId?: Department
   employeeId?: Employee
-  bankId?: Bank
-  items?: Product
-  newQuantity?: number
-  renewQuantity?: number
-  giftQuantity?: number
-  invoiceTitle?: string
-  difference?: number
-  invoicePackage?: number
-  otherAmount?: number
-  writeDifference?: number
-  customerDiscount?: number
-  commissionAmount?: number
-  writeRevenue?: number
-  differencePayable?: number
-  minvoiceRevenue?: number
-  ds?: number
-  isPaid?: boolean
+
+  items?: InvoiceItem[]
+
   paidAmount?: number
   remainingAmount?: number
+  minvoiceRevenue?: number
+  isPaid?: boolean
   note?: string
+  isActive?: boolean
+
   createdAt?: string
   updatedAt?: string
 }

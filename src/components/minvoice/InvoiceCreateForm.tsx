@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import type { InvoiceApiRow } from "@/types/invoice"
+
 import type { Agency } from "@/types/agency"
 import type { Bank } from "@/types/bank"
 import type { Department } from "@/types/department"
@@ -17,6 +17,24 @@ import { APIExportMInvoiceReceiptPost } from "@/services/mInvoiceReceipt"
 import AlertOption from "../alert/AlertOption"
 import AlertSuccess from "../alert/AlertSuccess"
 import AlertError from "../alert/AlertError"
+import {
+  createItemId,
+  formatMoney,
+  getId,
+  getInvoiceStatus,
+  inputClass,
+  invoiceStatusClass,
+  invoiceStatusLabel,
+  mergeOptions,
+  MINVOICE_INVOICE_SERIES,
+  MINVOICE_TAX_CODE,
+  normalizeDateInput,
+  numberToVietnamese,
+  resolveOption,
+  roundInvoiceMoney,
+} from "@/utils/invoice"
+import { toNumber } from "@/utils/excel"
+import { InvoiceApiRow } from "@/types/invoice"
 type InvoiceScreenMode = "create" | "edit" | "detail"
 
 type InvoiceGeneralForm = {
@@ -26,20 +44,16 @@ type InvoiceGeneralForm = {
   currency: string
   exchangeRate: number
   paymentMethod: string
-
   activatedDate: string
-
   agency: Agency | null
   department: Department | null
   employee: Employee | null
   product: Product | null
   bank: Bank | null
-
   taxCode: string
   companyName: string
   email: string
   address: string
-
   isPaid: boolean
   paidAmount: number
   paidDate: string
@@ -54,6 +68,7 @@ type InvoiceItemForm = {
   quantity: number
   type: string
   unitPrice: number
+  discountAmount: number
   taxRate: number
   capitalPrice: number
   totalSalary: number
@@ -73,218 +88,6 @@ type Props = {
 }
 const today = new Date().toISOString().slice(0, 10)
 
-const inputClass =
-  "h-8 w-full rounded border border-slate-300 bg-white px-2 text-[13px] text-slate-800 outline-none focus:border-indigo-500 disabled:bg-slate-100"
-const MINVOICE_TAX_CODE = process.env.NEXT_PUBLIC_MINVOICE_TAX_CODE || ""
-const MINVOICE_INVOICE_SERIES =
-  process.env.NEXT_PUBLIC_MINVOICE_INVOICE_SERIES || ""
-function unwrapListResponse(response: any) {
-  const raw =
-    response?.data?.data ??
-    response?.data?.content ??
-    response?.data?.items ??
-    response?.data?.result ??
-    response?.data ??
-    response?.content ??
-    response?.items ??
-    response?.result ??
-    response ??
-    []
-
-  if (!Array.isArray(raw)) return []
-
-  return raw.map((item: any) => item?.content ?? item).filter(Boolean)
-}
-function toNumber(value: unknown) {
-  const numberValue = Number(value)
-  return Number.isFinite(numberValue) ? numberValue : 0
-}
-
-function formatMoney(value: unknown) {
-  return new Intl.NumberFormat("vi-VN").format(toNumber(value))
-}
-function getId(value: any) {
-  if (!value) return ""
-  if (typeof value === "string") return value
-  return value._id || value.id || ""
-}
-
-function resolveOption<T extends { _id?: string }>(
-  list: T[],
-  value: any
-): T | null {
-  if (!value) return null
-
-  if (typeof value === "object") {
-    return value as T
-  }
-
-  const id = getId(value)
-
-  if (!id) return null
-
-  return list.find((item) => item._id === id) || null
-}
-
-function mergeOptions<T extends { _id?: string }>(
-  base: T[],
-  selectedItems: Array<T | null | undefined>
-) {
-  const result: T[] = []
-  const seen = new Set<string>()
-
-  selectedItems.forEach((item) => {
-    const id = getId(item)
-    if (!id || seen.has(id)) return
-
-    seen.add(id)
-    result.push(item as T)
-  })
-
-  base.forEach((item) => {
-    const id = getId(item)
-    if (!id || seen.has(id)) return
-
-    seen.add(id)
-    result.push(item)
-  })
-
-  return result
-}
-
-function createItemId() {
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
-}
-
-function normalizeDateInput(value?: string) {
-  if (!value) return ""
-
-  const textValue = String(value).trim()
-
-  const yyyymmdd = textValue.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
-  if (yyyymmdd) {
-    const year = yyyymmdd[1]
-    const month = yyyymmdd[2].padStart(2, "0")
-    const day = yyyymmdd[3].padStart(2, "0")
-
-    return `${year}-${month}-${day}`
-  }
-
-  const slashDate = textValue.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/)
-  if (slashDate) {
-    const first = Number(slashDate[1])
-    const second = Number(slashDate[2])
-    const year = slashDate[3]
-
-    let day = first
-    let month = second
-
-    if (first <= 12 && second > 12) {
-      month = first
-      day = second
-    }
-
-    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(
-      2,
-      "0"
-    )}`
-  }
-
-  const date = new Date(textValue)
-  if (!Number.isNaN(date.getTime())) {
-    return date.toISOString().slice(0, 10)
-  }
-
-  return ""
-}
-
-function numberToVietnamese(value: number) {
-  const number = Math.round(Number.isFinite(value) ? value : 0)
-
-  if (number === 0) return "Không đồng"
-
-  const digitText = [
-    "không",
-    "một",
-    "hai",
-    "ba",
-    "bốn",
-    "năm",
-    "sáu",
-    "bảy",
-    "tám",
-    "chín",
-  ]
-
-  const unitText = ["", "nghìn", "triệu", "tỷ"]
-
-  function readThreeDigits(num: number, full: boolean) {
-    const hundred = Math.floor(num / 100)
-    const ten = Math.floor((num % 100) / 10)
-    const unit = num % 10
-    let result = ""
-
-    if (hundred > 0 || full) {
-      result += `${digitText[hundred]} trăm`
-      if (ten === 0 && unit > 0) result += " lẻ"
-    }
-
-    if (ten > 1) {
-      result += `${result ? " " : ""}${digitText[ten]} mươi`
-      if (unit === 1) result += " mốt"
-      else if (unit === 5) result += " lăm"
-      else if (unit > 0) result += ` ${digitText[unit]}`
-    } else if (ten === 1) {
-      result += `${result ? " " : ""}mười`
-      if (unit === 5) result += " lăm"
-      else if (unit > 0) result += ` ${digitText[unit]}`
-    } else if (unit > 0) {
-      result += `${result ? " " : ""}${digitText[unit]}`
-    }
-
-    return result
-  }
-
-  const groups: number[] = []
-  let temp = number
-
-  while (temp > 0) {
-    groups.push(temp % 1000)
-    temp = Math.floor(temp / 1000)
-  }
-
-  const parts: string[] = []
-
-  for (let i = groups.length - 1; i >= 0; i--) {
-    const group = groups[i]
-    if (group === 0) continue
-
-    const full = i < groups.length - 1 && group < 100
-    const text = readThreeDigits(group, full)
-    const unit = unitText[i] ?? ""
-
-    parts.push(`${text}${unit ? ` ${unit}` : ""}`)
-  }
-
-  const sentence = parts.join(" ").replace(/\s+/g, " ").trim()
-  return `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)} đồng`
-}
-
-function getExistingExportInvoiceId(invoice?: InvoiceApiRow | null) {
-  if (!invoice) return ""
-
-  const row = invoice as any
-
-  return String(
-    row?.inv_invoiceCreatedId ||
-      row?.id ||
-      row?.exportInvoiceData?.id ||
-      row?.exportInvoiceData?.data?.id ||
-      row?.data?.id ||
-      ""
-  ).trim()
-}
-
 export default function InvoiceCreateForm({
   onBack,
   onSaved,
@@ -293,7 +96,20 @@ export default function InvoiceCreateForm({
   mode = "create",
   initialInvoice = null,
 }: Props) {
-  const readOnly = mode === "detail"
+  const invoiceStatus = getInvoiceStatus(initialInvoice)
+  const isDraftInvoice = invoiceStatus === "DRAFT"
+  const isIssuedInvoice = invoiceStatus === "ISSUED"
+  const isCancelledInvoice = invoiceStatus === "CANCELLED"
+
+  const alreadyExported = isIssuedInvoice
+
+  const readOnly = mode === "detail" || isCancelledInvoice
+
+  // Chỉ hóa đơn ISSUED mới được vào luồng sửa riêng ngân hàng.
+  const bankOnlyEdit = mode === "edit" && isIssuedInvoice
+  const canEditBank = mode === "edit" && isIssuedInvoice
+
+  const mainFieldsDisabled = readOnly || bankOnlyEdit
 
   const [agencies, setAgencies] = useState<Agency[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
@@ -301,6 +117,7 @@ export default function InvoiceCreateForm({
   const [products, setProducts] = useState<Product[]>([])
   const [banks, setBanks] = useState<Bank[]>([])
   const [catalogLoading, setCatalogLoading] = useState(false)
+  const bankFieldDisabled = catalogLoading || !canEditBank
 
   const [general, setGeneral] = useState<InvoiceGeneralForm>({
     symbol: "1C26MZZ",
@@ -338,6 +155,7 @@ export default function InvoiceCreateForm({
       quantity: 1,
       type: "Mới",
       unitPrice: 0,
+      discountAmount: 0,
       taxRate: 0,
       capitalPrice: 0,
       totalSalary: 0,
@@ -390,25 +208,25 @@ export default function InvoiceCreateForm({
             APIGetBanks(),
           ])
 
-        const nextAgencies = unwrapListResponse(agencyRes).filter(
-          (item: Agency) => item?._id
-        ) as Agency[]
+        const nextAgencies = (
+          Array.isArray(agencyRes?.data) ? agencyRes.data : []
+        ).filter((item: Agency) => item?._id) as Agency[]
 
-        const nextDepartments = unwrapListResponse(departmentRes).filter(
-          (item: Department) => item?._id
-        ) as Department[]
+        const nextDepartments = (
+          Array.isArray(departmentRes?.data) ? departmentRes.data : []
+        ).filter((item: Department) => item?._id) as Department[]
 
-        const nextEmployees = unwrapListResponse(employeeRes).filter(
-          (item: Employee) => item?._id
-        ) as Employee[]
+        const nextEmployees = (
+          Array.isArray(employeeRes?.data) ? employeeRes.data : []
+        ).filter((item: Employee) => item?._id) as Employee[]
 
-        const nextProducts = unwrapListResponse(productRes).filter(
-          (item: Product) => item?._id
-        ) as Product[]
+        const nextProducts = (
+          Array.isArray(productRes?.data) ? productRes.data : []
+        ).filter((item: Product) => item?._id) as Product[]
 
-        const nextBanks = unwrapListResponse(bankRes).filter(
-          (item: Bank) => item?._id
-        ) as Bank[]
+        const nextBanks = (
+          Array.isArray(bankRes?.data) ? bankRes.data : []
+        ).filter((item: Bank) => item?._id) as Bank[]
 
         setAgencies(nextAgencies)
         setDepartments(nextDepartments)
@@ -468,11 +286,7 @@ export default function InvoiceCreateForm({
       symbol: initialInvoice.inv_invoiceSeries || "1C26MZZ",
       invoiceDate:
         normalizeDateInput(initialInvoice.inv_invoiceIssuedDate) || today,
-      invoiceNo:
-        initialInvoice.invoiceNo ||
-        initialInvoice.inv_invoiceNumber ||
-        initialInvoice.so_hoa_don ||
-        "",
+
       currency: initialInvoice.inv_currencyCode || "VND",
       exchangeRate: Number(initialInvoice.inv_exchangeRate || 1),
       paymentMethod: initialInvoice.inv_paymentMethodName || "CK",
@@ -517,6 +331,9 @@ export default function InvoiceCreateForm({
             ),
             type: "Mới",
             unitPrice: Number(resolvedProduct.inv_unitPrice || 0),
+            discountAmount: Number(
+              (initialInvoice as any).inv_discountAmount || 0
+            ),
             taxRate: Number(resolvedProduct.ma_thue || 0),
             capitalPrice: 0,
             totalSalary: 0,
@@ -550,21 +367,30 @@ export default function InvoiceCreateForm({
             1
         )
 
-        const amount = toNumber(
-          apiItem.amount ??
-            apiItem.totalAmountWithoutVAT ??
-            apiItem.inv_TotalAmountWithoutVAT ??
+        const taxRate = toNumber(
+          apiItem.taxRate ?? apiItem.ma_thue ?? product?.ma_thue ?? 0
+        )
+
+        // BE dùng `price` là đơn giá đã gồm VAT, sau đó tự tách tiền chưa VAT.
+        const grossTotalAmount = toNumber(
+          apiItem.inv_TotalAmount ??
+            apiItem.totalAmount ??
+            apiItem.totalPrice ??
             (apiItems.length === 1
-              ? initialInvoice.inv_TotalAmountWithoutVAT
+              ? (initialInvoice as any).inv_TotalAmount
               : 0)
         )
 
-        const unitPrice = toNumber(
-          apiItem.unitPrice ??
-            apiItem.inv_unitPrice ??
-            product?.inv_unitPrice ??
-            (quantity > 0 ? amount / quantity : 0)
-        )
+        const netUnitPrice = toNumber(apiItem.inv_unitPrice ?? 0)
+        const loadedPrice = toNumber(apiItem.price ?? apiItem.unitPrice)
+
+        const unitPrice =
+          loadedPrice ||
+          (quantity > 0 && grossTotalAmount > 0
+            ? grossTotalAmount / quantity
+            : 0) ||
+          (netUnitPrice > 0 ? netUnitPrice * (1 + taxRate / 100) : 0) ||
+          Number(product?.inv_unitPrice || 0)
 
         return {
           id: apiItem._id || `${index}-${createItemId()}`,
@@ -587,9 +413,8 @@ export default function InvoiceCreateForm({
           quantity: quantity || 1,
           type: apiItem.type || apiItem.itemType || "Mới",
           unitPrice,
-          taxRate: toNumber(
-            apiItem.taxRate ?? apiItem.ma_thue ?? product?.ma_thue ?? 0
-          ),
+          discountAmount: 0,
+          taxRate,
           capitalPrice: Number(apiItem.capitalPrice || 0),
           totalSalary: Number(apiItem.totalSalary || 0),
           accountingAccountCode: String(
@@ -605,7 +430,6 @@ export default function InvoiceCreateForm({
   }, [initialInvoice, agencies, departments, employees, products, banks])
 
   const selectedAgency = general.agency
-  const selectedProduct = general.product
   const selectedBank = general.bank
   const agencyOptions = useMemo(() => {
     return mergeOptions(agencies, [general.agency])
@@ -639,58 +463,126 @@ export default function InvoiceCreateForm({
   const bankOptions = useMemo(() => {
     return mergeOptions(banks, [general.bank])
   }, [banks, general.bank])
-
   const computedItems = useMemo(() => {
     const commissionRate = Number(selectedAgency?.commissionPercent || 0)
 
     return items.map((item) => {
-      const quantity = Number(item.quantity || 0)
-      const unitPrice = Number(item.unitPrice || 0)
-      const amount = quantity * unitPrice
+      // Khớp BE: quantity = item.inv_quantity ?? 1
+      const quantityValue = Number(item.quantity)
+      const quantity = Number.isFinite(quantityValue) ? quantityValue : 1
 
+      // Khớp BE: price = item.price
+      // FE đang dùng ô Đơn giá làm `price` gửi xuống BE, tức giá đã gồm VAT.
+      const price = Number(item.unitPrice || 0)
+
+      // Khớp BE: discount và discountPercentage đang hard-code = 0
+      const discount = 0
+      const discountPercentage = 0
+
+      // Khớp BE: tax = item.ma_thue / 100
       const taxRate = Number(item.taxRate || 0)
-      const taxAmount = (amount * taxRate) / 100
-      const totalAmount = amount + taxAmount
+      const tax = taxRate / 100
 
-      const commissionAmount = (amount * commissionRate) / 100
-      const revenue = amount - commissionAmount
+      // Khớp BE: totalPrice = price * quantity - discount
+      const totalPrice = price * quantity - discount
+
+      // Khớp BE: totalAmountWithVat = totalPrice / (1 + tax)
+      const totalAmountWithoutVat = totalPrice / (1 + tax)
+
+      // Khớp BE: vatAmount = totalPrice - totalAmountWithVat
+      const vatAmount = totalPrice - totalAmountWithoutVat
+
+      // Khớp BE: totalBeforeDiscount = totalAmountWithVat / (1 - discountPercentage)
+      const totalBeforeDiscount =
+        totalAmountWithoutVat / (1 - discountPercentage)
+
+      // Khớp BE: unitPrice = totalBeforeDiscount / quantity
+      const invUnitPrice = quantity > 0 ? totalBeforeDiscount / quantity : 0
 
       return {
         ...item,
-        amount,
-        taxRate,
-        taxAmount,
-        totalAmount,
+        quantity,
+
+        // Giữ lại để build payload gửi BE đúng tên field input.
+        price: roundInvoiceMoney(price),
+        ma_thue: taxRate,
+
+        // Cột Tổng tiền hàng trên UI đang hiển thị tổng tiền thanh toán đã gồm VAT.
+        amount: roundInvoiceMoney(totalPrice),
+
+        // Hoa hồng đại lý không tham gia công thức BE, chỉ giữ lại nếu UI cần dùng.
         commissionRate,
-        commissionAmount,
-        revenue,
+        commissionAmount: roundInvoiceMoney(
+          (totalPrice * commissionRate) / 100
+        ),
+
+        discountAmount: roundInvoiceMoney(discount),
+        discountPercentage: roundInvoiceMoney(discountPercentage),
+
+        taxRate,
+        taxAmount: roundInvoiceMoney(vatAmount),
+
+        // Doanh thu = tiền chưa VAT theo BE.
+        revenue: roundInvoiceMoney(totalAmountWithoutVat),
+
+        // Tổng thanh toán = inv_TotalAmount theo BE.
+        totalAmount: roundInvoiceMoney(totalPrice),
+
+        // inv_unitPrice BE trả về là đơn giá chưa VAT.
+        invUnitPrice: roundInvoiceMoney(invUnitPrice),
+
         capitalPrice: Number(item.capitalPrice || 0),
-        totalSalary: Number(item.totalSalary || 0),
+
+        // Tính lương = Doanh thu.
+        totalSalary: roundInvoiceMoney(totalAmountWithoutVat),
+
         accountingAccountCode: item.accountingAccountCode,
       }
     })
   }, [items, selectedAgency?.commissionPercent])
 
-  const totalBeforeTax = computedItems.reduce(
-    (sum, item) => sum + item.revenue,
+  const totalDiscountAmount = computedItems.reduce(
+    (sum, item) => sum + Number(item.discountAmount || 0),
     0
   )
 
-  const totalTax = computedItems.reduce((sum, item) => sum + item.taxAmount, 0)
+  const totalBeforeTax = computedItems.reduce(
+    (sum, item) => sum + Number(item.revenue || 0),
+    0
+  )
+
+  const totalTax = computedItems.reduce(
+    (sum, item) => sum + Number(item.taxAmount || 0),
+    0
+  )
 
   const totalPayment = computedItems.reduce(
-    (sum, item) => sum + item.totalAmount,
+    (sum, item) => sum + Number(item.totalAmount || 0),
     0
   )
+  const effectivePaidAmount = general.isPaid
+    ? roundInvoiceMoney(totalPayment)
+    : 0
 
+  const effectiveRemainingAmount = general.isPaid
+    ? 0
+    : roundInvoiceMoney(totalPayment)
   useEffect(() => {
     if (readOnly) return
     if (!general.isPaid) return
 
-    setGeneral((prev) => ({
-      ...prev,
-      paidAmount: totalPayment,
-    }))
+    setGeneral((prev) => {
+      const nextPaidAmount = roundInvoiceMoney(totalPayment)
+
+      if (Number(prev.paidAmount || 0) === nextPaidAmount) {
+        return prev
+      }
+
+      return {
+        ...prev,
+        paidAmount: nextPaidAmount,
+      }
+    })
   }, [readOnly, general.isPaid, totalPayment])
 
   const updateGeneral = <K extends keyof InvoiceGeneralForm>(
@@ -698,6 +590,35 @@ export default function InvoiceCreateForm({
     value: InvoiceGeneralForm[K]
   ) => {
     if (readOnly) return
+
+    // Ngân hàng chỉ được đổi khi hóa đơn đã ISSUED và đang ở màn sửa.
+    if (key === "bank" && !canEditBank) return
+
+    // Hóa đơn đã ISSUED thì chỉ cho đổi ngân hàng, khóa toàn bộ thông tin khác.
+    if (bankOnlyEdit && key !== "bank") return
+
+    if (key === "agency") {
+      const agency = value as Agency | null
+
+      const employee =
+        agency?.employeeId && typeof agency.employeeId === "object"
+          ? agency.employeeId
+          : null
+
+      const department =
+        employee?.departmentId && typeof employee.departmentId === "object"
+          ? employee.departmentId
+          : null
+
+      setGeneral((prev) => ({
+        ...prev,
+        agency,
+        department,
+        employee,
+      }))
+
+      return
+    }
 
     if (key === "department") {
       const department = value as Department | null
@@ -732,6 +653,7 @@ export default function InvoiceCreateForm({
             quantity: Number(product?.inv_quantity || item.quantity || 1),
             unitPrice:
               item.type === "Tặng" ? 0 : Number(product?.inv_unitPrice || 0),
+            discountAmount: item.discountAmount || 0,
             taxRate: Number(product?.ma_thue || 0),
             accountingAccountCode: String(
               (product as any)?.accountingAccountCode ||
@@ -754,7 +676,7 @@ export default function InvoiceCreateForm({
     key: K,
     value: InvoiceItemForm[K]
   ) => {
-    if (readOnly) return
+    if (mainFieldsDisabled) return
 
     setItems((prev) =>
       prev.map((item) => {
@@ -773,6 +695,7 @@ export default function InvoiceCreateForm({
             unitPrice:
               item.type === "Tặng" ? 0 : Number(product?.inv_unitPrice || 0),
             taxRate: Number(product?.ma_thue || 0),
+            discountAmount: item.discountAmount || 0,
             accountingAccountCode: String(
               (product as any)?.accountingAccountCode ||
                 (product as any)?.accountCode ||
@@ -787,6 +710,7 @@ export default function InvoiceCreateForm({
             ...item,
             type: String(value),
             unitPrice: String(value) === "Tặng" ? 0 : item.unitPrice,
+            discountAmount: String(value) === "Tặng" ? 0 : item.discountAmount,
           }
         }
 
@@ -796,7 +720,7 @@ export default function InvoiceCreateForm({
   }
 
   const addItem = () => {
-    if (readOnly) return
+    if (mainFieldsDisabled) return
 
     setItems((prev) => [
       ...prev,
@@ -809,6 +733,7 @@ export default function InvoiceCreateForm({
         quantity: 1,
         type: "Mới",
         unitPrice: 0,
+        discountAmount: 0,
         taxRate: 0,
         capitalPrice: 0,
         totalSalary: 0,
@@ -818,7 +743,7 @@ export default function InvoiceCreateForm({
   }
 
   const removeItem = (id: string) => {
-    if (readOnly) return
+    if (mainFieldsDisabled) return
 
     setItems((prev) => {
       if (prev.length <= 1) return prev
@@ -827,21 +752,20 @@ export default function InvoiceCreateForm({
   }
 
   const copyItem = (id: string) => {
-    if (readOnly) return
+    if (mainFieldsDisabled) return
 
     const source = items.find((item) => item.id === id)
     if (!source) return
 
     setItems((prev) => [...prev, { ...source, id: createItemId() }])
   }
-
   const handlePaidChange = (checked: boolean) => {
-    if (readOnly) return
+    if (mainFieldsDisabled) return
 
     setGeneral((prev) => ({
       ...prev,
       isPaid: checked,
-      paidAmount: checked ? totalPayment : 0,
+      paidAmount: checked ? roundInvoiceMoney(totalPayment) : 0,
       paidDate: checked ? today : prev.paidDate,
     }))
   }
@@ -853,27 +777,9 @@ export default function InvoiceCreateForm({
     )
 
     const agencyId = getId(general.agency)
-    const departmentId = getId(general.department)
-    const employeeId = getId(general.employee)
-    const bankId = getId(general.bank)
 
     if (!agencyId) {
       showErrorMessage("Vui lòng chọn đại lý.")
-      return null
-    }
-
-    if (!departmentId) {
-      showErrorMessage("Vui lòng chọn phòng ban.")
-      return null
-    }
-
-    if (!employeeId) {
-      showErrorMessage("Vui lòng chọn nhân viên kinh doanh.")
-      return null
-    }
-
-    if (!bankId) {
-      showErrorMessage("Vui lòng chọn ngân hàng.")
       return null
     }
 
@@ -900,16 +806,12 @@ export default function InvoiceCreateForm({
       inv_paymentMethodName: general.paymentMethod,
 
       agencyId,
-      departmentId,
-      employeeId,
-      bankId,
 
       inv_buyerTaxCode: general.taxCode.trim(),
       inv_buyerLegalName: general.companyName.trim(),
       inv_buyerDisplayName: general.companyName.trim(),
       inv_buyerEmail: general.email.trim(),
       inv_buyerAddressLine: general.address.trim(),
-      inv_buyerBankName: selectedBank?.inv_buyerBankName || "",
       inv_buyerBankAccount: "",
 
       so_benh_an: "",
@@ -920,84 +822,107 @@ export default function InvoiceCreateForm({
       ma_ch: "",
       ten_ch: "",
 
-      inv_discountAmount: 0,
-      inv_TotalAmountWithoutVAT: totalBeforeTax,
-      inv_vatAmount: totalTax,
-      inv_TotalAmount: totalPayment,
+      inv_discountAmount: roundInvoiceMoney(totalDiscountAmount),
+      inv_TotalAmountWithoutVAT: roundInvoiceMoney(totalBeforeTax),
+      inv_vatAmount: roundInvoiceMoney(totalTax),
+      inv_TotalAmount: roundInvoiceMoney(totalPayment),
       inv_quantity: validItems.reduce(
         (sum, item) => sum + Number(item.quantity || 0),
         0
       ),
       inv_discountPercentage: 0,
-
-      isPaid: general.isPaid,
-      paidAmount: Number(general.paidAmount || 0),
-      paidDate: general.paidDate,
-      remainingAmount: Math.max(
-        totalPayment - Number(general.paidAmount || 0),
-        0
-      ),
-
       items: validItems.map((item) => ({
         productId: getId(item.product),
-        revenue: Number(item.revenue || 0),
+
+        // Các field input để BE tự calculateItemFields giống công thức đang chạy.
+        price: roundInvoiceMoney(item.price || item.unitPrice || 0),
+        inv_quantity: Number(item.quantity || 1),
+        ma_thue: Number(item.taxRate || 0),
+
+        // Các field dưới đây giữ để FE/BE lưu cùng kết quả tính toán, không lệch preview.
+        revenue: roundInvoiceMoney(item.revenue || 0),
+        inv_discountAmount: 0,
+        inv_discountPercentage: 0,
+        inv_TotalAmountWithoutVat: roundInvoiceMoney(item.revenue || 0),
+        inv_vatAmount: roundInvoiceMoney(item.taxAmount || 0),
+        inv_TotalAmount: roundInvoiceMoney(item.totalAmount || 0),
+        inv_unitPrice: roundInvoiceMoney(item.invUnitPrice || 0),
+
         capitalPrice: Number(item.capitalPrice || 0),
-        totalSalary: Number(item.totalSalary || 0),
+
+        // Tính lương = Doanh thu
+        totalSalary: roundInvoiceMoney(item.revenue || 0),
+
         accountingAccountCode: Number(item.accountingAccountCode || 0),
       })),
     }
   }
 
-  // const handlePreview = () => {
-  //   const payload = buildPayload()
-  //   if (!payload) return
-
-  //   setPreviewData({
-  //     symbol: payload.inv_invoiceSeries,
-  //     invoiceDate: payload.inv_invoiceIssuedDate,
-  //     invoiceNo: general.invoiceNo,
-  //     currency: payload.inv_currencyCode,
-  //     exchangeRate: payload.inv_exchangeRate,
-  //     paymentMethod: payload.inv_paymentMethodName,
-
-  //     buyer: {
-  //       taxCode: payload.inv_buyerTaxCode,
-  //       companyName: payload.inv_buyerLegalName,
-  //       email: payload.inv_buyerEmail,
-  //       address: payload.inv_buyerAddressLine,
-  //     },
-  //     items: computedItems.map((item, index) => ({
-  //       id: `${item.product?._id || index}`,
-  //       code: item.productCode,
-  //       name: item.productName,
-  //       unit: item.unit,
-  //       quantity: item.quantity,
-  //       type: item.type,
-  //       unitPrice: item.unitPrice,
-  //       amount: item.amount,
-  //       taxRate: item.taxRate,
-  //       taxAmount: item.taxAmount,
-  //       totalAmount: item.totalAmount,
-  //     })),
-  //     totalBeforeTax,
-  //     totalTax,
-  //     totalPayment,
-  //     amountInWords: numberToVietnamese(totalPayment),
-  //   })
-
-  //   setPreviewOpen(true)
-  // }
-
   const handleSave = async () => {
+    if (isCancelledInvoice) {
+      showErrorMessage("Hóa đơn đã hủy, không thể chỉnh sửa.")
+      return
+    }
+
+    if (bankOnlyEdit) {
+      const bankId = getId(general.bank)
+
+      if (!bankId) {
+        showErrorMessage("Vui lòng chọn ngân hàng cần cập nhật.")
+        return
+      }
+
+      try {
+        setSaveLoading(true)
+
+        await onSaved?.({
+          bankOnlyEdit: true,
+          bankId,
+          inv_buyerBankName: selectedBank?.inv_buyerBankName || "",
+        })
+
+        showSuccessMessage("Cập nhật ngân hàng thành công.")
+
+        setTimeout(() => {
+          onBack()
+        }, 700)
+      } catch (err: any) {
+        console.error("SAVE_BANK_INVOICE_ERROR", err)
+
+        const message =
+          err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          err?.message ||
+          "Cập nhật ngân hàng thất bại."
+
+        showErrorMessage(message)
+      } finally {
+        setSaveLoading(false)
+      }
+
+      return
+    }
+
     const payload = buildPayload()
     if (!payload) return
+
+    const { isPaid, paidAmount, paidDate, remainingAmount, ...apiPayload } =
+      payload as any
 
     try {
       setSaveLoading(true)
 
-      console.log("CREATE_INVOICE_FORM_PAYLOAD", payload)
+      console.log("CREATE_INVOICE_FORM_PAYLOAD", apiPayload)
 
-      await onSaved?.(payload)
+      await onSaved?.({
+        ...apiPayload,
+        __clientPayment: {
+          isPaid: Boolean(general.isPaid),
+          paidAmount: effectivePaidAmount,
+          paidDate: general.isPaid ? general.paidDate || today : "",
+          remainingAmount: effectiveRemainingAmount,
+        },
+      })
 
       showSuccessMessage(
         mode === "edit" ? "Cập nhật thành công." : "Tạo thành công."
@@ -1020,9 +945,15 @@ export default function InvoiceCreateForm({
       setSaveLoading(false)
     }
   }
+
   const handleExportInvoice = async () => {
     if (!initialInvoice?._id) {
       showErrorMessage("Không tìm thấy ID giao dịch bán hàng để xuất hóa đơn.")
+      return
+    }
+
+    if (!isDraftInvoice) {
+      showErrorMessage("Chỉ hóa đơn DRAFT mới được xuất hóa đơn.")
       return
     }
 
@@ -1055,7 +986,9 @@ export default function InvoiceCreateForm({
         exportData?.inv_originalId
 
       if (!exportInvoiceId) {
-        showErrorMessage("Bị lỗi trùng key")
+        showErrorMessage(
+          "Xuất hóa đơn thành công nhưng không nhận được ID hóa đơn."
+        )
         return
       }
 
@@ -1067,6 +1000,7 @@ export default function InvoiceCreateForm({
 
         inv_invoiceNumber: exportData?.inv_invoiceNumber,
         so_hoa_don: exportData?.shdon,
+        invoiceStatus: "ISSUED",
       })
 
       showSuccessMessage(response?.message || "Xuất hóa đơn thành công.")
@@ -1088,17 +1022,16 @@ export default function InvoiceCreateForm({
       setExportInvoiceLoading(false)
     }
   }
-  const alreadyExported = Boolean(getExistingExportInvoiceId(initialInvoice))
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-[#edf1f4]">
       <div className="flex items-center justify-between border-b border-slate-300 bg-white px-4 py-2">
         <div className="text-[15px] font-bold text-slate-800">
           {mode === "detail"
-            ? "Chi tiết Hóa đơn giá trị gia tăng - Máy tính tiền"
+            ? "Chi tiết Hóa đơn "
             : mode === "edit"
-              ? "Sửa Hóa đơn giá trị gia tăng - Máy tính tiền"
-              : "Tạo mới Hóa đơn giá trị gia tăng - Máy tính tiền"}
+              ? "Sửa Hóa đơn "
+              : "Tạo mới Hóa đơn "}
         </div>
 
         <button
@@ -1111,10 +1044,16 @@ export default function InvoiceCreateForm({
 
       <div className="flex-1 overflow-auto p-4">
         <section className="rounded border border-slate-300 bg-white p-3">
-          <div className="mb-3 flex items-center justify-between">
+          <div className="mb-3 flex items-center justify-between gap-3">
             <div className="text-sm font-bold text-slate-800">
               Thông tin chung
             </div>
+
+            <span
+              className={`rounded-full border px-3 py-1 text-xs font-semibold ${invoiceStatusClass[invoiceStatus]}`}
+            >
+              {invoiceStatusLabel[invoiceStatus]}
+            </span>
           </div>
 
           <div className="grid gap-3 xl:grid-cols-4">
@@ -1126,7 +1065,7 @@ export default function InvoiceCreateForm({
                 className={inputClass}
                 type="date"
                 value={general.activatedDate}
-                disabled={readOnly}
+                disabled={mainFieldsDisabled}
                 onChange={(e) => updateGeneral("activatedDate", e.target.value)}
               />
             </div>
@@ -1138,7 +1077,7 @@ export default function InvoiceCreateForm({
               <select
                 className={inputClass}
                 value={general.agency?._id || ""}
-                disabled={catalogLoading || readOnly}
+                disabled={catalogLoading || mainFieldsDisabled}
                 onChange={(e) => {
                   const agency =
                     agencyOptions.find((item) => item._id === e.target.value) ||
@@ -1149,7 +1088,7 @@ export default function InvoiceCreateForm({
                 <option value="">Chọn đại lý</option>
                 {agencyOptions.map((item) => (
                   <option key={item._id} value={item._id}>
-                    {item.name} - {item.commissionPercent}% HH
+                    {item.agencyName} - {item.commissionPercent}% HH
                   </option>
                 ))}
               </select>
@@ -1162,7 +1101,7 @@ export default function InvoiceCreateForm({
               <select
                 className={inputClass}
                 value={general.department?._id || ""}
-                disabled={catalogLoading || readOnly}
+                disabled={catalogLoading || mainFieldsDisabled}
                 onChange={(e) => {
                   const department =
                     departmentOptions.find(
@@ -1187,7 +1126,7 @@ export default function InvoiceCreateForm({
               <select
                 className={inputClass}
                 value={general.employee?._id || ""}
-                disabled={catalogLoading || readOnly}
+                disabled={catalogLoading || mainFieldsDisabled}
                 onChange={(e) => {
                   const employee =
                     employeeOptions.find(
@@ -1212,7 +1151,7 @@ export default function InvoiceCreateForm({
               <select
                 className={inputClass}
                 value={general.product?._id || ""}
-                disabled={catalogLoading || readOnly}
+                disabled={catalogLoading || mainFieldsDisabled}
                 onChange={(e) => {
                   const product =
                     productOptions.find(
@@ -1237,7 +1176,7 @@ export default function InvoiceCreateForm({
               <input
                 className={inputClass}
                 value={general.taxCode}
-                disabled={readOnly}
+                disabled={mainFieldsDisabled}
                 onChange={(e) => updateGeneral("taxCode", e.target.value)}
                 placeholder="Nhập MST"
               />
@@ -1250,7 +1189,7 @@ export default function InvoiceCreateForm({
               <input
                 className={inputClass}
                 value={general.companyName}
-                disabled={readOnly}
+                disabled={mainFieldsDisabled}
                 onChange={(e) => updateGeneral("companyName", e.target.value)}
                 placeholder="Nhập tên công ty"
               />
@@ -1263,7 +1202,7 @@ export default function InvoiceCreateForm({
               <input
                 className={inputClass}
                 value={general.email}
-                disabled={readOnly}
+                disabled={mainFieldsDisabled}
                 onChange={(e) => updateGeneral("email", e.target.value)}
                 placeholder="Email xuất hóa đơn"
               />
@@ -1276,7 +1215,7 @@ export default function InvoiceCreateForm({
               <input
                 className={inputClass}
                 value={general.address}
-                disabled={readOnly}
+                disabled={mainFieldsDisabled}
                 onChange={(e) => updateGeneral("address", e.target.value)}
                 placeholder="Địa chỉ xuất hóa đơn"
               />
@@ -1290,7 +1229,7 @@ export default function InvoiceCreateForm({
                 <input
                   type="checkbox"
                   checked={general.isPaid}
-                  disabled={readOnly}
+                  disabled={mainFieldsDisabled}
                   onChange={(e) => handlePaidChange(e.target.checked)}
                 />
                 Xác nhận đã thu
@@ -1304,14 +1243,14 @@ export default function InvoiceCreateForm({
               <input
                 className={`${inputClass} text-right`}
                 value={general.paidAmount}
-                disabled={readOnly}
+                disabled={mainFieldsDisabled}
                 onChange={(e) =>
                   updateGeneral("paidAmount", toNumber(e.target.value))
                 }
                 placeholder="Số tiền đã thu"
               />
-              {general.isPaid && !readOnly && (
-                <div className="text-emerald-600 mt-1 text-xs">
+              {general.isPaid && !mainFieldsDisabled && (
+                <div className="mt-1 text-xs text-emerald-600">
                   Đã thu tiền: mặc định bằng tổng tiền dòng hàng.
                 </div>
               )}
@@ -1325,7 +1264,7 @@ export default function InvoiceCreateForm({
                 className={inputClass}
                 type="date"
                 value={general.paidDate}
-                disabled={readOnly}
+                disabled={mainFieldsDisabled}
                 onChange={(e) => updateGeneral("paidDate", e.target.value)}
               />
             </div>
@@ -1337,7 +1276,7 @@ export default function InvoiceCreateForm({
               <select
                 className={inputClass}
                 value={general.bank?._id || ""}
-                disabled={catalogLoading || readOnly}
+                disabled={bankFieldDisabled}
                 onChange={(e) => {
                   const bank =
                     bankOptions.find((item) => item._id === e.target.value) ||
@@ -1352,15 +1291,24 @@ export default function InvoiceCreateForm({
                   </option>
                 ))}
               </select>
+              <div className="mt-1 text-xs text-slate-500">
+                {canEditBank
+                  ? "Hóa đơn đã ISSUED: được phép chọn lại ngân hàng."
+                  : isIssuedInvoice
+                    ? "Bấm Sửa để chọn lại ngân hàng."
+                    : isCancelledInvoice
+                      ? "Hóa đơn đã hủy nên không được sửa ngân hàng."
+                      : "Ngân hàng chỉ được chọn sau khi xuất hóa đơn thành công."}
+              </div>
             </div>
           </div>
         </section>
 
-        {!readOnly && (
+        {!mainFieldsDisabled && (
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button
               onClick={addItem}
-              className="border-indigo-400 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 h-8 rounded border px-3 text-sm font-medium"
+              className="h-8 rounded border border-indigo-400 bg-indigo-50 px-3 text-sm font-medium text-indigo-700 hover:bg-indigo-100"
             >
               ＋ Thêm dòng (F9)
             </button>
@@ -1374,7 +1322,7 @@ export default function InvoiceCreateForm({
 
             <button
               onClick={() => items[0] && copyItem(items[0].id)}
-              className="border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 h-8 rounded border px-3 text-sm font-medium"
+              className="h-8 rounded border border-emerald-300 bg-emerald-50 px-3 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
             >
               ⎘ Sao chép (F7)
             </button>
@@ -1427,6 +1375,9 @@ export default function InvoiceCreateForm({
                   % CK
                 </th>
                 <th className="min-w-[150px] border-b border-r border-slate-300 px-2 py-2 text-right">
+                  Tiền chiết khấu
+                </th>
+                <th className="min-w-[150px] border-b border-r border-slate-300 px-2 py-2 text-right">
                   Doanh thu
                 </th>
                 <th className="min-w-[140px] border-b border-r border-slate-300 px-2 py-2 text-right">
@@ -1438,7 +1389,7 @@ export default function InvoiceCreateForm({
                 <th className="min-w-[170px] border-b border-r border-slate-300 px-2 py-2 text-left">
                   Mã tài khoản hạch toán
                 </th>
-                {!readOnly && (
+                {!mainFieldsDisabled && (
                   <th className="min-w-[90px] border-b border-slate-300 px-2 py-2 text-center">
                     Thao tác
                   </th>
@@ -1450,7 +1401,11 @@ export default function InvoiceCreateForm({
               {computedItems.map((item, index) => (
                 <tr key={item.id} className="hover:bg-blue-50">
                   <td className="border-b border-r border-slate-200 px-2 py-2 text-center">
-                    <input type="checkbox" defaultChecked disabled={readOnly} />
+                    <input
+                      type="checkbox"
+                      defaultChecked
+                      disabled={mainFieldsDisabled}
+                    />
                   </td>
 
                   <td className="border-b border-r border-slate-200 px-2 py-2 text-center">
@@ -1461,7 +1416,7 @@ export default function InvoiceCreateForm({
                     <select
                       className={inputClass}
                       value={item.product?._id || ""}
-                      disabled={catalogLoading || readOnly}
+                      disabled={catalogLoading || mainFieldsDisabled}
                       onChange={(e) => {
                         const product =
                           productOptions.find(
@@ -1484,7 +1439,7 @@ export default function InvoiceCreateForm({
                     <input
                       className={inputClass}
                       value={item.productName}
-                      disabled={readOnly}
+                      disabled={mainFieldsDisabled}
                       onChange={(e) =>
                         updateItem(item.id, "productName", e.target.value)
                       }
@@ -1495,7 +1450,7 @@ export default function InvoiceCreateForm({
                     <input
                       className={`${inputClass} text-right`}
                       value={item.quantity}
-                      disabled={readOnly}
+                      disabled={mainFieldsDisabled}
                       onChange={(e) =>
                         updateItem(
                           item.id,
@@ -1510,7 +1465,7 @@ export default function InvoiceCreateForm({
                     <select
                       className={inputClass}
                       value={item.type}
-                      disabled={readOnly}
+                      disabled={mainFieldsDisabled}
                       onChange={(e) =>
                         updateItem(item.id, "type", e.target.value)
                       }
@@ -1526,7 +1481,7 @@ export default function InvoiceCreateForm({
                     <input
                       className={`${inputClass} text-right`}
                       value={item.unitPrice}
-                      disabled={readOnly || item.type === "Tặng"}
+                      disabled={mainFieldsDisabled || item.type === "Tặng"}
                       onChange={(e) =>
                         updateItem(
                           item.id,
@@ -1551,7 +1506,22 @@ export default function InvoiceCreateForm({
                   </td>
 
                   <td className="border-b border-r border-slate-200 px-2 py-2 text-right font-semibold">
-                    {item.commissionRate}%
+                    {item.discountPercentage}%
+                  </td>
+                  <td className="border-b border-r border-slate-200 px-2 py-2">
+                    <input
+                      className={`${inputClass} text-right`}
+                      value={item.discountAmount}
+                      disabled={mainFieldsDisabled}
+                      onChange={(e) =>
+                        updateItem(
+                          item.id,
+                          "discountAmount",
+                          toNumber(e.target.value)
+                        )
+                      }
+                      placeholder="Tiền CK"
+                    />
                   </td>
 
                   <td className="border-b border-r border-slate-200 px-2 py-2 text-right font-semibold text-blue-700">
@@ -1562,7 +1532,7 @@ export default function InvoiceCreateForm({
                     <input
                       className={`${inputClass} text-right`}
                       value={item.capitalPrice}
-                      disabled={readOnly}
+                      disabled={mainFieldsDisabled}
                       onChange={(e) =>
                         updateItem(
                           item.id,
@@ -1576,17 +1546,10 @@ export default function InvoiceCreateForm({
 
                   <td className="border-b border-r border-slate-200 px-2 py-2">
                     <input
-                      className={`${inputClass} text-right`}
-                      value={item.totalSalary}
-                      disabled={readOnly}
-                      onChange={(e) =>
-                        updateItem(
-                          item.id,
-                          "totalSalary",
-                          toNumber(e.target.value)
-                        )
-                      }
-                      placeholder="Tính lương"
+                      className={`${inputClass} bg-slate-50 text-right font-semibold text-blue-700`}
+                      value={formatMoney(item.totalSalary)}
+                      disabled
+                      readOnly
                     />
                   </td>
 
@@ -1599,7 +1562,7 @@ export default function InvoiceCreateForm({
                     />
                   </td>
 
-                  {!readOnly && (
+                  {!mainFieldsDisabled && (
                     <td className="border-b border-slate-200 px-2 py-2 text-center">
                       <button
                         onClick={() => removeItem(item.id)}
@@ -1618,7 +1581,15 @@ export default function InvoiceCreateForm({
         <div className="mt-4 rounded border border-slate-300 bg-white p-3">
           <div className="mb-2 text-sm font-bold text-slate-700">Tổng cộng</div>
 
-          <div className="grid gap-3 lg:grid-cols-4">
+          <div className="grid gap-3 lg:grid-cols-5">
+            <div>
+              <label className="mb-1 block text-[13px] text-slate-500">
+                Tổng tiền chiết khấu
+              </label>
+              <div className="rounded border border-slate-300 bg-slate-50 px-3 py-2 text-right font-semibold">
+                {formatMoney(totalDiscountAmount)}
+              </div>
+            </div>
             <div>
               <label className="mb-1 block text-[13px] text-slate-500">
                 Tổng tiền hàng
@@ -1641,7 +1612,7 @@ export default function InvoiceCreateForm({
               <label className="mb-1 block text-[13px] text-slate-500">
                 Tổng tiền thanh toán
               </label>
-              <div className="text-indigo-700 rounded border border-slate-300 bg-slate-50 px-3 py-2 text-right font-bold">
+              <div className="rounded border border-slate-300 bg-slate-50 px-3 py-2 text-right font-bold text-indigo-700">
                 {formatMoney(totalPayment)}
               </div>
             </div>
@@ -1670,21 +1641,24 @@ export default function InvoiceCreateForm({
 
             <button
               onClick={onEdit}
-              className="border-indigo-500 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded border px-5 py-2 text-sm font-semibold"
+              disabled={isCancelledInvoice}
+              className="rounded border border-indigo-500 bg-indigo-50 px-5 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Sửa
             </button>
 
             <button
               onClick={handleExportInvoice}
-              disabled={exportInvoiceLoading || alreadyExported}
-              className="border-emerald-500 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded border px-5 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={exportInvoiceLoading || !isDraftInvoice}
+              className="rounded border border-emerald-500 bg-emerald-50 px-5 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {alreadyExported
-                ? "Đã xuất hóa đơn"
-                : exportInvoiceLoading
-                  ? "Đang xuất..."
-                  : "Xuất hóa đơn"}
+              {isCancelledInvoice
+                ? "Hóa đơn đã hủy"
+                : alreadyExported
+                  ? "Đã xuất hóa đơn"
+                  : exportInvoiceLoading
+                    ? "Đang xuất..."
+                    : "Xuất hóa đơn"}
             </button>
           </>
         ) : mode === "edit" ? (
@@ -1700,7 +1674,7 @@ export default function InvoiceCreateForm({
             <button
               onClick={handleSave}
               disabled={saveLoading}
-              className="bg-indigo-600 hover:bg-indigo-700 rounded px-5 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {saveLoading ? "Đang lưu..." : "Lưu"}
             </button>
@@ -1718,7 +1692,7 @@ export default function InvoiceCreateForm({
             <button
               onClick={handleSave}
               disabled={saveLoading}
-              className="bg-indigo-600 hover:bg-indigo-700 rounded px-5 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {saveLoading ? "Đang lưu..." : "Lưu"}
             </button>
@@ -1745,11 +1719,6 @@ export default function InvoiceCreateForm({
 
       {showSuccess && <AlertSuccess description={message} />}
       {showError && <AlertError description={message} />}
-      {/* <InvoicePreviewModal
-        open={previewOpen}
-        data={previewData}
-        onClose={() => setPreviewOpen(false)}
-      /> */}
     </div>
   )
 }

@@ -271,8 +271,13 @@ export default function EmployeePage() {
         key: "departmentId",
         title: "Phòng ban",
         render: (item) => {
+          const departmentId =
+            typeof item.departmentId === "object"
+              ? (item.departmentId?._id ?? "")
+              : (item.departmentId ?? "")
+
           const department = departments.find(
-            (departmentItem) => departmentItem.departmentName
+            (departmentItem) => departmentItem._id === departmentId
           )
 
           return (
@@ -287,7 +292,7 @@ export default function EmployeePage() {
         title: "Trạng thái",
         render: (item) =>
           item.isActive ? (
-            <span className="bg-emerald-50 text-emerald-700 inline-flex rounded-full px-3 py-1 text-xs font-bold">
+            <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
               Hoạt động
             </span>
           ) : (
@@ -297,7 +302,7 @@ export default function EmployeePage() {
           ),
       },
     ],
-    []
+    [departments]
   )
 
   const handleCloseDialog = () => {
@@ -431,7 +436,10 @@ export default function EmployeePage() {
           employeeName: detail.employeeName || "",
           employeeEmail: detail.employeeEmail || "",
           employeePhone: detail.employeePhone || "",
-          departmentId: detail.departmentId || "",
+          departmentId:
+            typeof detail.departmentId === "object"
+              ? (detail.departmentId?._id ?? "")
+              : (detail.departmentId ?? ""),
           isActive: Boolean(detail.isActive),
         })
 
@@ -474,7 +482,10 @@ export default function EmployeePage() {
           employeeName: detail.employeeName || "",
           employeeEmail: detail.employeeEmail || "",
           employeePhone: detail.employeePhone || "",
-          departmentId: detail.departmentId || "",
+          departmentId:
+            typeof detail.departmentId === "object"
+              ? (detail.departmentId?._id ?? "")
+              : (detail.departmentId ?? ""),
           isActive: Boolean(detail.isActive),
         })
 
@@ -509,10 +520,10 @@ export default function EmployeePage() {
             <h1 className="text-xl font-bold text-slate-900">
               Quản lý nhân viên
             </h1>
-            <p className="mt-1 text-sm text-slate-500">
+            {/* <p className="mt-1 text-sm text-slate-500">
               Quản lý thông tin nhân viên, email, số điện thoại, phòng ban và
               trạng thái hoạt động.
-            </p>
+            </p> */}
           </div>
 
           <button

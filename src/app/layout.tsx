@@ -29,10 +29,10 @@ function RootLayoutContent({
   useEffect(() => {
     const checkAuth = () => {
       const token = localStorage.getItem("access_token")
-      const isLoginPage = pathname === "/"
+      const isLoginPage = pathname === "/login"
 
       if (!token && !isLoginPage) {
-        router.replace("/")
+        router.replace("/login")
       }
 
       setIsLoading(false)

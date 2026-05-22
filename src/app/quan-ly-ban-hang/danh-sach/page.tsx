@@ -4,8 +4,6 @@ import InvoiceCreateForm from "@/components/minvoice/InvoiceCreateForm"
 import InvoiceDataTable from "@/components/minvoice/InvoiceDataTable"
 import InvoiceToolbar from "@/components/minvoice/InvoiceToolbar"
 
-import { InvoiceApiRow } from "@/types/invoice"
-
 import { useEffect, useMemo, useState } from "react"
 import {
   APICreateSaleTransaction,
@@ -13,27 +11,18 @@ import {
   APIGetSaleTransactionById,
   APIGetSaleTransactions,
   APIUpdateSaleTransaction,
+  APIUpdateSaleTransactionBank,
 } from "@/services/saleTransaction"
 
 import AlertOption from "@/components/alert/AlertOption"
 import AlertSuccess from "@/components/alert/AlertSuccess"
 import AlertError from "@/components/alert/AlertError"
 import { APIViewPrintInvoice } from "@/services/mInvoiceReceipt"
-import { ViewPrintInvoiceType } from "@/types/viewPrintInvoice.type"
+import { toNumber } from "@/utils/invoice"
+import { InvoiceApiRow } from "@/types/invoice"
 
 const MINVOICE_TAX_CODE = process.env.NEXT_PUBLIC_MINVOICE_TAX_CODE || ""
 type PageMode = "list" | "create" | "detail" | "edit"
-
-type MaybeWrappedInvoiceApiRow =
-  | InvoiceApiRow
-  | {
-      content: InvoiceApiRow
-    }
-
-function toNumber(value: unknown) {
-  const numberValue = Number(value)
-  return Number.isFinite(numberValue) ? numberValue : 0
-}
 
 function toApiDate(value?: string) {
   if (!value) return ""
@@ -46,45 +35,24 @@ function toApiDate(value?: string) {
   return value
 }
 
-function unwrapApiRow(row: MaybeWrappedInvoiceApiRow): InvoiceApiRow {
-  if ("content" in row) return row.content
-  return row
-}
-
 function normalizeSaleTransactionList(response: any): InvoiceApiRow[] {
-  const rawRoot =
-    response?.data?.data ??
-    response?.data?.content ??
-    response?.data?.items ??
-    response?.data?.result ??
-    response?.data ??
-    response?.content ??
-    response?.items ??
-    response?.result ??
-    response ??
-    []
+  const raw = response?.data ?? []
 
-  const raw = Array.isArray(rawRoot)
-    ? rawRoot
-    : Array.isArray(rawRoot?.data)
-      ? rawRoot.data
-      : Array.isArray(rawRoot?.items)
-        ? rawRoot.items
-        : Array.isArray(rawRoot?.docs)
-          ? rawRoot.docs
-          : Array.isArray(rawRoot?.results)
-            ? rawRoot.results
-            : Array.isArray(rawRoot?.saleTransactions)
-              ? rawRoot.saleTransactions
-              : Array.isArray(rawRoot?.transactions)
-                ? rawRoot.transactions
-                : Array.isArray(rawRoot?.content)
-                  ? rawRoot.content
-                  : []
+  const list = Array.isArray(raw)
+    ? raw
+    : Array.isArray(raw?.items)
+      ? raw.items
+      : Array.isArray(raw?.docs)
+        ? raw.docs
+        : Array.isArray(raw?.results)
+          ? raw.results
+          : Array.isArray(raw?.saleTransactions)
+            ? raw.saleTransactions
+            : Array.isArray(raw?.transactions)
+              ? raw.transactions
+              : []
 
-  return raw
-    .map((item: any) => unwrapApiRow(item?.content ?? item))
-    .filter((item: any) => item?._id)
+  return list.filter((item: any) => item?._id)
 }
 function buildPdfFileUrl(filePath: string) {
   if (!filePath) return ""
@@ -98,104 +66,16 @@ function buildPdfFileUrl(filePath: string) {
   return `${baseUrl.replace(/\/$/, "")}/${filePath.replace(/^\//, "")}`
 }
 function normalizeSaleTransactionDetail(response: any): InvoiceApiRow | null {
-  const raw =
-    response?.data?.data ??
-    response?.data?.content ??
-    response?.data?.result ??
-    response?.data ??
-    response?.content ??
-    response?.result ??
-    response
-
-  if (!raw) return null
-
-  const detail = unwrapApiRow(raw?.content ?? raw)
+  const detail = response?.data ?? null
 
   return detail?._id ? detail : null
 }
 
-function mapInvoiceApiToTableRow(invoice: InvoiceApiRow) {
-  const invoiceDate = invoice.inv_invoiceIssuedDate || ""
-  const monthMatch = invoiceDate.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
-  const month = monthMatch ? `${monthMatch[2]}/${monthMatch[3]}` : ""
-
-  const rawItems = Array.isArray((invoice as any).items)
-    ? (invoice as any).items
-    : (invoice as any).items
-      ? [(invoice as any).items]
-      : []
-
-  const firstItem = rawItems[0]
-  const firstProduct =
-    firstItem?.productId && typeof firstItem.productId === "object"
-      ? firstItem.productId
-      : firstItem
-
-  const totalInvoice = toNumber(invoice.inv_TotalAmount)
-  const totalValue = toNumber(invoice.inv_TotalAmountWithoutVAT)
-  const paidAmount = toNumber(invoice.paidAmount)
-  const remainingAmount =
-    invoice.remainingAmount !== undefined
-      ? toNumber(invoice.remainingAmount)
-      : Math.max(totalInvoice - paidAmount, 0)
-
-  const commissionRate = toNumber(invoice.agencyId?.commissionPercent)
-  const commissionAmount = rawItems.reduce((sum: number, item: any) => {
-    return sum + toNumber(item?.commissionAmount)
-  }, 0)
-
-  const revenue = rawItems.reduce((sum: number, item: any) => {
-    return sum + toNumber(item?.revenue)
-  }, 0)
-
-  return {
-    id: invoice._id,
-    month,
-    activatedDate: invoice.createdAt || invoiceDate,
-    dealerName: invoice.agencyId?.name || "",
-    departmentName: invoice.departmentId?.departmentName || "",
-    employeeName: invoice.employeeId?.employeeName || "",
-    taxCode: invoice.inv_buyerTaxCode || "",
-    companyName:
-      invoice.inv_buyerLegalName || invoice.inv_buyerDisplayName || "",
-    newQuantity: toNumber(invoice.newQuantity || invoice.inv_quantity),
-    renewQuantity: toNumber(invoice.renewQuantity),
-    giftQuantity: toNumber(invoice.giftQuantity),
-    invoiceDate,
-    invoiceNo:
-      invoice.invoiceNo ||
-      invoice.inv_invoiceNumber ||
-      invoice.so_hoa_don ||
-      "",
-    explanation: invoice.ten_ch || "",
-    productName: firstProduct?.inv_itemName || "",
-    invoiceTitle: invoice.invoiceTitle || invoice.inv_invoiceSeries || "",
-    difference: toNumber(invoice.difference),
-    totalInvoice,
-    totalValue,
-    unitPrice: toNumber(firstProduct?.inv_unitPrice),
-    bq: toNumber(firstProduct?.inv_unitPrice),
-    invoicePackage: toNumber(invoice.invoicePackage),
-    otherAmount: toNumber(invoice.otherAmount),
-    writeDifference: toNumber(invoice.writeDifference),
-    customerDiscount: toNumber(invoice.customerDiscount),
-    commissionRate,
-    commissionAmount,
-    writeRevenue: toNumber(invoice.writeRevenue),
-    differencePayable: toNumber(invoice.differencePayable),
-    minvoiceRevenue: toNumber(invoice.minvoiceRevenue || revenue),
-    ds: toNumber(invoice.ds || totalValue),
-    paid: invoice.isPaid || paidAmount > 0 ? "paid" : "unpaid",
-    paidAmount,
-    remainingAmount,
-    note: invoice.note || "",
-  }
-}
-
-function buildCreateApiBody(payload: any) {
+function buildCreateApiBody(payload: any): InvoiceApiRow {
   const items = Array.isArray(payload.items) ? payload.items : []
 
   return {
+    _id: payload._id,
     inv_invoiceSeries: payload.inv_invoiceSeries || "1C26MZZ",
     inv_invoiceIssuedDate: toApiDate(payload.inv_invoiceIssuedDate),
     inv_currencyCode: payload.inv_currencyCode || "VND",
@@ -211,52 +91,44 @@ function buildCreateApiBody(payload: any) {
     inv_buyerAddressLine: payload.inv_buyerAddressLine || "",
     inv_buyerEmail: payload.inv_buyerEmail || "",
     inv_buyerBankAccount: payload.inv_buyerBankAccount || "",
-    inv_buyerBankName: payload.inv_buyerBankName || "",
     inv_paymentMethodName: payload.inv_paymentMethodName || "CK",
 
     inv_discountAmount: toNumber(payload.inv_discountAmount),
     inv_TotalAmountWithoutVAT: toNumber(payload.inv_TotalAmountWithoutVAT),
     inv_vatAmount: toNumber(payload.inv_vatAmount),
     inv_TotalAmount: toNumber(payload.inv_TotalAmount),
-
-    key_api: payload.key_api || "",
-    cccdan: payload.cccdan || "",
-    so_hchieu: payload.so_hchieu || "",
-    mdvqhnsach_nmua: payload.mdvqhnsach_nmua || "",
-    ma_ch: payload.ma_ch || "",
-    ten_ch: payload.ten_ch || "",
-
     inv_quantity: toNumber(payload.inv_quantity),
     inv_discountPercentage: toNumber(payload.inv_discountPercentage),
 
     agencyId: payload.agencyId,
-    departmentId: payload.departmentId,
-    employeeId: payload.employeeId,
-    bankId: payload.bankId,
 
     items: items.map((item: any) => ({
       productId: item.productId,
+
+      // BẮT BUỘC giữ lại để BE calculate đúng
+      price: toNumber(item.price ?? item.unitPrice ?? 0),
+      inv_quantity: toNumber(item.inv_quantity ?? item.quantity ?? 1) || 1,
+      ma_thue: toNumber(item.ma_thue ?? item.taxRate ?? 0),
+
+      // Giữ lại các field FE đã tính để không lệch preview
       revenue: toNumber(item.revenue),
+      inv_discountAmount: toNumber(item.inv_discountAmount),
+      inv_discountPercentage: toNumber(item.inv_discountPercentage),
+      inv_TotalAmountWithoutVat: toNumber(
+        item.inv_TotalAmountWithoutVat ??
+          item.inv_TotalAmountWithoutVAT ??
+          item.revenue
+      ),
+      inv_vatAmount: toNumber(item.inv_vatAmount),
+      inv_TotalAmount: toNumber(item.inv_TotalAmount ?? item.totalAmount),
+      inv_unitPrice: toNumber(item.inv_unitPrice ?? item.invUnitPrice),
+
       capitalPrice: toNumber(item.capitalPrice),
       totalSalary: toNumber(item.totalSalary),
       accountingAccountCode: Number(item.accountingAccountCode || 0),
     })),
   }
 }
-function getMInvoiceData(invoice: InvoiceApiRow) {
-  const row = invoice as any
-
-  return (
-    row.content?.data ||
-    row.content ||
-    row.exportInvoiceData?.data ||
-    row.exportInvoiceData ||
-    row.data?.data ||
-    row.data ||
-    row
-  )
-}
-
 function getExportInvoiceId(invoice: any) {
   const mInvoiceData =
     invoice?.content?.data ||
@@ -277,24 +149,17 @@ function getExportInvoiceId(invoice: any) {
       ""
   ).trim()
 }
-async function getBlobErrorMessage(data: any) {
-  if (!(data instanceof Blob)) return ""
 
-  const text = await data.text()
+type InvoiceStatusValue = "DRAFT" | "ISSUED" | "CANCELLED"
 
-  try {
-    const json = JSON.parse(text)
+function getInvoiceStatus(invoice?: InvoiceApiRow | null): InvoiceStatusValue {
+  const status = String((invoice as any)?.invoiceStatus || "").toUpperCase()
 
-    return (
-      json?.message ||
-      json?.error ||
-      json?.data?.message ||
-      json?.content?.message ||
-      text
-    )
-  } catch {
-    return text
+  if (status === "DRAFT" || status === "ISSUED" || status === "CANCELLED") {
+    return status as InvoiceStatusValue
   }
+
+  return getExportInvoiceId(invoice) ? "ISSUED" : "DRAFT"
 }
 
 export default function InvoiceListPage() {
@@ -398,7 +263,7 @@ export default function InvoiceListPage() {
     const id = pendingDeleteId || selectedInvoiceId
 
     if (!id) {
-      showErrorMessage("Không tìm thấy hóa đơn cần xóa.")
+      showErrorMessage("Không tìm thấy hóa đơn cần hủy.")
       setDeleteDialogOpen(false)
       return
     }
@@ -410,24 +275,38 @@ export default function InvoiceListPage() {
       const res = await APIDeleteSaleTransaction(id)
 
       if (res?.status === 200 || res?.status === 201 || res?.status === 204) {
-        showSuccessMessage("Xóa hóa đơn thành công!")
+        const detail = normalizeSaleTransactionDetail(res)
 
+        setApiRows((prev) =>
+          prev.map((row) => {
+            if (row._id !== id) return row
+
+            return {
+              ...row,
+              ...(detail || {}),
+              invoiceStatus: "CANCELLED",
+              updatedAt: new Date().toISOString(),
+            } as InvoiceApiRow
+          })
+        )
+
+        showSuccessMessage("Hủy hóa đơn thành công!")
         setSelectedInvoiceId(null)
         setMode("list")
-        await handleGetSaleTransactions()
         return
       }
 
-      showErrorMessage("Xóa hóa đơn thất bại!")
+      showErrorMessage("Hủy hóa đơn thất bại!")
     } catch (err: any) {
       console.error("APIDeleteSaleTransaction error:", err)
 
-      showErrorMessage(err?.response?.data?.message || "Xóa hóa đơn thất bại!")
+      showErrorMessage(err?.response?.data?.message || "Hủy hóa đơn thất bại!")
     } finally {
       setLoading(false)
       setPendingDeleteId(null)
     }
   }
+
   const handleEdit = async (row: any) => {
     try {
       setLoading(true)
@@ -452,6 +331,13 @@ export default function InvoiceListPage() {
             return detail
           })
         })
+
+        if (getInvoiceStatus(detail) === "CANCELLED") {
+          showErrorMessage("Hóa đơn đã hủy, không thể chỉnh sửa.")
+          setSelectedInvoiceId(detail._id)
+          setMode("detail")
+          return
+        }
 
         setSelectedInvoiceId(detail._id)
         setMode("edit")
@@ -506,10 +392,52 @@ export default function InvoiceListPage() {
 
   const handleSavedInvoice = async (payload: any) => {
     const editingInvoice = mode === "edit" ? selectedInvoice : null
-    const body = buildCreateApiBody(payload)
 
     try {
       setLoading(true)
+
+      if (editingInvoice?._id && payload?.bankOnlyEdit) {
+        if (getInvoiceStatus(editingInvoice) !== "ISSUED") {
+          throw new Error(
+            "Chỉ hóa đơn đã xuất thành công mới được sửa ngân hàng."
+          )
+        }
+
+        if (!payload.bankId) {
+          throw new Error("Vui lòng chọn ngân hàng cần cập nhật.")
+        }
+
+        const res = await APIUpdateSaleTransactionBank(editingInvoice._id, {
+          bankId: payload.bankId,
+        })
+
+        if (res?.status === 200 || res?.status === 201) {
+          const detail = normalizeSaleTransactionDetail(res)
+          const nextDetail = {
+            ...editingInvoice,
+            ...(detail || {}),
+            bankId: payload.bankId,
+            inv_buyerBankName: payload.inv_buyerBankName || "",
+            invoiceStatus: "ISSUED",
+            updatedAt: new Date().toISOString(),
+          } as InvoiceApiRow
+
+          setApiRows((prev) =>
+            prev.map((item) => {
+              if (item._id !== editingInvoice._id) return item
+              return nextDetail
+            })
+          )
+
+          setSelectedInvoiceId(editingInvoice._id)
+          setMode("detail")
+          return
+        }
+
+        throw new Error("Cập nhật ngân hàng thất bại!")
+      }
+
+      const body = buildCreateApiBody(payload)
 
       const res = editingInvoice?._id
         ? await APIUpdateSaleTransaction(editingInvoice._id, body)
@@ -519,18 +447,32 @@ export default function InvoiceListPage() {
         const detail = normalizeSaleTransactionDetail(res)
 
         if (detail?._id) {
-          setApiRows((prev) => {
-            const existed = prev.some((item) => item._id === detail._id)
+          const nextDetail = {
+            ...detail,
 
-            if (!existed) return [detail, ...prev]
+            isPaid: (detail as any).isPaid ?? payload.isPaid,
+            paidAmount: (detail as any).paidAmount ?? payload.paidAmount,
+            paidDate: (detail as any).paidDate ?? payload.paidDate,
+            remainingAmount:
+              (detail as any).remainingAmount ?? payload.remainingAmount,
+
+            invoiceStatus:
+              (detail as any).invoiceStatus ||
+              (editingInvoice ? getInvoiceStatus(editingInvoice) : "DRAFT"),
+          } as InvoiceApiRow
+
+          setApiRows((prev) => {
+            const existed = prev.some((item) => item._id === nextDetail._id)
+
+            if (!existed) return [nextDetail, ...prev]
 
             return prev.map((item) => {
-              if (item._id !== detail._id) return item
-              return detail
+              if (item._id !== nextDetail._id) return item
+              return nextDetail
             })
           })
 
-          setSelectedInvoiceId(detail._id)
+          setSelectedInvoiceId(nextDetail._id)
           setMode("detail")
         } else {
           await handleGetSaleTransactions()
@@ -552,6 +494,7 @@ export default function InvoiceListPage() {
       setLoading(false)
     }
   }
+
   const handleInvoiceExported = (
     saleTransactionId: string,
     exportData: any
@@ -573,28 +516,33 @@ export default function InvoiceListPage() {
         return {
           ...row,
 
-          // Field để InvoiceDataTable nhận biết đã xuất hóa đơn
-          id: exportInvoiceId,
+          // Field để nhận biết đã xuất hóa đơn
           inv_invoiceCreatedId: exportInvoiceId,
 
-          // Lưu lại response xuất hóa đơn
           exportInvoiceData: {
             ...exportData,
             id: exportInvoiceId,
             inv_invoiceCreatedId: exportInvoiceId,
           },
 
-          // Cập nhật số hóa đơn nếu response có trả về
-          inv_invoiceNumber:
-            exportData?.inv_invoiceNumber ?? row.inv_invoiceNumber,
-          so_hoa_don: exportData?.shdon ?? row.so_hoa_don,
           inv_invoiceSeries:
             exportData?.inv_invoiceSeries ?? row.inv_invoiceSeries,
+
+          invoiceStatus: "ISSUED",
+
+          // Giữ nguyên trạng thái thu tiền đã có
+          isPaid: (row as any).isPaid,
+          paidAmount: (row as any).paidAmount,
+          paidDate: (row as any).paidDate,
+          remainingAmount: (row as any).remainingAmount,
 
           updatedAt: new Date().toISOString(),
         } as InvoiceApiRow
       })
     )
+
+    setSelectedInvoiceId(saleTransactionId)
+    setMode("detail")
   }
   const handleViewMInvoicePdf = async (row: InvoiceApiRow) => {
     const token = process.env.NEXT_PUBLIC_MINVOICE_TOKEN || ""
@@ -762,9 +710,9 @@ export default function InvoiceListPage() {
         isOpen={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}
         onConfirm={handleConfirmDelete}
-        title="Xác nhận xóa hóa đơn"
-        description="Bạn có chắc chắn muốn xóa hóa đơn này? Thao tác này không thể hoàn tác."
-        confirmText="Xóa"
+        title="Xác nhận hủy hóa đơn"
+        description="Bạn có chắc chắn muốn hủy hóa đơn này? Hóa đơn sẽ chuyển sang trạng thái CANCELLED."
+        confirmText="Hủy hóa đơn"
         cancelText="Hủy"
         tone="destructive"
       />

@@ -33,72 +33,6 @@ function formatNumber(value: number) {
   return new Intl.NumberFormat("vi-VN").format(Number(value || 0))
 }
 
-function normalizeProductItem(item: any): Product | null {
-  if (!item) return null
-
-  const id = item._id ?? item.id
-
-  if (!id) return null
-
-  return {
-    _id: id,
-    inv_itemCode: item.inv_itemCode ?? "",
-    inv_itemName: item.inv_itemName ?? "",
-    inv_unitCode: item.inv_unitCode ?? "",
-    inv_unitPrice: Number(item.inv_unitPrice ?? 0),
-    inv_quantity: Number(item.inv_quantity ?? 0),
-    inv_discountAmount: Number(item.inv_discountAmount ?? 0),
-    ma_thue: String(item.ma_thue ?? ""),
-  }
-}
-
-function normalizeProductList(response: any): Product[] {
-  const rawRoot =
-    response?.data?.data ??
-    response?.data?.content ??
-    response?.data?.items ??
-    response?.data?.result ??
-    response?.data ??
-    response?.content ??
-    response?.items ??
-    response?.result ??
-    response ??
-    []
-
-  const raw = Array.isArray(rawRoot)
-    ? rawRoot
-    : Array.isArray(rawRoot?.data)
-      ? rawRoot.data
-      : Array.isArray(rawRoot?.items)
-        ? rawRoot.items
-        : Array.isArray(rawRoot?.docs)
-          ? rawRoot.docs
-          : Array.isArray(rawRoot?.results)
-            ? rawRoot.results
-            : Array.isArray(rawRoot?.products)
-              ? rawRoot.products
-              : Array.isArray(rawRoot?.content)
-                ? rawRoot.content
-                : []
-
-  return raw
-    .map((item: any) => normalizeProductItem(item?.content ?? item))
-    .filter(Boolean) as Product[]
-}
-
-function normalizeProductDetail(response: any): Product | null {
-  const raw =
-    response?.data?.data ??
-    response?.data?.content ??
-    response?.data?.result ??
-    response?.data ??
-    response?.content ??
-    response?.result ??
-    response
-
-  return normalizeProductItem(raw?.content ?? raw)
-}
-
 interface ActionModalProps {
   open: boolean
   title: string
@@ -197,9 +131,10 @@ export default function ProductPage() {
       setLoading(true)
 
       const response = await APIGetProducts()
-      const list = normalizeProductList(response)
-
-      setProducts(list)
+      if (response?.status === 200 && Array.isArray(response.data)) {
+        setProducts(response.data)
+        return
+      }
     } catch (err) {
       console.error("APIGetProducts error:", err)
       showErrorMessage("Không thể tải danh sách sản phẩm")
@@ -401,12 +336,7 @@ export default function ProductPage() {
       const res = await APIGetProductById(rowData._id)
 
       if (res?.status === 200 || res?.status === 201) {
-        const detail = normalizeProductDetail(res)
-
-        if (!detail?._id) {
-          showErrorMessage("Không tìm thấy chi tiết sản phẩm")
-          return
-        }
+        const detail = res.data as Product
 
         setSelectedProduct(detail)
 
@@ -446,12 +376,7 @@ export default function ProductPage() {
       const res = await APIGetProductById(rowData._id)
 
       if (res?.status === 200 || res?.status === 201) {
-        const detail = normalizeProductDetail(res)
-
-        if (!detail?._id) {
-          showErrorMessage("Không tìm thấy chi tiết sản phẩm")
-          return
-        }
+        const detail = res.data as Product
 
         setSelectedProduct(detail)
 
@@ -496,10 +421,10 @@ export default function ProductPage() {
             <h1 className="text-xl font-bold text-slate-900">
               Quản lý sản phẩm
             </h1>
-            <p className="mt-1 text-sm text-slate-500">
+            {/* <p className="mt-1 text-sm text-slate-500">
               Quản lý mã sản phẩm, tên sản phẩm, đơn vị tính, đơn giá, số lượng
               và thuế suất.
-            </p>
+            </p> */}
           </div>
 
           <button

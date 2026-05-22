@@ -24,41 +24,6 @@ const emptyForm: BankPayload = {
 
 type ModeType = "create" | "view" | "edit" | null
 
-function normalizeBankList(response: any): Bank[] {
-  const raw =
-    response?.data?.data ??
-    response?.data?.content ??
-    response?.data?.items ??
-    response?.data?.result ??
-    response?.data ??
-    response?.content ??
-    response?.items ??
-    response?.result ??
-    response ??
-    []
-
-  if (!Array.isArray(raw)) return []
-
-  return raw
-    .map((item: any) => item?.content ?? item)
-    .filter((item: any) => item?._id)
-}
-
-function normalizeBankDetail(response: any): Bank | null {
-  const raw =
-    response?.data?.data ??
-    response?.data?.content ??
-    response?.data?.result ??
-    response?.data ??
-    response?.content ??
-    response?.result ??
-    response
-
-  if (!raw) return null
-
-  return raw?.content ?? raw
-}
-
 interface ActionModalProps {
   open: boolean
   title: string
@@ -157,9 +122,11 @@ export default function BankPage() {
       setLoading(true)
 
       const response = await APIGetBanks()
-      const list = normalizeBankList(response)
-
-      setBanks(list)
+      if (response?.status === 200 && Array.isArray(response.data)) {
+        setBanks(response.data)
+        return
+      }
+      setBanks([])
     } catch (err) {
       console.error("APIGetBanks error:", err)
       showErrorMessage("Không thể tải danh sách ngân hàng")
@@ -312,38 +279,41 @@ export default function BankPage() {
       return
     }
   }
-
   const onView = async (rowData: Bank) => {
     if (!rowData?._id) {
       showErrorMessage("Không tìm thấy ID ngân hàng")
       return
     }
 
+    // Mở modal trước để người dùng thấy đang tải
+    setMode("view")
+    setSelectedBank(rowData)
+    reset({
+      inv_buyerBankName: rowData.inv_buyerBankName || "",
+      isActive: Boolean(rowData.isActive),
+    })
+    setOpen(true)
+
     try {
       setDetailLoading(true)
-      setSelectedBank(null)
 
       const res = await APIGetBankById(rowData._id)
 
-      if (res?.status === 200) {
-        const detail = normalizeBankDetail(res)
+      const detail =
+        res?.data?.content || res?.data?.data || res?.data || rowData
 
-        if (!detail?._id) {
-          showErrorMessage("Không tìm thấy chi tiết ngân hàng")
-          return
-        }
-
+      if (detail?._id) {
         setSelectedBank(detail)
+
         reset({
           inv_buyerBankName: detail.inv_buyerBankName || "",
           isActive: Boolean(detail.isActive),
         })
-
-        setMode("view")
-        setOpen(true)
       }
     } catch (err: any) {
       console.error("APIGetBankById view error:", err)
+
+      // Không đóng modal, vẫn hiển thị dữ liệu đang có từ bảng
       showErrorMessage(
         err?.response?.data?.message || "Không thể tải chi tiết ngân hàng"
       )
@@ -358,31 +328,34 @@ export default function BankPage() {
       return
     }
 
+    // Mở modal trước để tránh bấm mà không thấy gì
+    setMode("edit")
+    setSelectedBank(rowData)
+    reset({
+      inv_buyerBankName: rowData.inv_buyerBankName || "",
+      isActive: Boolean(rowData.isActive),
+    })
+    setOpen(true)
+
     try {
       setDetailLoading(true)
-      setSelectedBank(null)
 
       const res = await APIGetBankById(rowData._id)
 
-      if (res?.status === 200) {
-        const detail = normalizeBankDetail(res)
+      const detail =
+        res?.data?.content || res?.data?.data || res?.data || rowData
 
-        if (!detail?._id) {
-          showErrorMessage("Không tìm thấy chi tiết ngân hàng")
-          return
-        }
-
+      if (detail?._id) {
         setSelectedBank(detail)
+
         reset({
           inv_buyerBankName: detail.inv_buyerBankName || "",
           isActive: Boolean(detail.isActive),
         })
-
-        setMode("edit")
-        setOpen(true)
       }
     } catch (err: any) {
       console.error("APIGetBankById edit error:", err)
+
       showErrorMessage(
         err?.response?.data?.message || "Không thể tải dữ liệu ngân hàng"
       )
@@ -390,7 +363,6 @@ export default function BankPage() {
       setDetailLoading(false)
     }
   }
-
   const onDeleteClick = (rowData: Bank) => {
     if (!rowData?._id) {
       showErrorMessage("Không tìm thấy ID ngân hàng")
@@ -409,9 +381,9 @@ export default function BankPage() {
             <h1 className="text-xl font-bold text-slate-900">
               Quản lý ngân hàng
             </h1>
-            <p className="mt-1 text-sm text-slate-500">
+            {/* <p className="mt-1 text-sm text-slate-500">
               Quản lý danh sách ngân hàng dùng khi lập hóa đơn.
-            </p>
+            </p> */}
           </div>
 
           <button

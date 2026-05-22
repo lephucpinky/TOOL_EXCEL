@@ -7,7 +7,7 @@ import {
   APIGetAgencyById,
   APIUpdateAgency,
 } from "@/services/agency"
-import { Agency, AgencyPayload } from "@/types/agency"
+import { Agency } from "@/types/agency"
 import DataTable, { DataTableColumn } from "../common/Datatable"
 import AlertOption from "@/components/alert/AlertOption"
 import AlertSuccess from "@/components/alert/AlertSuccess"
@@ -15,68 +15,32 @@ import AlertError from "@/components/alert/AlertError"
 import { Loader2, Plus, X } from "lucide-react"
 import { ReactNode, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
+import { Employee } from "@/types/employee"
+import { APIGetEmployees } from "@/services/employee"
+type AgencyFormValues = {
+  agencyName: string
+  agencyEmail: string
+  employeeId: string
+  commissionPercent: number
+  isActive: "true" | "false"
+}
 
-const emptyForm: AgencyPayload = {
-  name: "",
+type AgencyRequestPayload = {
+  agencyName: string
+  agencyEmail: string
+  employeeId: string
+  commissionPercent: number
+  isActive: boolean
+}
+
+const emptyForm: AgencyFormValues = {
+  agencyName: "",
+  agencyEmail: "",
+  employeeId: "",
   commissionPercent: 0,
+  isActive: "true",
 }
-
 type ModeType = "create" | "view" | "edit" | null
-
-function normalizeAgencyList(response: any): Agency[] {
-  console.log("=== normalizeAgencyList input ===", response)
-
-  const raw =
-    response?.data?.data ??
-    response?.data?.content ??
-    response?.data?.items ??
-    response?.data?.result ??
-    response?.data ??
-    response?.content ??
-    response?.items ??
-    response?.result ??
-    response ??
-    []
-
-  console.log("=== raw data after extraction ===", raw)
-  console.log("=== is array? ===", Array.isArray(raw))
-
-  if (!Array.isArray(raw)) {
-    console.log("Raw không phải mảng, trả về []")
-    return []
-  }
-
-  const mapped = raw.map((item: any) => {
-    console.log("=== mapping item ===", item)
-    return item?.content ?? item
-  })
-
-  console.log("=== mapped data ===", mapped)
-
-  const filtered = mapped.filter((item: any) => {
-    const hasId = item && item._id
-    console.log("=== filtering item, has _id? ===", item, hasId)
-    return hasId
-  })
-
-  console.log("=== final filtered list ===", filtered)
-  return filtered
-}
-
-function normalizeAgencyDetail(response: any): Agency | null {
-  const raw =
-    response?.data?.data ??
-    response?.data?.content ??
-    response?.data?.result ??
-    response?.data ??
-    response?.content ??
-    response?.result ??
-    response
-
-  if (!raw) return null
-
-  return raw?.content ?? raw
-}
 
 interface ActionModalProps {
   open: boolean
@@ -132,6 +96,8 @@ function ActionModal({
 export default function DealerPage() {
   const [agencies, setAgencies] = useState<Agency[]>([])
   const [selectedAgency, setSelectedAgency] = useState<Agency | null>(null)
+  const [employees, setEmployees] = useState<Employee[]>([])
+  const [employeeLoading, setEmployeeLoading] = useState(false)
 
   const [mode, setMode] = useState<ModeType>("create")
   const [open, setOpen] = useState(false)
@@ -151,7 +117,7 @@ export default function DealerPage() {
     handleSubmit,
     reset,
     formState: { errors },
-  } = useForm<AgencyPayload>({
+  } = useForm<AgencyFormValues>({
     defaultValues: emptyForm,
   })
 
@@ -176,20 +142,13 @@ export default function DealerPage() {
       setLoading(true)
 
       const response = await APIGetAgencies()
-      console.log("=== API Response raw ===", response)
 
-      if (response?.status === 200) {
-        const list = normalizeAgencyList(response)
-        console.log("=== Normalized list ===", list)
-        console.log("=== Setting agencies to ===", list)
-        setAgencies(list)
+      if (response?.status === 200 && Array.isArray(response.data)) {
+        setAgencies(response.data)
         return
       }
 
-      const list = normalizeAgencyList(response)
-      console.log("=== Normalized list (non-200) ===", list)
-      console.log("=== Setting agencies to (non-200) ===", list)
-      setAgencies(list)
+      setAgencies([])
     } catch (err) {
       console.error("APIGetAgencies error:", err)
       showErrorMessage("Không thể tải danh sách đại lý")
@@ -197,11 +156,30 @@ export default function DealerPage() {
       setLoading(false)
     }
   }
+  const handleGetEmployees = async () => {
+    try {
+      setEmployeeLoading(true)
+
+      const response = await APIGetEmployees()
+
+      if (response?.status === 200 && Array.isArray(response.data)) {
+        setEmployees(response.data)
+        return
+      }
+
+      setEmployees([])
+    } catch (err) {
+      console.error("APIGetEmployees error:", err)
+      showErrorMessage("Không thể tải danh sách nhân viên")
+    } finally {
+      setEmployeeLoading(false)
+    }
+  }
 
   useEffect(() => {
     handleGetAgencies()
+    handleGetEmployees()
   }, [])
-
   useEffect(() => {
     console.log("=== AGENCIES STATE UPDATED ===", agencies)
     console.log("=== AGENCIES LENGTH ===", agencies.length)
@@ -212,14 +190,50 @@ export default function DealerPage() {
       {
         key: "index",
         title: "STT",
-        className: "w-[80px] text-slate-500",
+        className: "w-[70px] text-slate-500",
         render: (_item, index) => index + 1,
       },
       {
-        key: "name",
+        key: "agencyNumber",
+        title: "Mã đại lý",
+        render: (item) => (
+          <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
+            {item.agencyNumber || "-.-"}
+          </span>
+        ),
+      },
+      {
+        key: "agencyName",
         title: "Tên đại lý",
         render: (item) => (
-          <p className="font-semibold text-slate-900">{item.name}</p>
+          <p className="font-semibold text-slate-900">{item.agencyName}</p>
+        ),
+      },
+      {
+        key: "agencyEmail",
+        title: "Email đại lý",
+        render: (item) => (
+          <span className="text-sm font-medium text-slate-700">
+            {item.agencyEmail || "-.-"}
+          </span>
+        ),
+      },
+      {
+        key: "employeeId",
+        title: "Nhân viên phụ trách",
+        render: (item) => (
+          <span className="text-sm font-medium text-slate-700">
+            {item.employeeId?.employeeName || "-.-"}
+          </span>
+        ),
+      },
+      {
+        key: "department",
+        title: "Phòng ban",
+        render: (item) => (
+          <span className="text-sm font-medium text-slate-700">
+            {item.employeeId?.departmentId?.departmentName || "-.-"}
+          </span>
         ),
       },
       {
@@ -230,6 +244,22 @@ export default function DealerPage() {
         render: (item) => (
           <span className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
             {item.commissionPercent}%
+          </span>
+        ),
+      },
+      {
+        key: "isActive",
+        title: "Trạng thái",
+        render: (item) => (
+          <span
+            className={[
+              "inline-flex rounded-full px-3 py-1 text-xs font-bold",
+              item.isActive
+                ? "bg-emerald-50 text-emerald-700"
+                : "bg-slate-100 text-slate-500",
+            ].join(" ")}
+          >
+            {item.isActive ? "Đang hoạt động" : "Ngừng hoạt động"}
           </span>
         ),
       },
@@ -253,7 +283,7 @@ export default function DealerPage() {
     setOpen(true)
   }
 
-  const handleCreateAgency = async (data: AgencyPayload) => {
+  const handleCreateAgency = async (data: AgencyRequestPayload) => {
     try {
       setSubmitLoading(true)
 
@@ -272,13 +302,13 @@ export default function DealerPage() {
     }
   }
 
-  const handleUpdateAgency = async (id: string, data: AgencyPayload) => {
+  const handleUpdateAgency = async (id: string, data: AgencyRequestPayload) => {
     try {
       setSubmitLoading(true)
 
       const res = await APIUpdateAgency(id, data)
 
-      if (res?.status === 200) {
+      if (res?.status === 200 || res?.status === 201) {
         showSuccessMessage("Cập nhật đại lý thành công!")
         await handleGetAgencies()
         handleCloseDialog()
@@ -327,10 +357,13 @@ export default function DealerPage() {
     }
   }
 
-  const onSubmit = async (data: AgencyPayload) => {
-    const body: AgencyPayload = {
-      name: data.name.trim(),
+  const onSubmit = async (data: AgencyFormValues) => {
+    const body: AgencyRequestPayload = {
+      agencyName: data.agencyName.trim(),
+      agencyEmail: data.agencyEmail.trim(),
+      employeeId: data.employeeId,
       commissionPercent: Number(data.commissionPercent),
+      isActive: data.isActive === "true",
     }
 
     if (isCreateMode) {
@@ -340,10 +373,8 @@ export default function DealerPage() {
 
     if (isEditMode && selectedAgency?._id) {
       await handleUpdateAgency(selectedAgency._id, body)
-      return
     }
   }
-
   const onView = async (rowData: Agency) => {
     console.log("=== onView clicked with rowData ===", rowData)
 
@@ -361,33 +392,26 @@ export default function DealerPage() {
       const res = await APIGetAgencyById(rowData._id)
       console.log("=== API response for onView ===", res)
 
-      if (res?.status === 200) {
-        const detail = normalizeAgencyDetail(res)
-        console.log("=== Normalized detail for view ===", detail)
+      if (res?.status === 200 && res.data?._id) {
+        const detail = res.data as Agency
 
-        if (!detail?._id) {
-          console.log("=== ERROR: No detail with _id ===")
-          showErrorMessage("Không tìm thấy chi tiết đại lý")
-          return
-        }
-
-        console.log(
-          "=== Setting selected agency and opening view modal ===",
-          detail
-        )
         setSelectedAgency(detail)
 
-        const formData = {
-          name: detail.name || "",
+        reset({
+          agencyName: detail.agencyName || "",
+          agencyEmail: detail.agencyEmail || "",
+          employeeId:
+            typeof detail.employeeId === "string"
+              ? detail.employeeId
+              : detail.employeeId?._id || "",
           commissionPercent: Number(detail.commissionPercent || 0),
-        }
-        console.log("=== Form data for view mode ===", formData)
-        reset(formData)
+          isActive: detail.isActive === false ? "false" : "true",
+        })
 
         setMode("view")
         setOpen(true)
       } else {
-        console.log("=== ERROR: API status not 200, got ===", res?.status)
+        showErrorMessage("Không tìm thấy chi tiết đại lý")
       }
     } catch (err: any) {
       console.error("APIGetAgencyById view error:", err)
@@ -399,7 +423,6 @@ export default function DealerPage() {
       setDetailLoading(false)
     }
   }
-
   const onEdit = async (rowData: Agency) => {
     console.log("=== onEdit clicked with rowData ===", rowData)
 
@@ -417,34 +440,26 @@ export default function DealerPage() {
       const res = await APIGetAgencyById(rowData._id)
       console.log("=== API response for onEdit ===", res)
 
-      if (res?.status === 200) {
-        const detail = normalizeAgencyDetail(res)
-        console.log("=== Normalized detail for edit ===", detail)
+      if (res?.status === 200 && res.data?._id) {
+        const detail = res.data as Agency
 
-        if (!detail?._id) {
-          console.log("=== ERROR: No detail with _id ===")
-          showErrorMessage("Không tìm thấy chi tiết đại lý")
-          return
-        }
-
-        console.log(
-          "=== Setting selected agency and resetting form ===",
-          detail
-        )
         setSelectedAgency(detail)
 
-        const formData = {
-          name: detail.name || "",
+        reset({
+          agencyName: detail.agencyName || "",
+          agencyEmail: detail.agencyEmail || "",
+          employeeId:
+            typeof detail.employeeId === "string"
+              ? detail.employeeId
+              : detail.employeeId?._id || "",
           commissionPercent: Number(detail.commissionPercent || 0),
-        }
-        console.log("=== Form data for reset ===", formData)
-        reset(formData)
+          isActive: detail.isActive === false ? "false" : "true",
+        })
 
-        console.log("=== Opening edit modal ===")
         setMode("edit")
         setOpen(true)
       } else {
-        console.log("=== ERROR: API status not 200, got ===", res?.status)
+        showErrorMessage("Không tìm thấy chi tiết đại lý")
       }
     } catch (err: any) {
       console.error("APIGetAgencyById edit error:", err)
@@ -480,9 +495,9 @@ export default function DealerPage() {
         <div className="flex flex-col gap-3 rounded-xl bg-white p-5 shadow-sm md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-xl font-bold text-slate-900">Quản lý đại lý</h1>
-            <p className="mt-1 text-sm text-slate-500">
+            {/* <p className="mt-1 text-sm text-slate-500">
               Quản lý tên đại lý và phần trăm hoa hồng.
-            </p>
+            </p> */}
           </div>
 
           <button
@@ -572,16 +587,74 @@ export default function DealerPage() {
                 disabled={isViewMode}
                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
                 placeholder="Nhập tên đại lý"
-                {...register("name", {
+                {...register("agencyName", {
                   required: "Vui lòng nhập tên đại lý",
                   validate: (value) =>
                     value.trim().length > 0 || "Vui lòng nhập tên đại lý",
                 })}
               />
 
-              {errors.name && !isViewMode && (
+              {errors.agencyName && !isViewMode && (
                 <p className="mt-1 text-xs font-medium text-red-600">
-                  {errors.name.message}
+                  {errors.agencyName.message}
+                </p>
+              )}
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+                Email đại lý
+              </label>
+
+              <input
+                disabled={isViewMode}
+                type="email"
+                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
+                placeholder="Nhập email đại lý"
+                {...register("agencyEmail", {
+                  required: "Vui lòng nhập email đại lý",
+                  validate: (value) =>
+                    value.trim().length > 0 || "Vui lòng nhập email đại lý",
+                  pattern: {
+                    value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+                    message: "Email đại lý không hợp lệ",
+                  },
+                })}
+              />
+
+              {errors.agencyEmail && !isViewMode && (
+                <p className="mt-1 text-xs font-medium text-red-600">
+                  {errors.agencyEmail.message}
+                </p>
+              )}
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+                Nhân viên phụ trách
+              </label>
+
+              <select
+                disabled={isViewMode || employeeLoading}
+                className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
+                {...register("employeeId", {
+                  required: "Vui lòng chọn nhân viên phụ trách",
+                })}
+              >
+                <option value="">
+                  {employeeLoading
+                    ? "Đang tải nhân viên..."
+                    : "Chọn nhân viên phụ trách"}
+                </option>
+
+                {employees.map((employee) => (
+                  <option key={employee._id} value={employee._id}>
+                    {employee.employeeName}
+                  </option>
+                ))}
+              </select>
+
+              {errors.employeeId && !isViewMode && (
+                <p className="mt-1 text-xs font-medium text-red-600">
+                  {errors.employeeId.message}
                 </p>
               )}
             </div>
@@ -617,6 +690,28 @@ export default function DealerPage() {
                 </p>
               )}
             </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+                Trạng thái
+              </label>
+
+              <select
+                disabled={isViewMode}
+                className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
+                {...register("isActive", {
+                  required: "Vui lòng chọn trạng thái",
+                })}
+              >
+                <option value="true">Đang hoạt động</option>
+                <option value="false">Ngừng hoạt động</option>
+              </select>
+
+              {errors.isActive && !isViewMode && (
+                <p className="mt-1 text-xs font-medium text-red-600">
+                  {errors.isActive.message}
+                </p>
+              )}
+            </div>
           </form>
         )}
       </ActionModal>
@@ -629,7 +724,7 @@ export default function DealerPage() {
           void handleDeleteAgency(selectedAgency._id)
         }}
         title="Xác nhận thao tác"
-        description={`Hành động này sẽ xóa đại lý "${selectedAgency?.name}" khỏi hệ thống và không thể hoàn tác. Bạn có chắc chắn tiếp tục?`}
+        description={`Hành động này sẽ xóa đại lý "${selectedAgency?.agencyName}" khỏi hệ thống và không thể hoàn tác. Bạn có chắc chắn tiếp tục?`}
         confirmText="Xóa"
         cancelText="Hủy"
         tone="destructive"

@@ -21,7 +21,7 @@ export default function Page() {
   const handleLogout = () => {
     localStorage.removeItem("access_token")
     localStorage.removeItem("refresh_token")
-    router.replace("/")
+    router.replace("/login")
   }
 
   if (!checked) {

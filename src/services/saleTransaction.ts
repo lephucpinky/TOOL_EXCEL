@@ -158,6 +158,28 @@ const APIUpdateSaleTransaction = async (id: string, data: any) => {
   }
 }
 
+const APIUpdateSaleTransactionBank = async (
+  id: string,
+  data: { bankId: string } | string
+) => {
+  try {
+    const body = typeof data === "string" ? { bankId: data } : data
+    const response = await axiosInstance.patch(
+      `/sale-transaction/${id}/bank`,
+      body
+    )
+
+    if (response.status >= 200 && response.status < 300) {
+      return normalizeResponse(response)
+    }
+
+    return response
+  } catch (err) {
+    console.error("Error during update sale transaction bank:", err)
+    throw err
+  }
+}
+
 const APIDeleteSaleTransaction = async (id: string) => {
   try {
     const response = await axiosInstance.delete(`/sale-transaction/${id}`)
@@ -204,6 +226,7 @@ export {
   APIGetSaleTransactionsByDepartment,
   APIGetSaleTransactionById,
   APIUpdateSaleTransaction,
+  APIUpdateSaleTransactionBank,
   APIDeleteSaleTransaction,
   APISendSaleTransactionReceipt,
 }

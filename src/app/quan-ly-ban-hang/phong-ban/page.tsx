@@ -233,7 +233,7 @@ export default function DepartmentPage() {
         title: "Trạng thái",
         render: (item) =>
           item.isActive ? (
-            <span className="bg-emerald-50 text-emerald-700 inline-flex rounded-full px-3 py-1 text-xs font-bold">
+            <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
               Hoạt động
             </span>
           ) : (
@@ -452,9 +452,9 @@ export default function DepartmentPage() {
             <h1 className="text-xl font-bold text-slate-900">
               Quản lý phòng ban
             </h1>
-            <p className="mt-1 text-sm text-slate-500">
+            {/* <p className="mt-1 text-sm text-slate-500">
               Quản lý tên phòng ban, mô tả và trạng thái hoạt động.
-            </p>
+            </p> */}
           </div>
 
           <button

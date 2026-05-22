@@ -17,7 +17,7 @@ export const APIExportMInvoiceReceiptPost = async (
   }
 
   const response = await axiosInstance.post(
-    "/m-invoice-receipt-post",
+    "/m-invoice-receipt-post/without-redis",
     payload,
     {
       params: {

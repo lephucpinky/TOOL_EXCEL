@@ -7,8 +7,8 @@ import { useState } from "react"
 export default function LoginPage() {
   const router = useRouter()
 
-  const [username, setUsername] = useState("tuanNd")
-  const [password, setPassword] = useState("minvoice")
+  const [username, setUsername] = useState("")
+  const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState("")
 

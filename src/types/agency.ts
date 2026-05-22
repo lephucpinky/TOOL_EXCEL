@@ -1,12 +1,19 @@
+import { Employee } from "./employee"
+
 export interface Agency {
   _id: string
-  name: string
+  agencyNumber?: string
+  agencyName: string
+  agencyEmail?: string
   commissionPercent: number
+  employeeId: Employee
+  isActive?: boolean
   createdAt?: string
   updatedAt?: string
 }
 
 export interface AgencyPayload {
-  name: string
+  agencyName: string
+  employeeId: string
   commissionPercent: number
 }
