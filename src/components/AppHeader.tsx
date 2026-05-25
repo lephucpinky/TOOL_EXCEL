@@ -7,6 +7,7 @@ const menus = [
   {
     label: "Quản lý hóa đơn",
     href: "/quan-ly-ban-hang/danh-sach",
+    matchPrefixes: ["/quan-ly-ban-hang/cau-hinh-hoa-don"],
   },
   {
     label: "Quản lý đại lý",
@@ -54,7 +55,12 @@ export default function AppHeader() {
         <nav className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
           {menus.map((item) => {
             const active =
-              pathname === item.href || pathname.startsWith(`${item.href}/`)
+              pathname === item.href ||
+              pathname.startsWith(`${item.href}/`) ||
+              item.matchPrefixes?.some(
+                (prefix) =>
+                  pathname === prefix || pathname.startsWith(`${prefix}/`)
+              )
 
             return (
               <Link

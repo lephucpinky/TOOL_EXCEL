@@ -1,6 +1,10 @@
+import type { AgencyPayload } from "@/types/agency"
 import axiosInstance from "./axiosInstance"
 
-const APICreateAgency = async (data: any) => {
+type AgencyRequestPayload = AgencyPayload
+type AgencyListParams = Record<string, string | number | boolean | undefined>
+
+const APICreateAgency = async (data: AgencyRequestPayload) => {
   try {
     const response = await axiosInstance.post("/agencies/create", data)
 
@@ -21,9 +25,9 @@ const APICreateAgency = async (data: any) => {
   }
 }
 
-const APIGetAgencies = async () => {
+const APIGetAgencies = async (params?: AgencyListParams) => {
   try {
-    const response = await axiosInstance.get("/agencies")
+    const response = await axiosInstance.get("/agencies", { params })
 
     if (
       (response.status === 201 || response.status === 200) &&
@@ -73,7 +77,7 @@ const APIGetAgencyById = async (id: string) => {
   }
 }
 
-const APIUpdateAgency = async (id: string, data: any) => {
+const APIUpdateAgency = async (id: string, data: AgencyRequestPayload) => {
   try {
     const response = await axiosInstance.patch(`/agencies/${id}`, data)
 

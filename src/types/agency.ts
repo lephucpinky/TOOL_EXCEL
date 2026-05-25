@@ -14,6 +14,8 @@ export interface Agency {
 
 export interface AgencyPayload {
   agencyName: string
+  agencyEmail: string
   employeeId: string
   commissionPercent: number
+  isActive: boolean
 }

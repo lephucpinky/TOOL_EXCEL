@@ -1,11 +1,18 @@
 "use client"
 
 import type { ReactNode } from "react"
-import { ListFilter, Plus, RefreshCw, Trash2 } from "lucide-react"
+import {
+  FileSpreadsheet,
+  ListFilter,
+  Plus,
+  RefreshCw,
+  Trash2,
+} from "lucide-react"
 
 type Props = {
   onReload: () => void
   onAdd: () => void
+  onBulkImport?: () => void
   onDelete: () => void
 
   onStats?: () => void
@@ -68,6 +75,7 @@ function ToolbarButton({
 export default function InvoiceToolbar({
   onReload,
   onAdd,
+  onBulkImport,
   onDelete,
   onViewAll,
   loading = false,
@@ -82,7 +90,16 @@ export default function InvoiceToolbar({
 
       <ToolbarButton onClick={onAdd} variant="primary" disabled={loading}>
         <Plus size={15} />
-        Thêm hoá đơn
+        Thêm hóa đơn
+      </ToolbarButton>
+
+      <ToolbarButton
+        onClick={onBulkImport}
+        variant="success"
+        disabled={loading || !onBulkImport}
+      >
+        <FileSpreadsheet size={15} />
+        Tạo HĐ hàng loạt
       </ToolbarButton>
 
       <ToolbarButton

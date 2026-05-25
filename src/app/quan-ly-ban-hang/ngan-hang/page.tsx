@@ -1,21 +1,16 @@
 "use client"
 
-import {
-  APICreateBank,
-  APIDeleteBank,
-  APIGetBankById,
-  APIGetBanks,
-  APIUpdateBank,
-} from "@/services/bank"
-import { Bank, BankPayload } from "@/types/bank"
-
+import AlertError from "@/components/alert/AlertError"
 import AlertOption from "@/components/alert/AlertOption"
 import AlertSuccess from "@/components/alert/AlertSuccess"
-import AlertError from "@/components/alert/AlertError"
+import DataTable, { DataTableColumn } from "@/components/common/Datatable"
+import { useAppDispatch, useAppSelector } from "@/store/hooks"
+import { bankActions, bankThunks } from "@/store/slices"
+import { getErrorMessage } from "@/store/utils/crud"
+import { Bank, BankPayload } from "@/types/bank"
 import { Loader2, Plus, X } from "lucide-react"
 import { ReactNode, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
-import DataTable, { DataTableColumn } from "@/components/common/Datatable"
 
 const emptyForm: BankPayload = {
   inv_buyerBankName: "",
@@ -75,19 +70,28 @@ function ActionModal({
   )
 }
 
-export default function BankPage() {
-  const [banks, setBanks] = useState<Bank[]>([])
-  const [selectedBank, setSelectedBank] = useState<Bank | null>(null)
+function buildBankFormValues(detail: Bank | null): BankPayload {
+  return {
+    inv_buyerBankName: detail?.inv_buyerBankName || "",
+    isActive: Boolean(detail?.isActive),
+  }
+}
 
+export default function BankPage() {
+  const dispatch = useAppDispatch()
+  const {
+    items: banks,
+    current: selectedBank,
+    loading,
+    detailLoading,
+    submitLoading,
+    deleteLoading,
+  } = useAppSelector((state) => state.banks)
+
+  const [deleteTarget, setDeleteTarget] = useState<Bank | null>(null)
   const [mode, setMode] = useState<ModeType>("create")
   const [open, setOpen] = useState(false)
   const [isDeleteDialogOpen, setDeleteDialogOpen] = useState(false)
-
-  const [loading, setLoading] = useState(false)
-  const [detailLoading, setDetailLoading] = useState(false)
-  const [submitLoading, setSubmitLoading] = useState(false)
-  const [deleteLoading, setDeleteLoading] = useState(false)
-
   const [showSuccess, setShowSuccess] = useState(false)
   const [showError, setShowError] = useState(false)
   const [message, setMessage] = useState("")
@@ -117,27 +121,13 @@ export default function BankPage() {
     setTimeout(() => setShowError(false), 3000)
   }
 
-  const handleGetBanks = async () => {
-    try {
-      setLoading(true)
-
-      const response = await APIGetBanks()
-      if (response?.status === 200 && Array.isArray(response.data)) {
-        setBanks(response.data)
-        return
-      }
-      setBanks([])
-    } catch (err) {
-      console.error("APIGetBanks error:", err)
-      showErrorMessage("Không thể tải danh sách ngân hàng")
-    } finally {
-      setLoading(false)
-    }
-  }
-
   useEffect(() => {
-    handleGetBanks()
-  }, [])
+    void dispatch(bankThunks.fetchAll(undefined)).unwrap().catch((error) => {
+      showErrorMessage(
+        getErrorMessage(error) || "Không thể tải danh sách ngân hàng"
+      )
+    })
+  }, [dispatch])
 
   const columns = useMemo<DataTableColumn<Bank>[]>(
     () => [
@@ -182,85 +172,20 @@ export default function BankPage() {
     if (submitLoading || detailLoading) return
 
     setOpen(false)
-    setSelectedBank(null)
     setMode("create")
     reset(emptyForm)
+    dispatch(bankActions.clearCurrent())
   }
 
   const openCreateDialog = () => {
-    setSelectedBank(null)
     setMode("create")
     reset(emptyForm)
+    dispatch(bankActions.clearCurrent())
     setOpen(true)
   }
 
-  const handleCreateBank = async (data: BankPayload) => {
-    try {
-      setSubmitLoading(true)
-
-      const res = await APICreateBank(data)
-
-      if (res?.status === 201 || res?.status === 200) {
-        showSuccessMessage("Thêm ngân hàng thành công!")
-        await handleGetBanks()
-        handleCloseDialog()
-      }
-    } catch (err: any) {
-      console.error("APICreateBank error:", err)
-      showErrorMessage(
-        err?.response?.data?.message || "Thêm ngân hàng thất bại!"
-      )
-    } finally {
-      setSubmitLoading(false)
-    }
-  }
-
-  const handleUpdateBank = async (id: string, data: BankPayload) => {
-    try {
-      setSubmitLoading(true)
-
-      const res = await APIUpdateBank(id, data)
-
-      if (res?.status === 200) {
-        showSuccessMessage("Cập nhật ngân hàng thành công!")
-        await handleGetBanks()
-        handleCloseDialog()
-      }
-    } catch (err: any) {
-      console.error("APIUpdateBank error:", err)
-      showErrorMessage(
-        err?.response?.data?.message || "Cập nhật ngân hàng thất bại!"
-      )
-    } finally {
-      setSubmitLoading(false)
-    }
-  }
-
-  const handleDeleteBank = async (id: string) => {
-    try {
-      setDeleteLoading(true)
-
-      const res = await APIDeleteBank(id)
-
-      if (res?.status === 200 || res?.status === 201 || res?.status === 204) {
-        showSuccessMessage("Xóa ngân hàng thành công!")
-        setDeleteDialogOpen(false)
-        setSelectedBank(null)
-        setMode("create")
-        reset(emptyForm)
-        await handleGetBanks()
-        return
-      }
-
-      showErrorMessage("Xóa ngân hàng thất bại!")
-    } catch (err: any) {
-      console.error("APIDeleteBank error:", err)
-      showErrorMessage(
-        err?.response?.data?.message || "Xóa ngân hàng thất bại!"
-      )
-    } finally {
-      setDeleteLoading(false)
-    }
+  const handleRefreshBanks = async () => {
+    await dispatch(bankThunks.fetchAll(undefined)).unwrap()
   }
 
   const onSubmit = async (data: BankPayload) => {
@@ -269,56 +194,49 @@ export default function BankPage() {
       isActive: Boolean(data.isActive),
     }
 
-    if (isCreateMode) {
-      await handleCreateBank(body)
-      return
-    }
+    try {
+      if (isCreateMode) {
+        await dispatch(bankThunks.createItem(body)).unwrap()
+        await handleRefreshBanks()
+        showSuccessMessage("Thêm ngân hàng thành công!")
+        handleCloseDialog()
+        return
+      }
 
-    if (isEditMode && selectedBank?._id) {
-      await handleUpdateBank(selectedBank._id, body)
-      return
+      if (isEditMode && selectedBank?._id) {
+        await dispatch(
+          bankThunks.updateItem({ id: selectedBank._id, payload: body })
+        ).unwrap()
+        await handleRefreshBanks()
+        showSuccessMessage("Cập nhật ngân hàng thành công!")
+        handleCloseDialog()
+      }
+    } catch (error) {
+      showErrorMessage(getErrorMessage(error) || "Lưu ngân hàng thất bại!")
     }
   }
+
   const onView = async (rowData: Bank) => {
     if (!rowData?._id) {
       showErrorMessage("Không tìm thấy ID ngân hàng")
       return
     }
 
-    // Mở modal trước để người dùng thấy đang tải
-    setMode("view")
-    setSelectedBank(rowData)
-    reset({
-      inv_buyerBankName: rowData.inv_buyerBankName || "",
-      isActive: Boolean(rowData.isActive),
-    })
-    setOpen(true)
-
     try {
-      setDetailLoading(true)
+      const detail = await dispatch(bankThunks.fetchById(rowData._id)).unwrap()
 
-      const res = await APIGetBankById(rowData._id)
-
-      const detail =
-        res?.data?.content || res?.data?.data || res?.data || rowData
-
-      if (detail?._id) {
-        setSelectedBank(detail)
-
-        reset({
-          inv_buyerBankName: detail.inv_buyerBankName || "",
-          isActive: Boolean(detail.isActive),
-        })
+      if (!detail?._id) {
+        showErrorMessage("Không tìm thấy chi tiết ngân hàng")
+        return
       }
-    } catch (err: any) {
-      console.error("APIGetBankById view error:", err)
 
-      // Không đóng modal, vẫn hiển thị dữ liệu đang có từ bảng
+      reset(buildBankFormValues(detail))
+      setMode("view")
+      setOpen(true)
+    } catch (error) {
       showErrorMessage(
-        err?.response?.data?.message || "Không thể tải chi tiết ngân hàng"
+        getErrorMessage(error) || "Không thể tải chi tiết ngân hàng"
       )
-    } finally {
-      setDetailLoading(false)
     }
   }
 
@@ -328,49 +246,47 @@ export default function BankPage() {
       return
     }
 
-    // Mở modal trước để tránh bấm mà không thấy gì
-    setMode("edit")
-    setSelectedBank(rowData)
-    reset({
-      inv_buyerBankName: rowData.inv_buyerBankName || "",
-      isActive: Boolean(rowData.isActive),
-    })
-    setOpen(true)
-
     try {
-      setDetailLoading(true)
+      const detail = await dispatch(bankThunks.fetchById(rowData._id)).unwrap()
 
-      const res = await APIGetBankById(rowData._id)
-
-      const detail =
-        res?.data?.content || res?.data?.data || res?.data || rowData
-
-      if (detail?._id) {
-        setSelectedBank(detail)
-
-        reset({
-          inv_buyerBankName: detail.inv_buyerBankName || "",
-          isActive: Boolean(detail.isActive),
-        })
+      if (!detail?._id) {
+        showErrorMessage("Không tìm thấy chi tiết ngân hàng")
+        return
       }
-    } catch (err: any) {
-      console.error("APIGetBankById edit error:", err)
 
+      reset(buildBankFormValues(detail))
+      setMode("edit")
+      setOpen(true)
+    } catch (error) {
       showErrorMessage(
-        err?.response?.data?.message || "Không thể tải dữ liệu ngân hàng"
+        getErrorMessage(error) || "Không thể tải dữ liệu ngân hàng"
       )
-    } finally {
-      setDetailLoading(false)
     }
   }
+
   const onDeleteClick = (rowData: Bank) => {
     if (!rowData?._id) {
       showErrorMessage("Không tìm thấy ID ngân hàng")
       return
     }
 
-    setSelectedBank(rowData)
+    setDeleteTarget(rowData)
     setDeleteDialogOpen(true)
+  }
+
+  const handleDeleteBank = async (id: string) => {
+    try {
+      await dispatch(bankThunks.deleteItem(id)).unwrap()
+      await handleRefreshBanks()
+      showSuccessMessage("Xóa ngân hàng thành công!")
+      setDeleteDialogOpen(false)
+      setDeleteTarget(null)
+      if (selectedBank?._id === id) {
+        handleCloseDialog()
+      }
+    } catch (error) {
+      showErrorMessage(getErrorMessage(error) || "Xóa ngân hàng thất bại!")
+    }
   }
 
   return (
@@ -381,9 +297,6 @@ export default function BankPage() {
             <h1 className="text-xl font-bold text-slate-900">
               Quản lý ngân hàng
             </h1>
-            {/* <p className="mt-1 text-sm text-slate-500">
-              Quản lý danh sách ngân hàng dùng khi lập hóa đơn.
-            </p> */}
           </div>
 
           <button
@@ -507,12 +420,12 @@ export default function BankPage() {
         isOpen={isDeleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}
         onConfirm={() => {
-          if (!selectedBank?._id || deleteLoading) return
-          void handleDeleteBank(selectedBank._id)
+          if (!deleteTarget?._id || deleteLoading) return
+          void handleDeleteBank(deleteTarget._id)
         }}
         title="Xác nhận thao tác"
-        description={`Hành động này sẽ xóa ngân hàng "${selectedBank?.inv_buyerBankName}" khỏi hệ thống và không thể hoàn tác. Bạn có chắc chắn tiếp tục?`}
-        confirmText="Xóa"
+        description={`Hành động này sẽ xóa ngân hàng "${deleteTarget?.inv_buyerBankName}" khỏi hệ thống và không thể hoàn tác. Bạn có chắc chắn tiếp tục?`}
+        confirmText={deleteLoading ? "Đang xóa..." : "Xóa"}
         cancelText="Hủy"
         tone="destructive"
       />

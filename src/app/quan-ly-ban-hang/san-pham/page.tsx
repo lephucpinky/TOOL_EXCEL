@@ -1,21 +1,28 @@
 "use client"
 
-import {
-  APICreateProduct,
-  APIDeleteProduct,
-  APIGetProductById,
-  APIGetProducts,
-  APIUpdateProduct,
-} from "@/services/product"
-import { Product, ProductPayload } from "@/types/product"
-
+import AlertError from "@/components/alert/AlertError"
 import AlertOption from "@/components/alert/AlertOption"
 import AlertSuccess from "@/components/alert/AlertSuccess"
-import AlertError from "@/components/alert/AlertError"
-import { Loader2, Plus, X } from "lucide-react"
+import CrudBulkImportModal, {
+  BulkImportColumnDefinition,
+  BulkImportPreparedRow,
+  BulkImportPreviewColumn,
+  cleanImportText,
+  parseImportNumber,
+} from "@/components/common/CrudBulkImportModal"
+import DataTable, { DataTableColumn } from "@/components/common/Datatable"
+import { useAppDispatch, useAppSelector } from "@/store/hooks"
+import { productActions, productThunks } from "@/store/slices"
+import { getErrorMessage } from "@/store/utils/crud"
+import { Product, ProductPayload } from "@/types/product"
+import { Loader2, Plus, UploadCloud, X } from "lucide-react"
 import { ReactNode, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
-import DataTable, { DataTableColumn } from "@/components/common/Datatable"
+
+const LIST_PARAMS = {
+  page: 1,
+  limit: 1000,
+}
 
 const emptyForm: ProductPayload = {
   inv_itemName: "",
@@ -25,6 +32,94 @@ const emptyForm: ProductPayload = {
   inv_discountAmount: 0,
   ma_thue: "",
 }
+
+type ProductImportKey =
+  | "itemCode"
+  | "itemName"
+  | "unitCode"
+  | "unitPrice"
+  | "quantity"
+  | "discountAmount"
+  | "tax"
+
+type ProductImportPreview = {
+  itemCode: string
+  itemName: string
+  unitCode: string
+  unitPrice: string
+  quantity: string
+  discountAmount: string
+  tax: string
+}
+
+const PRODUCT_IMPORT_COLUMNS: readonly BulkImportColumnDefinition<ProductImportKey>[] =
+  [
+    {
+      key: "itemCode",
+      label: "Mã sản phẩm",
+      aliases: ["Mã sản phẩm", "Mã SP", "Item Code"],
+    },
+    {
+      key: "itemName",
+      label: "Tên sản phẩm",
+      aliases: ["Tên sản phẩm", "Sản phẩm", "Item Name"],
+      required: true,
+    },
+    {
+      key: "unitCode",
+      label: "Đơn vị tính",
+      aliases: ["Đơn vị tính", "Đơn vị", "Unit"],
+      required: true,
+    },
+    {
+      key: "unitPrice",
+      label: "Đơn giá",
+      aliases: ["Đơn giá", "Giá bán", "Unit Price"],
+      required: true,
+    },
+    {
+      key: "quantity",
+      label: "Số lượng",
+      aliases: ["Số lượng", "Quantity"],
+      required: true,
+    },
+    {
+      key: "discountAmount",
+      label: "Tiền chiết khấu",
+      aliases: ["Tiền chiết khấu", "Chiết khấu", "Discount"],
+    },
+    {
+      key: "tax",
+      label: "Thuế suất",
+      aliases: ["Thuế suất", "Thuế", "VAT", "Tax"],
+      required: true,
+    },
+  ]
+
+const PRODUCT_IMPORT_PREVIEW_COLUMNS: readonly BulkImportPreviewColumn<
+  ProductPayload,
+  ProductImportPreview
+>[] = [
+  { key: "itemCode", title: "Mã SP" },
+  { key: "itemName", title: "Tên sản phẩm" },
+  { key: "unitCode", title: "Đơn vị", className: "whitespace-nowrap" },
+  {
+    key: "unitPrice",
+    title: "Đơn giá",
+    className: "whitespace-nowrap text-right",
+  },
+  {
+    key: "quantity",
+    title: "Số lượng",
+    className: "whitespace-nowrap text-right",
+  },
+  {
+    key: "discountAmount",
+    title: "Chiết khấu",
+    className: "whitespace-nowrap text-right",
+  },
+  { key: "tax", title: "Thuế", className: "whitespace-nowrap" },
+]
 
 type ModeType = "create" | "view" | "edit" | null
 
@@ -83,19 +178,33 @@ function ActionModal({
   )
 }
 
-export default function ProductPage() {
-  const [products, setProducts] = useState<Product[]>([])
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
+function buildProductFormValues(detail: Product | null): ProductPayload {
+  return {
+    inv_itemName: detail?.inv_itemName || "",
+    inv_unitCode: detail?.inv_unitCode || "",
+    inv_unitPrice: Number(detail?.inv_unitPrice || 0),
+    inv_quantity: Number(detail?.inv_quantity || 0),
+    inv_discountAmount: Number(detail?.inv_discountAmount || 0),
+    ma_thue: String(detail?.ma_thue || ""),
+  }
+}
 
+export default function ProductPage() {
+  const dispatch = useAppDispatch()
+  const {
+    items: products,
+    current: selectedProduct,
+    loading,
+    detailLoading,
+    submitLoading,
+    deleteLoading,
+  } = useAppSelector((state) => state.products)
+
+  const [deleteTarget, setDeleteTarget] = useState<Product | null>(null)
   const [mode, setMode] = useState<ModeType>("create")
   const [open, setOpen] = useState(false)
+  const [isBulkImportOpen, setBulkImportOpen] = useState(false)
   const [isDeleteDialogOpen, setDeleteDialogOpen] = useState(false)
-
-  const [loading, setLoading] = useState(false)
-  const [detailLoading, setDetailLoading] = useState(false)
-  const [submitLoading, setSubmitLoading] = useState(false)
-  const [deleteLoading, setDeleteLoading] = useState(false)
-
   const [showSuccess, setShowSuccess] = useState(false)
   const [showError, setShowError] = useState(false)
   const [message, setMessage] = useState("")
@@ -125,26 +234,15 @@ export default function ProductPage() {
     setTimeout(() => setShowError(false), 3000)
   }
 
-  const handleGetProducts = async () => {
-    try {
-      setLoading(true)
-
-      const response = await APIGetProducts()
-      if (response?.status === 200 && Array.isArray(response.data)) {
-        setProducts(response.data)
-        return
-      }
-    } catch (err) {
-      console.error("APIGetProducts error:", err)
-      showErrorMessage("Không thể tải danh sách sản phẩm")
-    } finally {
-      setLoading(false)
-    }
-  }
-
   useEffect(() => {
-    handleGetProducts()
-  }, [])
+    void dispatch(productThunks.fetchAll(LIST_PARAMS))
+      .unwrap()
+      .catch((error) => {
+        showErrorMessage(
+          getErrorMessage(error) || "Không thể tải danh sách sản phẩm"
+        )
+      })
+  }, [dispatch])
 
   const columns = useMemo<DataTableColumn<Product>[]>(
     () => [
@@ -221,83 +319,24 @@ export default function ProductPage() {
     if (submitLoading || detailLoading) return
 
     setOpen(false)
-    setSelectedProduct(null)
     setMode("create")
     reset(emptyForm)
+    dispatch(productActions.clearCurrent())
   }
 
   const openCreateDialog = () => {
-    setSelectedProduct(null)
     setMode("create")
     reset(emptyForm)
+    dispatch(productActions.clearCurrent())
     setOpen(true)
   }
 
-  const handleCreateProduct = async (data: ProductPayload) => {
-    try {
-      setSubmitLoading(true)
-
-      const res = await APICreateProduct(data)
-
-      if (res?.status === 201 || res?.status === 200) {
-        showSuccessMessage("Thêm sản phẩm thành công!")
-        await handleGetProducts()
-        handleCloseDialog()
-      }
-    } catch (err: any) {
-      console.error("APICreateProduct error:", err)
-      showErrorMessage(
-        err?.response?.data?.message || "Thêm sản phẩm thất bại!"
-      )
-    } finally {
-      setSubmitLoading(false)
-    }
+  const handleRefreshProducts = async () => {
+    await dispatch(productThunks.fetchAll(LIST_PARAMS)).unwrap()
   }
 
-  const handleUpdateProduct = async (id: string, data: ProductPayload) => {
-    try {
-      setSubmitLoading(true)
-
-      const res = await APIUpdateProduct(id, data)
-
-      if (res?.status === 200 || res?.status === 201) {
-        showSuccessMessage("Cập nhật sản phẩm thành công!")
-        await handleGetProducts()
-        handleCloseDialog()
-      }
-    } catch (err: any) {
-      console.error("APIUpdateProduct error:", err)
-      showErrorMessage(
-        err?.response?.data?.message || "Cập nhật sản phẩm thất bại!"
-      )
-    } finally {
-      setSubmitLoading(false)
-    }
-  }
-
-  const handleDeleteProduct = async (id: string) => {
-    try {
-      setDeleteLoading(true)
-
-      const res = await APIDeleteProduct(id)
-
-      if (res?.status === 200 || res?.status === 201 || res?.status === 204) {
-        showSuccessMessage("Xóa sản phẩm thành công!")
-        setDeleteDialogOpen(false)
-        setSelectedProduct(null)
-        setMode("create")
-        reset(emptyForm)
-        await handleGetProducts()
-        return
-      }
-
-      showErrorMessage("Xóa sản phẩm thất bại!")
-    } catch (err: any) {
-      console.error("APIDeleteProduct error:", err)
-      showErrorMessage(err?.response?.data?.message || "Xóa sản phẩm thất bại!")
-    } finally {
-      setDeleteLoading(false)
-    }
+  const createBulkProduct = async (payload: ProductPayload) => {
+    await dispatch(productThunks.createItem(payload)).unwrap()
   }
 
   const onSubmit = async (data: ProductPayload) => {
@@ -310,14 +349,25 @@ export default function ProductPage() {
       ma_thue: String(data.ma_thue).trim(),
     }
 
-    if (isCreateMode) {
-      await handleCreateProduct(body)
-      return
-    }
+    try {
+      if (isCreateMode) {
+        await dispatch(productThunks.createItem(body)).unwrap()
+        await handleRefreshProducts()
+        showSuccessMessage("Thêm sản phẩm thành công!")
+        handleCloseDialog()
+        return
+      }
 
-    if (isEditMode && selectedProduct?._id) {
-      await handleUpdateProduct(selectedProduct._id, body)
-      return
+      if (isEditMode && selectedProduct?._id) {
+        await dispatch(
+          productThunks.updateItem({ id: selectedProduct._id, payload: body })
+        ).unwrap()
+        await handleRefreshProducts()
+        showSuccessMessage("Cập nhật sản phẩm thành công!")
+        handleCloseDialog()
+      }
+    } catch (error) {
+      showErrorMessage(getErrorMessage(error) || "Lưu sản phẩm thất bại!")
     }
   }
 
@@ -328,35 +378,22 @@ export default function ProductPage() {
     }
 
     try {
-      setDetailLoading(true)
-      setSelectedProduct(null)
+      const detail = await dispatch(
+        productThunks.fetchById(rowData._id)
+      ).unwrap()
 
-      const res = await APIGetProductById(rowData._id)
-
-      if (res?.status === 200 || res?.status === 201) {
-        const detail = res.data as Product
-
-        setSelectedProduct(detail)
-
-        reset({
-          inv_itemName: detail.inv_itemName || "",
-          inv_unitCode: detail.inv_unitCode || "",
-          inv_unitPrice: Number(detail.inv_unitPrice || 0),
-          inv_quantity: Number(detail.inv_quantity || 0),
-          inv_discountAmount: Number(detail.inv_discountAmount || 0),
-          ma_thue: String(detail.ma_thue || ""),
-        })
-
-        setMode("view")
-        setOpen(true)
+      if (!detail?._id) {
+        showErrorMessage("Không tìm thấy chi tiết sản phẩm")
+        return
       }
-    } catch (err: any) {
-      console.error("APIGetProductById view error:", err)
+
+      reset(buildProductFormValues(detail))
+      setMode("view")
+      setOpen(true)
+    } catch (error) {
       showErrorMessage(
-        err?.response?.data?.message || "Không thể tải chi tiết sản phẩm"
+        getErrorMessage(error) || "Không thể tải chi tiết sản phẩm"
       )
-    } finally {
-      setDetailLoading(false)
     }
   }
 
@@ -367,35 +404,22 @@ export default function ProductPage() {
     }
 
     try {
-      setDetailLoading(true)
-      setSelectedProduct(null)
+      const detail = await dispatch(
+        productThunks.fetchById(rowData._id)
+      ).unwrap()
 
-      const res = await APIGetProductById(rowData._id)
-
-      if (res?.status === 200 || res?.status === 201) {
-        const detail = res.data as Product
-
-        setSelectedProduct(detail)
-
-        reset({
-          inv_itemName: detail.inv_itemName || "",
-          inv_unitCode: detail.inv_unitCode || "",
-          inv_unitPrice: Number(detail.inv_unitPrice || 0),
-          inv_quantity: Number(detail.inv_quantity || 0),
-          inv_discountAmount: Number(detail.inv_discountAmount || 0),
-          ma_thue: String(detail.ma_thue || ""),
-        })
-
-        setMode("edit")
-        setOpen(true)
+      if (!detail?._id) {
+        showErrorMessage("Không tìm thấy chi tiết sản phẩm")
+        return
       }
-    } catch (err: any) {
-      console.error("APIGetProductById edit error:", err)
+
+      reset(buildProductFormValues(detail))
+      setMode("edit")
+      setOpen(true)
+    } catch (error) {
       showErrorMessage(
-        err?.response?.data?.message || "Không thể tải dữ liệu sản phẩm"
+        getErrorMessage(error) || "Không thể tải dữ liệu sản phẩm"
       )
-    } finally {
-      setDetailLoading(false)
     }
   }
 
@@ -405,8 +429,91 @@ export default function ProductPage() {
       return
     }
 
-    setSelectedProduct(rowData)
+    setDeleteTarget(rowData)
     setDeleteDialogOpen(true)
+  }
+
+  const handleDeleteProduct = async (id: string) => {
+    try {
+      await dispatch(productThunks.deleteItem(id)).unwrap()
+      await handleRefreshProducts()
+      showSuccessMessage("Xóa sản phẩm thành công!")
+      setDeleteDialogOpen(false)
+      setDeleteTarget(null)
+      if (selectedProduct?._id === id) {
+        handleCloseDialog()
+      }
+    } catch (error) {
+      showErrorMessage(getErrorMessage(error) || "Xóa sản phẩm thất bại!")
+    }
+  }
+
+  const mapProductImportRow = ({
+    rowNumber,
+    getValue,
+  }: {
+    rowNumber: number
+    getValue: (key: ProductImportKey) => unknown
+  }): BulkImportPreparedRow<ProductPayload, ProductImportPreview> => {
+    const errors: string[] = []
+    const itemCode = cleanImportText(getValue("itemCode"))
+    const itemName = cleanImportText(getValue("itemName"))
+    const unitCode = cleanImportText(getValue("unitCode"))
+    const unitPrice = parseImportNumber(getValue("unitPrice"))
+    const quantity = parseImportNumber(getValue("quantity"))
+    const discountAmount = parseImportNumber(getValue("discountAmount"))
+    const tax = cleanImportText(getValue("tax"))
+
+    if (!itemName) {
+      errors.push("Thiếu tên sản phẩm.")
+    }
+
+    if (!unitCode) {
+      errors.push("Thiếu đơn vị tính.")
+    }
+
+    if (unitPrice < 0) {
+      errors.push("Đơn giá không được nhỏ hơn 0.")
+    }
+
+    if (quantity < 0) {
+      errors.push("Số lượng không được nhỏ hơn 0.")
+    }
+
+    if (discountAmount < 0) {
+      errors.push("Tiền chiết khấu không được nhỏ hơn 0.")
+    }
+
+    if (!tax) {
+      errors.push("Thiếu thuế suất.")
+    }
+
+    return {
+      id: `product-${rowNumber}-${itemCode || itemName}`,
+      rowNumber,
+      payload:
+        errors.length === 0
+          ? {
+              inv_itemName: itemName,
+              inv_unitCode: unitCode,
+              inv_unitPrice: unitPrice,
+              inv_quantity: quantity,
+              inv_discountAmount: discountAmount,
+              ma_thue: tax,
+            }
+          : null,
+      preview: {
+        itemCode,
+        itemName,
+        unitCode,
+        unitPrice: formatNumber(unitPrice),
+        quantity: formatNumber(quantity),
+        discountAmount: formatNumber(discountAmount),
+        tax,
+      },
+      errors,
+      warnings: [],
+    }
   }
 
   return (
@@ -417,20 +524,27 @@ export default function ProductPage() {
             <h1 className="text-xl font-bold text-slate-900">
               Quản lý sản phẩm
             </h1>
-            {/* <p className="mt-1 text-sm text-slate-500">
-              Quản lý mã sản phẩm, tên sản phẩm, đơn vị tính, đơn giá, số lượng
-              và thuế suất.
-            </p> */}
           </div>
 
-          <button
-            type="button"
-            onClick={openCreateDialog}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700"
-          >
-            <Plus size={18} />
-            Thêm sản phẩm
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setBulkImportOpen(true)}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+            >
+              <UploadCloud size={18} />
+              Tạo hàng loạt
+            </button>
+
+            <button
+              type="button"
+              onClick={openCreateDialog}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700"
+            >
+              <Plus size={18} />
+              Thêm sản phẩm
+            </button>
+          </div>
         </div>
 
         <DataTable
@@ -439,6 +553,7 @@ export default function ProductPage() {
           loading={loading}
           emptyText="Chưa có dữ liệu sản phẩm"
           getRowKey={(item) => item._id}
+          pagination={{ itemLabel: "sản phẩm" }}
           onView={onView}
           onEdit={onEdit}
           onDelete={onDeleteClick}
@@ -501,38 +616,19 @@ export default function ProductPage() {
             onSubmit={handleSubmit(onSubmit)}
             className="grid grid-cols-1 gap-4 md:grid-cols-2"
           >
-            {/* <div>
-              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
-                Mã sản phẩm
-              </label>
-
-              <input
-                disabled={isViewMode}
-                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
-                placeholder="Ví dụ: HH001"
-                {...register("inv_itemCode", {
-                  required: "Vui lòng nhập mã sản phẩm",
-                  validate: (value) =>
-                    value.trim().length > 0 || "Vui lòng nhập mã sản phẩm",
-                })}
-              />
-
-              {errors.inv_itemCode && !isViewMode && (
-                <p className="mt-1 text-xs font-medium text-red-600">
-                  {errors.inv_itemCode.message}
-                </p>
-              )}
-            </div> */}
-
             <div>
-              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="product-item-name"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
                 Tên sản phẩm
               </label>
 
               <input
+                id="product-item-name"
                 disabled={isViewMode}
                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
-                placeholder="Ví dụ: Hang hoa 001"
+                placeholder="Ví dụ: Hàng hóa 001"
                 {...register("inv_itemName", {
                   required: "Vui lòng nhập tên sản phẩm",
                   validate: (value) =>
@@ -548,14 +644,18 @@ export default function ProductPage() {
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="product-unit-code"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
                 Đơn vị tính
               </label>
 
               <input
+                id="product-unit-code"
                 disabled={isViewMode}
                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
-                placeholder="Ví dụ: Phan"
+                placeholder="Ví dụ: Phần"
                 {...register("inv_unitCode", {
                   required: "Vui lòng nhập đơn vị tính",
                   validate: (value) =>
@@ -571,11 +671,15 @@ export default function ProductPage() {
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="product-unit-price"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
                 Đơn giá
               </label>
 
               <input
+                id="product-unit-price"
                 disabled={isViewMode}
                 type="number"
                 min={0}
@@ -602,11 +706,15 @@ export default function ProductPage() {
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="product-quantity"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
                 Số lượng
               </label>
 
               <input
+                id="product-quantity"
                 disabled={isViewMode}
                 type="number"
                 min={0}
@@ -633,11 +741,15 @@ export default function ProductPage() {
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="product-discount-amount"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
                 Tiền chiết khấu
               </label>
 
               <input
+                id="product-discount-amount"
                 disabled={isViewMode}
                 type="number"
                 min={0}
@@ -664,11 +776,15 @@ export default function ProductPage() {
             </div>
 
             <div className="md:col-span-2">
-              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="product-tax"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
                 Thuế suất
               </label>
 
               <input
+                id="product-tax"
                 disabled={isViewMode}
                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
                 placeholder="Ví dụ: 8"
@@ -694,14 +810,30 @@ export default function ProductPage() {
         isOpen={isDeleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}
         onConfirm={() => {
-          if (!selectedProduct?._id || deleteLoading) return
-          void handleDeleteProduct(selectedProduct._id)
+          if (!deleteTarget?._id || deleteLoading) return
+          void handleDeleteProduct(deleteTarget._id)
         }}
         title="Xác nhận thao tác"
-        description={`Hành động này sẽ xóa sản phẩm "${selectedProduct?.inv_itemName}" khỏi hệ thống và không thể hoàn tác. Bạn có chắc chắn tiếp tục?`}
+        description={`Hành động này sẽ xóa sản phẩm "${deleteTarget?.inv_itemName}" khỏi hệ thống và không thể hoàn tác. Bạn có chắc chắn tiếp tục?`}
         confirmText={deleteLoading ? "Đang xóa..." : "Xóa"}
         cancelText="Hủy"
         tone="destructive"
+      />
+
+      <CrudBulkImportModal
+        open={isBulkImportOpen}
+        title="Tạo sản phẩm hàng loạt từ Excel"
+        entityLabel="sản phẩm"
+        columns={PRODUCT_IMPORT_COLUMNS}
+        previewColumns={PRODUCT_IMPORT_PREVIEW_COLUMNS}
+        notes={[
+          'Cột "Mã sản phẩm" là tùy chọn và hiện chỉ dùng để đối chiếu khi xem trước.',
+          'Nếu để trống "Tiền chiết khấu", hệ thống sẽ mặc định là 0.',
+        ]}
+        onClose={() => setBulkImportOpen(false)}
+        onCompleted={handleRefreshProducts}
+        mapRow={mapProductImportRow}
+        createItem={createBulkProduct}
       />
 
       {showSuccess && <AlertSuccess description={message} />}

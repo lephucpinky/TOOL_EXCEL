@@ -1,30 +1,22 @@
 "use client"
 
+import { useAppDispatch, useAppSelector } from "@/store/hooks"
+import { authActions } from "@/store/slices"
 import { useRouter } from "next/navigation"
-import { useEffect, useState } from "react"
 
 export default function Page() {
   const router = useRouter()
-  const [checked, setChecked] = useState(false)
-
-  useEffect(() => {
-    const token = localStorage.getItem("access_token")
-
-    if (!token) {
-      router.replace("/login")
-      return
-    }
-
-    setChecked(true)
-  }, [router])
+  const dispatch = useAppDispatch()
+  const isAuthenticated = useAppSelector((state) => state.auth.isAuthenticated)
 
   const handleLogout = () => {
     localStorage.removeItem("access_token")
     localStorage.removeItem("refresh_token")
+    dispatch(authActions.logout())
     router.replace("/login")
   }
 
-  if (!checked) {
+  if (!isAuthenticated) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-100">
         <div className="rounded-xl bg-white px-6 py-4 text-sm font-semibold text-slate-600 shadow-sm">

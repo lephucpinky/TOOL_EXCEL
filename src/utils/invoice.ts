@@ -1,10 +1,7 @@
-import { InvoiceApiRow } from "@/types/invoice"
+import { InvoiceApiRow, InvoiceStatus } from "@/types/invoice"
 
 export const inputClass =
   "h-8 w-full rounded border border-slate-300 bg-white px-2 text-[13px] text-slate-800 outline-none focus:border-indigo-500 disabled:bg-slate-100"
-export const MINVOICE_TAX_CODE = process.env.NEXT_PUBLIC_MINVOICE_TAX_CODE || ""
-export const MINVOICE_INVOICE_SERIES =
-  process.env.NEXT_PUBLIC_MINVOICE_INVOICE_SERIES || ""
 
 export function toNumber(value: unknown) {
   const numberValue = Number(value)
@@ -21,6 +18,7 @@ export function roundInvoiceMoney(value: unknown) {
 
   return Math.round(numberValue * 100) / 100
 }
+
 export function getId(value: any) {
   if (!value) return ""
   if (typeof value === "string") return value
@@ -149,7 +147,7 @@ export function numberToVietnamese(value: number) {
 
     if (ten > 1) {
       result += `${result ? " " : ""}${digitText[ten]} mươi`
-      if (unit === 1) result += " mốt"
+      if (unit === 1) result += " một"
       else if (unit === 5) result += " lăm"
       else if (unit > 0) result += ` ${digitText[unit]}`
     } else if (ten === 1) {
@@ -188,14 +186,35 @@ export function numberToVietnamese(value: number) {
   return `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)} đồng`
 }
 
-function getExistingExportInvoiceId(invoice?: InvoiceApiRow | null) {
+export function getInvoiceExportData(value: any) {
+  return (
+    value?.content?.data ||
+    value?.content ||
+    value?.data?.data ||
+    value?.data ||
+    value?.exportInvoiceData?.data ||
+    value?.exportInvoiceData ||
+    value ||
+    null
+  )
+}
+
+export function getExportInvoiceId(invoice?: InvoiceApiRow | null) {
   if (!invoice) return ""
 
-  const row = invoice as any
+  const row = getInvoiceExportData(invoice)
 
   return String(
     row?.inv_invoiceCreatedId ||
       row?.id ||
+      row?.hoadon68_id ||
+      row?.inv_invoiceAuth_id ||
+      row?.inv_originalId ||
+      (invoice as any)?.inv_invoiceCreatedId ||
+      (invoice as any)?.id ||
+      (invoice as any)?.hoadon68_id ||
+      (invoice as any)?.inv_invoiceAuth_id ||
+      (invoice as any)?.inv_originalId ||
       row?.exportInvoiceData?.id ||
       row?.exportInvoiceData?.data?.id ||
       row?.data?.id ||
@@ -203,28 +222,106 @@ function getExistingExportInvoiceId(invoice?: InvoiceApiRow | null) {
   ).trim()
 }
 
-type InvoiceStatusValue = "DRAFT" | "ISSUED" | "CANCELLED"
+const ISSUING_STATUS_SET = new Set([
+  "ISSUING",
+  "PROCESSING",
+  "PENDING",
+  "IN_PROGRESS",
+  "INPROGRESS",
+  "QUEUED",
+])
+
+const ISSUED_STATUS_SET = new Set([
+  "ISSUED",
+  "SUCCESS",
+  "SUCCEEDED",
+  "COMPLETED",
+  "DONE",
+])
+
+const FAILED_STATUS_SET = new Set(["FAILED", "FAIL", "ERROR"])
+const CANCELLED_STATUS_SET = new Set(["CANCELLED", "CANCELED", "VOID"])
+
+export type InvoiceStatusValue = InvoiceStatus
+
+export function normalizeInvoiceStatusValue(
+  value?: unknown
+): InvoiceStatusValue | null {
+  const status = String(value || "").trim().toUpperCase()
+
+  if (!status) return null
+  if (CANCELLED_STATUS_SET.has(status)) return InvoiceStatus.CANCELLED
+  if (ISSUED_STATUS_SET.has(status)) return InvoiceStatus.ISSUED
+  if (ISSUING_STATUS_SET.has(status)) return InvoiceStatus.ISSUING
+  if (FAILED_STATUS_SET.has(status)) return InvoiceStatus.FAILED
+  if (status === InvoiceStatus.DRAFT) return InvoiceStatus.DRAFT
+
+  return null
+}
+
+export function isInvoiceExportIssuing(value?: any) {
+  if (!value || getExportInvoiceId(value as InvoiceApiRow | null)) return false
+
+  const exportData = getInvoiceExportData(value)
+  const status = normalizeInvoiceStatusValue(
+    exportData?.invoiceStatus ||
+      exportData?.info ||
+      exportData?.status ||
+      value?.invoiceStatus ||
+      value?.status
+  )
+  const code = Number(
+    exportData?.code ??
+      exportData?.statusCode ??
+      value?.code ??
+      value?.statusCode ??
+      NaN
+  )
+
+  return Boolean(
+    status === InvoiceStatus.ISSUING ||
+      code === 202 ||
+      exportData?.jobId ||
+      value?.jobId
+  )
+}
+
+export const isInvoiceExportProcessing = isInvoiceExportIssuing
+
+export function canStartInvoiceExport(status?: InvoiceStatusValue | null) {
+  return status === InvoiceStatus.DRAFT || status === InvoiceStatus.FAILED
+}
 
 export function getInvoiceStatus(
   invoice?: InvoiceApiRow | null
 ): InvoiceStatusValue {
-  const status = String((invoice as any)?.invoiceStatus || "").toUpperCase()
+  const exportData = getInvoiceExportData(invoice)
+  const normalizedStatus = normalizeInvoiceStatusValue(
+    (invoice as any)?.invoiceStatus ||
+      exportData?.invoiceStatus ||
+      exportData?.info ||
+      exportData?.status
+  )
 
-  if (status === "DRAFT" || status === "ISSUED" || status === "CANCELLED") {
-    return status as InvoiceStatusValue
-  }
+  if (getExportInvoiceId(invoice)) return InvoiceStatus.ISSUED
+  if (normalizedStatus) return normalizedStatus
+  if (isInvoiceExportIssuing(invoice)) return InvoiceStatus.ISSUING
 
-  return getExistingExportInvoiceId(invoice) ? "ISSUED" : "DRAFT"
+  return InvoiceStatus.DRAFT
 }
 
 export const invoiceStatusLabel: Record<InvoiceStatusValue, string> = {
-  DRAFT: "Nháp",
-  ISSUED: "Đã xuất hóa đơn",
-  CANCELLED: "Đã hủy",
+  [InvoiceStatus.DRAFT]: "Nháp",
+  [InvoiceStatus.ISSUING]: "Đang xuất hóa đơn",
+  [InvoiceStatus.ISSUED]: "Đã xuất hóa đơn",
+  [InvoiceStatus.FAILED]: "Xuất thất bại",
+  [InvoiceStatus.CANCELLED]: "Đã hủy",
 }
 
 export const invoiceStatusClass: Record<InvoiceStatusValue, string> = {
-  DRAFT: "border-amber-200 bg-amber-50 text-amber-700",
-  ISSUED: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  CANCELLED: "border-red-200 bg-red-50 text-red-700",
+  [InvoiceStatus.DRAFT]: "border-amber-200 bg-amber-50 text-amber-700",
+  [InvoiceStatus.ISSUING]: "border-sky-200 bg-sky-50 text-sky-700",
+  [InvoiceStatus.ISSUED]: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  [InvoiceStatus.FAILED]: "border-rose-200 bg-rose-50 text-rose-700",
+  [InvoiceStatus.CANCELLED]: "border-red-200 bg-red-50 text-red-700",
 }

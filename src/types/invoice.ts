@@ -6,7 +6,9 @@ import { Product } from "./product"
 
 export enum InvoiceStatus {
   DRAFT = "DRAFT",
+  ISSUING = "ISSUING",
   ISSUED = "ISSUED",
+  FAILED = "FAILED",
   CANCELLED = "CANCELLED",
 }
 
@@ -76,6 +78,7 @@ export type InvoiceApiRow = {
   note?: string
   isActive?: boolean
   exportInvoiceData?: Record<string, any>
+  jobId?: string | null
 
   createdAt?: string
   updatedAt?: string

@@ -1,22 +1,27 @@
 "use client"
 
-import {
-  APICreateAgency,
-  APIDeleteAgency,
-  APIGetAgencies,
-  APIGetAgencyById,
-  APIUpdateAgency,
-} from "@/services/agency"
-import { Agency } from "@/types/agency"
-import DataTable, { DataTableColumn } from "../common/Datatable"
+import AlertError from "@/components/alert/AlertError"
 import AlertOption from "@/components/alert/AlertOption"
 import AlertSuccess from "@/components/alert/AlertSuccess"
-import AlertError from "@/components/alert/AlertError"
-import { Loader2, Plus, X } from "lucide-react"
+import CrudBulkImportModal, {
+  BulkImportColumnDefinition,
+  BulkImportPreparedRow,
+  BulkImportPreviewColumn,
+  cleanImportText,
+  parseImportBoolean,
+  parseImportNumber,
+} from "@/components/common/CrudBulkImportModal"
+import DataTable, { DataTableColumn } from "@/components/common/Datatable"
+import { useAppDispatch, useAppSelector } from "@/store/hooks"
+import { agencyActions, agencyThunks, employeeThunks } from "@/store/slices"
+import { getErrorMessage } from "@/store/utils/crud"
+import { Agency, AgencyPayload } from "@/types/agency"
+import { Employee } from "@/types/employee"
+import { normalize } from "@/utils/excel"
+import { Loader2, Plus, UploadCloud, X } from "lucide-react"
 import { ReactNode, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
-import { Employee } from "@/types/employee"
-import { APIGetEmployees } from "@/services/employee"
+
 type AgencyFormValues = {
   agencyName: string
   agencyEmail: string
@@ -25,12 +30,9 @@ type AgencyFormValues = {
   isActive: "true" | "false"
 }
 
-type AgencyRequestPayload = {
-  agencyName: string
-  agencyEmail: string
-  employeeId: string
-  commissionPercent: number
-  isActive: boolean
+const LIST_PARAMS = {
+  page: 1,
+  limit: 1000,
 }
 
 const emptyForm: AgencyFormValues = {
@@ -40,6 +42,77 @@ const emptyForm: AgencyFormValues = {
   commissionPercent: 0,
   isActive: "true",
 }
+
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+type AgencyImportKey =
+  | "agencyName"
+  | "agencyEmail"
+  | "employee"
+  | "commissionPercent"
+  | "status"
+
+type AgencyImportPreview = {
+  agencyName: string
+  agencyEmail: string
+  employee: string
+  commissionPercent: string
+  status: string
+}
+
+const AGENCY_IMPORT_COLUMNS: readonly BulkImportColumnDefinition<AgencyImportKey>[] =
+  [
+    {
+      key: "agencyName",
+      label: "Tên đại lý",
+      aliases: ["Tên đại lý", "Đại lý", "Tên NPP"],
+      required: true,
+    },
+    {
+      key: "agencyEmail",
+      label: "Email đại lý",
+      aliases: ["Email đại lý", "Email", "Mail đại lý"],
+      required: true,
+    },
+    {
+      key: "employee",
+      label: "Nhân viên phụ trách",
+      aliases: [
+        "Nhân viên phụ trách",
+        "Tên nhân viên",
+        "Nhân viên",
+        "Employee",
+      ],
+      required: true,
+    },
+    {
+      key: "commissionPercent",
+      label: "% hoa hồng",
+      aliases: ["% hoa hồng", "Hoa hồng", "Commission", "Commission Percent"],
+      required: true,
+    },
+    {
+      key: "status",
+      label: "Trạng thái",
+      aliases: ["Trạng thái", "Status"],
+    },
+  ]
+
+const AGENCY_IMPORT_PREVIEW_COLUMNS: readonly BulkImportPreviewColumn<
+  AgencyPayload,
+  AgencyImportPreview
+>[] = [
+  { key: "agencyName", title: "Tên đại lý" },
+  { key: "agencyEmail", title: "Email" },
+  { key: "employee", title: "Nhân viên phụ trách" },
+  {
+    key: "commissionPercent",
+    title: "% hoa hồng",
+    className: "whitespace-nowrap",
+  },
+  { key: "status", title: "Trạng thái", className: "whitespace-nowrap" },
+]
+
 type ModeType = "create" | "view" | "edit" | null
 
 interface ActionModalProps {
@@ -93,21 +166,46 @@ function ActionModal({
   )
 }
 
-export default function DealerPage() {
-  const [agencies, setAgencies] = useState<Agency[]>([])
-  const [selectedAgency, setSelectedAgency] = useState<Agency | null>(null)
-  const [employees, setEmployees] = useState<Employee[]>([])
-  const [employeeLoading, setEmployeeLoading] = useState(false)
+function buildAgencyFormValues(detail: Agency | null): AgencyFormValues {
+  return {
+    agencyName: detail?.agencyName || "",
+    agencyEmail: detail?.agencyEmail || "",
+    employeeId:
+      typeof detail?.employeeId === "string"
+        ? detail.employeeId
+        : detail?.employeeId?._id || "",
+    commissionPercent: Number(detail?.commissionPercent || 0),
+    isActive: detail?.isActive === false ? "false" : "true",
+  }
+}
 
+function getAgencyEmployeeId(value: Agency["employeeId"] | string | undefined) {
+  if (typeof value === "object") {
+    return value?._id ?? ""
+  }
+
+  return value ?? ""
+}
+
+export default function DealerPage() {
+  const dispatch = useAppDispatch()
+  const {
+    items: agencies,
+    current: selectedAgency,
+    loading,
+    detailLoading,
+    submitLoading,
+    deleteLoading,
+  } = useAppSelector((state) => state.agencies)
+  const { items: employees, loading: employeeLoading } = useAppSelector(
+    (state) => state.employees
+  )
+
+  const [deleteTarget, setDeleteTarget] = useState<Agency | null>(null)
   const [mode, setMode] = useState<ModeType>("create")
   const [open, setOpen] = useState(false)
+  const [isBulkImportOpen, setBulkImportOpen] = useState(false)
   const [isDeleteDialogOpen, setDeleteDialogOpen] = useState(false)
-
-  const [loading, setLoading] = useState(false)
-  const [detailLoading, setDetailLoading] = useState(false)
-  const [submitLoading, setSubmitLoading] = useState(false)
-  const [deleteLoading, setDeleteLoading] = useState(false)
-
   const [showSuccess, setShowSuccess] = useState(false)
   const [showError, setShowError] = useState(false)
   const [message, setMessage] = useState("")
@@ -137,53 +235,23 @@ export default function DealerPage() {
     setTimeout(() => setShowError(false), 3000)
   }
 
-  const handleGetAgencies = async () => {
-    try {
-      setLoading(true)
-
-      const response = await APIGetAgencies()
-
-      if (response?.status === 200 && Array.isArray(response.data)) {
-        setAgencies(response.data)
-        return
-      }
-
-      setAgencies([])
-    } catch (err) {
-      console.error("APIGetAgencies error:", err)
-      showErrorMessage("Không thể tải danh sách đại lý")
-    } finally {
-      setLoading(false)
-    }
-  }
-  const handleGetEmployees = async () => {
-    try {
-      setEmployeeLoading(true)
-
-      const response = await APIGetEmployees()
-
-      if (response?.status === 200 && Array.isArray(response.data)) {
-        setEmployees(response.data)
-        return
-      }
-
-      setEmployees([])
-    } catch (err) {
-      console.error("APIGetEmployees error:", err)
-      showErrorMessage("Không thể tải danh sách nhân viên")
-    } finally {
-      setEmployeeLoading(false)
-    }
-  }
-
   useEffect(() => {
-    handleGetAgencies()
-    handleGetEmployees()
-  }, [])
-  useEffect(() => {
-    console.log("=== AGENCIES STATE UPDATED ===", agencies)
-    console.log("=== AGENCIES LENGTH ===", agencies.length)
-  }, [agencies])
+    void dispatch(agencyThunks.fetchAll(LIST_PARAMS))
+      .unwrap()
+      .catch((error) => {
+        showErrorMessage(
+          getErrorMessage(error) || "Không thể tải danh sách đại lý"
+        )
+      })
+
+    void dispatch(employeeThunks.fetchAll(LIST_PARAMS))
+      .unwrap()
+      .catch((error) => {
+        showErrorMessage(
+          getErrorMessage(error) || "Không thể tải danh sách nhân viên"
+        )
+      })
+  }, [dispatch])
 
   const columns = useMemo<DataTableColumn<Agency>[]>(
     () => [
@@ -223,18 +291,37 @@ export default function DealerPage() {
         title: "Nhân viên phụ trách",
         render: (item) => (
           <span className="text-sm font-medium text-slate-700">
-            {item.employeeId?.employeeName || "-.-"}
+            {typeof item.employeeId === "string"
+              ? employees.find(
+                  (employee) =>
+                    employee._id === getAgencyEmployeeId(item.employeeId)
+                )?.employeeName || "-.-"
+              : item.employeeId?.employeeName || "-.-"}
           </span>
         ),
       },
       {
         key: "department",
         title: "Phòng ban",
-        render: (item) => (
-          <span className="text-sm font-medium text-slate-700">
-            {item.employeeId?.departmentId?.departmentName || "-.-"}
-          </span>
-        ),
+        render: (item) => {
+          const employee =
+            typeof item.employeeId === "string"
+              ? employees.find(
+                  (entry) => entry._id === getAgencyEmployeeId(item.employeeId)
+                )
+              : (item.employeeId as Employee | undefined)
+
+          const department =
+            typeof employee?.departmentId === "object"
+              ? employee.departmentId?.departmentName
+              : ""
+
+          return (
+            <span className="text-sm font-medium text-slate-700">
+              {department || "-.-"}
+            </span>
+          )
+        },
       },
       {
         key: "commissionPercent",
@@ -264,101 +351,35 @@ export default function DealerPage() {
         ),
       },
     ],
-    []
+    [employees]
   )
 
   const handleCloseDialog = () => {
     if (submitLoading || detailLoading) return
 
     setOpen(false)
-    setSelectedAgency(null)
     setMode("create")
     reset(emptyForm)
+    dispatch(agencyActions.clearCurrent())
   }
 
   const openCreateDialog = () => {
-    setSelectedAgency(null)
     setMode("create")
     reset(emptyForm)
+    dispatch(agencyActions.clearCurrent())
     setOpen(true)
   }
 
-  const handleCreateAgency = async (data: AgencyRequestPayload) => {
-    try {
-      setSubmitLoading(true)
-
-      const res = await APICreateAgency(data)
-
-      if (res?.status === 201 || res?.status === 200) {
-        showSuccessMessage("Thêm đại lý thành công!")
-        await handleGetAgencies()
-        handleCloseDialog()
-      }
-    } catch (err: any) {
-      console.error("APICreateAgency error:", err)
-      showErrorMessage(err?.response?.data?.message || "Thêm đại lý thất bại!")
-    } finally {
-      setSubmitLoading(false)
-    }
+  const handleRefreshAgencies = async () => {
+    await dispatch(agencyThunks.fetchAll(LIST_PARAMS)).unwrap()
   }
 
-  const handleUpdateAgency = async (id: string, data: AgencyRequestPayload) => {
-    try {
-      setSubmitLoading(true)
-
-      const res = await APIUpdateAgency(id, data)
-
-      if (res?.status === 200 || res?.status === 201) {
-        showSuccessMessage("Cập nhật đại lý thành công!")
-        await handleGetAgencies()
-        handleCloseDialog()
-      }
-    } catch (err: any) {
-      console.error("APIUpdateAgency error:", err)
-      showErrorMessage(
-        err?.response?.data?.message || "Cập nhật đại lý thất bại!"
-      )
-    } finally {
-      setSubmitLoading(false)
-    }
-  }
-
-  const handleDeleteAgency = async (id: string) => {
-    console.log("=== handleDeleteAgency called with ID ===", id)
-
-    try {
-      console.log("=== Starting delete process ===")
-      setDeleteLoading(true)
-
-      const res = await APIDeleteAgency(id)
-      console.log("=== API delete response ===", res)
-
-      if (res?.status === 200 || res?.status === 201 || res?.status === 204) {
-        console.log("=== Delete successful, status ===", res?.status)
-        showSuccessMessage("Xóa đại lý thành công!")
-        console.log("=== Closing delete dialog and resetting state ===")
-        setDeleteDialogOpen(false)
-        setSelectedAgency(null)
-        setMode("create")
-        reset(emptyForm)
-        console.log("=== Refreshing agencies list ===")
-        await handleGetAgencies()
-        return
-      }
-
-      console.log("=== Delete failed with status ===", res?.status)
-      showErrorMessage("Xóa đại lý thất bại!")
-    } catch (err: any) {
-      console.error("APIDeleteAgency error:", err)
-      showErrorMessage(err?.response?.data?.message || "Xóa đại lý thất bại!")
-    } finally {
-      console.log("=== Finished delete process ===")
-      setDeleteLoading(false)
-    }
+  const createBulkAgency = async (payload: AgencyPayload) => {
+    await dispatch(agencyThunks.createItem(payload)).unwrap()
   }
 
   const onSubmit = async (data: AgencyFormValues) => {
-    const body: AgencyRequestPayload = {
+    const body: AgencyPayload = {
       agencyName: data.agencyName.trim(),
       agencyEmail: data.agencyEmail.trim(),
       employeeId: data.employeeId,
@@ -366,127 +387,170 @@ export default function DealerPage() {
       isActive: data.isActive === "true",
     }
 
-    if (isCreateMode) {
-      await handleCreateAgency(body)
-      return
-    }
+    try {
+      if (isCreateMode) {
+        await dispatch(agencyThunks.createItem(body)).unwrap()
+        await handleRefreshAgencies()
+        showSuccessMessage("Thêm đại lý thành công!")
+        handleCloseDialog()
+        return
+      }
 
-    if (isEditMode && selectedAgency?._id) {
-      await handleUpdateAgency(selectedAgency._id, body)
+      if (isEditMode && selectedAgency?._id) {
+        await dispatch(
+          agencyThunks.updateItem({ id: selectedAgency._id, payload: body })
+        ).unwrap()
+        await handleRefreshAgencies()
+        showSuccessMessage("Cập nhật đại lý thành công!")
+        handleCloseDialog()
+      }
+    } catch (error) {
+      showErrorMessage(getErrorMessage(error) || "Lưu đại lý thất bại!")
     }
   }
+
   const onView = async (rowData: Agency) => {
-    console.log("=== onView clicked with rowData ===", rowData)
-
     if (!rowData?._id) {
-      console.log("=== ERROR: No _id found ===")
       showErrorMessage("Không tìm thấy ID đại lý")
       return
     }
 
     try {
-      console.log("=== Starting detail loading for ID ===", rowData._id)
-      setDetailLoading(true)
-      setSelectedAgency(null)
+      const detail = await dispatch(
+        agencyThunks.fetchById(rowData._id)
+      ).unwrap()
 
-      const res = await APIGetAgencyById(rowData._id)
-      console.log("=== API response for onView ===", res)
-
-      if (res?.status === 200 && res.data?._id) {
-        const detail = res.data as Agency
-
-        setSelectedAgency(detail)
-
-        reset({
-          agencyName: detail.agencyName || "",
-          agencyEmail: detail.agencyEmail || "",
-          employeeId:
-            typeof detail.employeeId === "string"
-              ? detail.employeeId
-              : detail.employeeId?._id || "",
-          commissionPercent: Number(detail.commissionPercent || 0),
-          isActive: detail.isActive === false ? "false" : "true",
-        })
-
-        setMode("view")
-        setOpen(true)
-      } else {
+      if (!detail?._id) {
         showErrorMessage("Không tìm thấy chi tiết đại lý")
+        return
       }
-    } catch (err: any) {
-      console.error("APIGetAgencyById view error:", err)
+
+      reset(buildAgencyFormValues(detail))
+      setMode("view")
+      setOpen(true)
+    } catch (error) {
       showErrorMessage(
-        err?.response?.data?.message || "Không thể tải chi tiết đại lý"
+        getErrorMessage(error) || "Không thể tải chi tiết đại lý"
       )
-    } finally {
-      console.log("=== Finished detail loading ===")
-      setDetailLoading(false)
     }
   }
-  const onEdit = async (rowData: Agency) => {
-    console.log("=== onEdit clicked with rowData ===", rowData)
 
+  const onEdit = async (rowData: Agency) => {
     if (!rowData?._id) {
-      console.log("=== ERROR: No _id found ===")
       showErrorMessage("Không tìm thấy ID đại lý")
       return
     }
 
     try {
-      console.log("=== Starting detail loading for edit, ID ===", rowData._id)
-      setDetailLoading(true)
-      setSelectedAgency(null)
+      const detail = await dispatch(
+        agencyThunks.fetchById(rowData._id)
+      ).unwrap()
 
-      const res = await APIGetAgencyById(rowData._id)
-      console.log("=== API response for onEdit ===", res)
-
-      if (res?.status === 200 && res.data?._id) {
-        const detail = res.data as Agency
-
-        setSelectedAgency(detail)
-
-        reset({
-          agencyName: detail.agencyName || "",
-          agencyEmail: detail.agencyEmail || "",
-          employeeId:
-            typeof detail.employeeId === "string"
-              ? detail.employeeId
-              : detail.employeeId?._id || "",
-          commissionPercent: Number(detail.commissionPercent || 0),
-          isActive: detail.isActive === false ? "false" : "true",
-        })
-
-        setMode("edit")
-        setOpen(true)
-      } else {
+      if (!detail?._id) {
         showErrorMessage("Không tìm thấy chi tiết đại lý")
+        return
       }
-    } catch (err: any) {
-      console.error("APIGetAgencyById edit error:", err)
-      showErrorMessage(
-        err?.response?.data?.message || "Không thể tải dữ liệu đại lý"
-      )
-    } finally {
-      console.log("=== Finished detail loading for edit ===")
-      setDetailLoading(false)
+
+      reset(buildAgencyFormValues(detail))
+      setMode("edit")
+      setOpen(true)
+    } catch (error) {
+      showErrorMessage(getErrorMessage(error) || "Không thể tải dữ liệu đại lý")
     }
   }
 
   const onDeleteClick = (rowData: Agency) => {
-    console.log("=== onDeleteClick clicked with rowData ===", rowData)
-
     if (!rowData?._id) {
-      console.log("=== ERROR: No _id found ===")
       showErrorMessage("Không tìm thấy ID đại lý")
       return
     }
 
-    console.log(
-      "=== Setting selected agency for delete and opening dialog ===",
-      rowData
-    )
-    setSelectedAgency(rowData)
+    setDeleteTarget(rowData)
     setDeleteDialogOpen(true)
+  }
+
+  const handleDeleteAgency = async (id: string) => {
+    try {
+      await dispatch(agencyThunks.deleteItem(id)).unwrap()
+      await handleRefreshAgencies()
+      showSuccessMessage("Xóa đại lý thành công!")
+      setDeleteDialogOpen(false)
+      setDeleteTarget(null)
+      if (selectedAgency?._id === id) {
+        handleCloseDialog()
+      }
+    } catch (error) {
+      showErrorMessage(getErrorMessage(error) || "Xóa đại lý thất bại!")
+    }
+  }
+
+  const mapAgencyImportRow = ({
+    rowNumber,
+    getValue,
+  }: {
+    rowNumber: number
+    getValue: (key: AgencyImportKey) => unknown
+  }): BulkImportPreparedRow<AgencyPayload, AgencyImportPreview> => {
+    const errors: string[] = []
+    const agencyName = cleanImportText(getValue("agencyName"))
+    const agencyEmail = cleanImportText(getValue("agencyEmail"))
+    const employeeKeyword = cleanImportText(getValue("employee"))
+    const commissionPercent = parseImportNumber(getValue("commissionPercent"))
+    const isActive = parseImportBoolean(getValue("status"), true)
+
+    const matchedEmployee =
+      employees.find((employee) =>
+        [
+          employee._id,
+          employee.employeeName,
+          employee.employeeEmail,
+          employee.employeePhone,
+        ].some((value) => normalize(value) === normalize(employeeKeyword))
+      ) || null
+
+    if (!agencyName) {
+      errors.push("Thiếu tên đại lý.")
+    }
+
+    if (!agencyEmail) {
+      errors.push("Thiếu email đại lý.")
+    } else if (!emailPattern.test(agencyEmail)) {
+      errors.push("Email đại lý không hợp lệ.")
+    }
+
+    if (!employeeKeyword) {
+      errors.push("Thiếu nhân viên phụ trách.")
+    } else if (!matchedEmployee) {
+      errors.push(`Không tìm thấy nhân viên phù hợp với "${employeeKeyword}".`)
+    }
+
+    if (commissionPercent < 0) {
+      errors.push("% hoa hồng không được nhỏ hơn 0.")
+    }
+
+    return {
+      id: `agency-${rowNumber}-${agencyEmail || agencyName}`,
+      rowNumber,
+      payload:
+        errors.length === 0 && matchedEmployee
+          ? {
+              agencyName,
+              agencyEmail,
+              employeeId: matchedEmployee._id,
+              commissionPercent,
+              isActive,
+            }
+          : null,
+      preview: {
+        agencyName,
+        agencyEmail,
+        employee: matchedEmployee?.employeeName || employeeKeyword || "-",
+        commissionPercent: `${commissionPercent}%`,
+        status: isActive ? "Đang hoạt động" : "Ngừng hoạt động",
+      },
+      errors,
+      warnings: [],
+    }
   }
 
   return (
@@ -495,19 +559,28 @@ export default function DealerPage() {
         <div className="flex flex-col gap-3 rounded-xl bg-white p-5 shadow-sm md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-xl font-bold text-slate-900">Quản lý đại lý</h1>
-            {/* <p className="mt-1 text-sm text-slate-500">
-              Quản lý tên đại lý và phần trăm hoa hồng.
-            </p> */}
           </div>
 
-          <button
-            type="button"
-            onClick={openCreateDialog}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700"
-          >
-            <Plus size={18} />
-            Thêm đại lý
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setBulkImportOpen(true)}
+              disabled={employeeLoading}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <UploadCloud size={18} />
+              Tạo hàng loạt
+            </button>
+
+            <button
+              type="button"
+              onClick={openCreateDialog}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700"
+            >
+              <Plus size={18} />
+              Thêm đại lý
+            </button>
+          </div>
         </div>
 
         <DataTable
@@ -516,6 +589,7 @@ export default function DealerPage() {
           loading={loading}
           emptyText="Chưa có dữ liệu đại lý"
           getRowKey={(item) => item._id}
+          pagination={{ itemLabel: "đại lý" }}
           onView={onView}
           onEdit={onEdit}
           onDelete={onDeleteClick}
@@ -579,11 +653,15 @@ export default function DealerPage() {
             className="space-y-4"
           >
             <div>
-              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="dealer-agency-name"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
                 Tên đại lý
               </label>
 
               <input
+                id="dealer-agency-name"
                 disabled={isViewMode}
                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
                 placeholder="Nhập tên đại lý"
@@ -600,12 +678,17 @@ export default function DealerPage() {
                 </p>
               )}
             </div>
+
             <div>
-              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="dealer-agency-email"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
                 Email đại lý
               </label>
 
               <input
+                id="dealer-agency-email"
                 disabled={isViewMode}
                 type="email"
                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
@@ -627,12 +710,17 @@ export default function DealerPage() {
                 </p>
               )}
             </div>
+
             <div>
-              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="dealer-employee-id"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
                 Nhân viên phụ trách
               </label>
 
               <select
+                id="dealer-employee-id"
                 disabled={isViewMode || employeeLoading}
                 className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
                 {...register("employeeId", {
@@ -660,11 +748,15 @@ export default function DealerPage() {
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="dealer-commission-percent"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
                 Phần trăm hoa hồng
               </label>
 
               <input
+                id="dealer-commission-percent"
                 disabled={isViewMode}
                 type="number"
                 min={0}
@@ -690,12 +782,17 @@ export default function DealerPage() {
                 </p>
               )}
             </div>
+
             <div>
-              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="dealer-is-active"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
                 Trạng thái
               </label>
 
               <select
+                id="dealer-is-active"
                 disabled={isViewMode}
                 className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
                 {...register("isActive", {
@@ -720,14 +817,30 @@ export default function DealerPage() {
         isOpen={isDeleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}
         onConfirm={() => {
-          if (!selectedAgency?._id) return
-          void handleDeleteAgency(selectedAgency._id)
+          if (!deleteTarget?._id || deleteLoading) return
+          void handleDeleteAgency(deleteTarget._id)
         }}
         title="Xác nhận thao tác"
-        description={`Hành động này sẽ xóa đại lý "${selectedAgency?.agencyName}" khỏi hệ thống và không thể hoàn tác. Bạn có chắc chắn tiếp tục?`}
-        confirmText="Xóa"
+        description={`Hành động này sẽ xóa đại lý "${deleteTarget?.agencyName}" khỏi hệ thống và không thể hoàn tác. Bạn có chắc chắn tiếp tục?`}
+        confirmText={deleteLoading ? "Đang xóa..." : "Xóa"}
         cancelText="Hủy"
         tone="destructive"
+      />
+
+      <CrudBulkImportModal
+        open={isBulkImportOpen}
+        title="Tạo đại lý hàng loạt từ Excel"
+        entityLabel="đại lý"
+        columns={AGENCY_IMPORT_COLUMNS}
+        previewColumns={AGENCY_IMPORT_PREVIEW_COLUMNS}
+        notes={[
+          'Cột "Nhân viên phụ trách" có thể nhập theo tên, email hoặc ID nhân viên.',
+          'Cột "Trạng thái" có thể để trống, hệ thống sẽ mặc định là Đang hoạt động.',
+        ]}
+        onClose={() => setBulkImportOpen(false)}
+        onCompleted={handleRefreshAgencies}
+        mapRow={mapAgencyImportRow}
+        createItem={createBulkAgency}
       />
 
       {showSuccess && <AlertSuccess description={message} />}

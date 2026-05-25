@@ -1,21 +1,28 @@
 "use client"
 
-import {
-  APICreateDepartment,
-  APIDeleteDepartment,
-  APIGetDepartmentById,
-  APIGetDepartments,
-  APIUpdateDepartment,
-} from "@/services/department"
-import { Department, DepartmentPayload } from "@/types/department"
-
+import AlertError from "@/components/alert/AlertError"
 import AlertOption from "@/components/alert/AlertOption"
 import AlertSuccess from "@/components/alert/AlertSuccess"
-import AlertError from "@/components/alert/AlertError"
-import { Loader2, Plus, X } from "lucide-react"
+import CrudBulkImportModal, {
+  BulkImportColumnDefinition,
+  BulkImportPreparedRow,
+  BulkImportPreviewColumn,
+  cleanImportText,
+  parseImportBoolean,
+} from "@/components/common/CrudBulkImportModal"
+import DataTable, { DataTableColumn } from "@/components/common/Datatable"
+import { useAppDispatch, useAppSelector } from "@/store/hooks"
+import { departmentActions, departmentThunks } from "@/store/slices"
+import { getErrorMessage } from "@/store/utils/crud"
+import { Department, DepartmentPayload } from "@/types/department"
+import { Loader2, Plus, UploadCloud, X } from "lucide-react"
 import { ReactNode, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
-import DataTable, { DataTableColumn } from "@/components/common/Datatable"
+
+const LIST_PARAMS = {
+  page: 1,
+  limit: 1000,
+}
 
 const emptyForm: DepartmentPayload = {
   departmentName: "",
@@ -23,72 +30,45 @@ const emptyForm: DepartmentPayload = {
   isActive: true,
 }
 
+type DepartmentImportKey = "departmentName" | "departmentDescription" | "status"
+
+type DepartmentImportPreview = {
+  departmentName: string
+  departmentDescription: string
+  status: string
+}
+
+const DEPARTMENT_IMPORT_COLUMNS: readonly BulkImportColumnDefinition<DepartmentImportKey>[] =
+  [
+    {
+      key: "departmentName",
+      label: "Tên phòng ban",
+      aliases: ["Tên phòng ban", "Phòng ban", "Department Name"],
+      required: true,
+    },
+    {
+      key: "departmentDescription",
+      label: "Mô tả",
+      aliases: ["Mô tả", "Diễn giải", "Description"],
+      required: true,
+    },
+    {
+      key: "status",
+      label: "Trạng thái",
+      aliases: ["Trạng thái", "Status"],
+    },
+  ]
+
+const DEPARTMENT_IMPORT_PREVIEW_COLUMNS: readonly BulkImportPreviewColumn<
+  DepartmentPayload,
+  DepartmentImportPreview
+>[] = [
+  { key: "departmentName", title: "Tên phòng ban" },
+  { key: "departmentDescription", title: "Mô tả" },
+  { key: "status", title: "Trạng thái", className: "whitespace-nowrap" },
+]
+
 type ModeType = "create" | "view" | "edit" | null
-
-function normalizeDepartmentItem(item: any): Department | null {
-  if (!item) return null
-
-  const id = item._id ?? item.id
-
-  if (!id) return null
-
-  return {
-    _id: id,
-    departmentName: item.departmentName ?? "",
-    departmentDescription: item.departmentDescription ?? "",
-    isActive: Boolean(item.isActive),
-    createdAt: item.createdAt,
-    updatedAt: item.updatedAt,
-    __v: item.__v,
-  }
-}
-
-function normalizeDepartmentList(response: any): Department[] {
-  const rawRoot =
-    response?.data?.data ??
-    response?.data?.content ??
-    response?.data?.items ??
-    response?.data?.result ??
-    response?.data ??
-    response?.content ??
-    response?.items ??
-    response?.result ??
-    response ??
-    []
-
-  const raw = Array.isArray(rawRoot)
-    ? rawRoot
-    : Array.isArray(rawRoot?.data)
-      ? rawRoot.data
-      : Array.isArray(rawRoot?.items)
-        ? rawRoot.items
-        : Array.isArray(rawRoot?.docs)
-          ? rawRoot.docs
-          : Array.isArray(rawRoot?.results)
-            ? rawRoot.results
-            : Array.isArray(rawRoot?.departments)
-              ? rawRoot.departments
-              : Array.isArray(rawRoot?.content)
-                ? rawRoot.content
-                : []
-
-  return raw
-    .map((item: any) => normalizeDepartmentItem(item?.content ?? item))
-    .filter(Boolean) as Department[]
-}
-
-function normalizeDepartmentDetail(response: any): Department | null {
-  const raw =
-    response?.data?.data ??
-    response?.data?.content ??
-    response?.data?.result ??
-    response?.data ??
-    response?.content ??
-    response?.result ??
-    response
-
-  return normalizeDepartmentItem(raw?.content ?? raw)
-}
 
 interface ActionModalProps {
   open: boolean
@@ -141,20 +121,32 @@ function ActionModal({
   )
 }
 
-export default function DepartmentPage() {
-  const [departments, setDepartments] = useState<Department[]>([])
-  const [selectedDepartment, setSelectedDepartment] =
-    useState<Department | null>(null)
+function buildDepartmentFormValues(
+  detail: Department | null
+): DepartmentPayload {
+  return {
+    departmentName: detail?.departmentName || "",
+    departmentDescription: detail?.departmentDescription || "",
+    isActive: Boolean(detail?.isActive),
+  }
+}
 
+export default function DepartmentPage() {
+  const dispatch = useAppDispatch()
+  const {
+    items: departments,
+    current: selectedDepartment,
+    loading,
+    detailLoading,
+    submitLoading,
+    deleteLoading,
+  } = useAppSelector((state) => state.departments)
+
+  const [deleteTarget, setDeleteTarget] = useState<Department | null>(null)
   const [mode, setMode] = useState<ModeType>("create")
   const [open, setOpen] = useState(false)
+  const [isBulkImportOpen, setBulkImportOpen] = useState(false)
   const [isDeleteDialogOpen, setDeleteDialogOpen] = useState(false)
-
-  const [loading, setLoading] = useState(false)
-  const [detailLoading, setDetailLoading] = useState(false)
-  const [submitLoading, setSubmitLoading] = useState(false)
-  const [deleteLoading, setDeleteLoading] = useState(false)
-
   const [showSuccess, setShowSuccess] = useState(false)
   const [showError, setShowError] = useState(false)
   const [message, setMessage] = useState("")
@@ -184,25 +176,15 @@ export default function DepartmentPage() {
     setTimeout(() => setShowError(false), 3000)
   }
 
-  const handleGetDepartments = async () => {
-    try {
-      setLoading(true)
-
-      const response = await APIGetDepartments()
-      const list = normalizeDepartmentList(response)
-
-      setDepartments(list)
-    } catch (err) {
-      console.error("APIGetDepartments error:", err)
-      showErrorMessage("Không thể tải danh sách phòng ban")
-    } finally {
-      setLoading(false)
-    }
-  }
-
   useEffect(() => {
-    handleGetDepartments()
-  }, [])
+    void dispatch(departmentThunks.fetchAll(LIST_PARAMS))
+      .unwrap()
+      .catch((error) => {
+        showErrorMessage(
+          getErrorMessage(error) || "Không thể tải danh sách phòng ban"
+        )
+      })
+  }, [dispatch])
 
   const columns = useMemo<DataTableColumn<Department>[]>(
     () => [
@@ -250,88 +232,24 @@ export default function DepartmentPage() {
     if (submitLoading || detailLoading) return
 
     setOpen(false)
-    setSelectedDepartment(null)
     setMode("create")
     reset(emptyForm)
+    dispatch(departmentActions.clearCurrent())
   }
 
   const openCreateDialog = () => {
-    setSelectedDepartment(null)
     setMode("create")
     reset(emptyForm)
+    dispatch(departmentActions.clearCurrent())
     setOpen(true)
   }
 
-  const handleCreateDepartment = async (data: DepartmentPayload) => {
-    try {
-      setSubmitLoading(true)
-
-      const res = await APICreateDepartment(data)
-
-      if (res?.status === 201 || res?.status === 200) {
-        showSuccessMessage("Thêm phòng ban thành công!")
-        await handleGetDepartments()
-        handleCloseDialog()
-      }
-    } catch (err: any) {
-      console.error("APICreateDepartment error:", err)
-      showErrorMessage(
-        err?.response?.data?.message || "Thêm phòng ban thất bại!"
-      )
-    } finally {
-      setSubmitLoading(false)
-    }
+  const handleRefreshDepartments = async () => {
+    await dispatch(departmentThunks.fetchAll(LIST_PARAMS)).unwrap()
   }
 
-  const handleUpdateDepartment = async (
-    id: string,
-    data: DepartmentPayload
-  ) => {
-    try {
-      setSubmitLoading(true)
-
-      const res = await APIUpdateDepartment(id, data)
-
-      if (res?.status === 200 || res?.status === 201) {
-        showSuccessMessage("Cập nhật phòng ban thành công!")
-        await handleGetDepartments()
-        handleCloseDialog()
-      }
-    } catch (err: any) {
-      console.error("APIUpdateDepartment error:", err)
-      showErrorMessage(
-        err?.response?.data?.message || "Cập nhật phòng ban thất bại!"
-      )
-    } finally {
-      setSubmitLoading(false)
-    }
-  }
-
-  const handleDeleteDepartment = async (id: string) => {
-    try {
-      setDeleteLoading(true)
-
-      const res = await APIDeleteDepartment(id)
-
-      if (res?.status === 200 || res?.status === 201 || res?.status === 204) {
-        showSuccessMessage("Xóa phòng ban thành công!")
-        setDeleteDialogOpen(false)
-        setSelectedDepartment(null)
-        setMode("create")
-        reset(emptyForm)
-        await handleGetDepartments()
-        return
-      }
-
-      showErrorMessage("Xóa phòng ban thất bại!")
-    } catch (err: any) {
-      console.error("APIDeleteDepartment error:", err)
-      showErrorMessage(
-        err?.response?.data?.message || "Xóa phòng ban thất bại!"
-      )
-    } finally {
-      setDeleteLoading(false)
-    }
+  const createBulkDepartment = async (payload: DepartmentPayload) => {
+    await dispatch(departmentThunks.createItem(payload)).unwrap()
   }
 
   const onSubmit = async (data: DepartmentPayload) => {
@@ -341,14 +259,28 @@ export default function DepartmentPage() {
       isActive: Boolean(data.isActive),
     }
 
-    if (isCreateMode) {
-      await handleCreateDepartment(body)
-      return
-    }
+    try {
+      if (isCreateMode) {
+        await dispatch(departmentThunks.createItem(body)).unwrap()
+        await handleRefreshDepartments()
+        showSuccessMessage("Thêm phòng ban thành công!")
+        handleCloseDialog()
+        return
+      }
 
-    if (isEditMode && selectedDepartment?._id) {
-      await handleUpdateDepartment(selectedDepartment._id, body)
-      return
+      if (isEditMode && selectedDepartment?._id) {
+        await dispatch(
+          departmentThunks.updateItem({
+            id: selectedDepartment._id,
+            payload: body,
+          })
+        ).unwrap()
+        await handleRefreshDepartments()
+        showSuccessMessage("Cập nhật phòng ban thành công!")
+        handleCloseDialog()
+      }
+    } catch (error) {
+      showErrorMessage(getErrorMessage(error) || "Lưu phòng ban thất bại!")
     }
   }
 
@@ -359,37 +291,22 @@ export default function DepartmentPage() {
     }
 
     try {
-      setDetailLoading(true)
-      setSelectedDepartment(null)
+      const detail = await dispatch(
+        departmentThunks.fetchById(rowData._id)
+      ).unwrap()
 
-      const res = await APIGetDepartmentById(rowData._id)
-
-      if (res?.status === 200 || res?.status === 201) {
-        const detail = normalizeDepartmentDetail(res)
-
-        if (!detail?._id) {
-          showErrorMessage("Không tìm thấy chi tiết phòng ban")
-          return
-        }
-
-        setSelectedDepartment(detail)
-
-        reset({
-          departmentName: detail.departmentName || "",
-          departmentDescription: detail.departmentDescription || "",
-          isActive: Boolean(detail.isActive),
-        })
-
-        setMode("view")
-        setOpen(true)
+      if (!detail?._id) {
+        showErrorMessage("Không tìm thấy chi tiết phòng ban")
+        return
       }
-    } catch (err: any) {
-      console.error("APIGetDepartmentById view error:", err)
+
+      reset(buildDepartmentFormValues(detail))
+      setMode("view")
+      setOpen(true)
+    } catch (error) {
       showErrorMessage(
-        err?.response?.data?.message || "Không thể tải chi tiết phòng ban"
+        getErrorMessage(error) || "Không thể tải chi tiết phòng ban"
       )
-    } finally {
-      setDetailLoading(false)
     }
   }
 
@@ -400,37 +317,22 @@ export default function DepartmentPage() {
     }
 
     try {
-      setDetailLoading(true)
-      setSelectedDepartment(null)
+      const detail = await dispatch(
+        departmentThunks.fetchById(rowData._id)
+      ).unwrap()
 
-      const res = await APIGetDepartmentById(rowData._id)
-
-      if (res?.status === 200 || res?.status === 201) {
-        const detail = normalizeDepartmentDetail(res)
-
-        if (!detail?._id) {
-          showErrorMessage("Không tìm thấy chi tiết phòng ban")
-          return
-        }
-
-        setSelectedDepartment(detail)
-
-        reset({
-          departmentName: detail.departmentName || "",
-          departmentDescription: detail.departmentDescription || "",
-          isActive: Boolean(detail.isActive),
-        })
-
-        setMode("edit")
-        setOpen(true)
+      if (!detail?._id) {
+        showErrorMessage("Không tìm thấy chi tiết phòng ban")
+        return
       }
-    } catch (err: any) {
-      console.error("APIGetDepartmentById edit error:", err)
+
+      reset(buildDepartmentFormValues(detail))
+      setMode("edit")
+      setOpen(true)
+    } catch (error) {
       showErrorMessage(
-        err?.response?.data?.message || "Không thể tải dữ liệu phòng ban"
+        getErrorMessage(error) || "Không thể tải dữ liệu phòng ban"
       )
-    } finally {
-      setDetailLoading(false)
     }
   }
 
@@ -440,8 +342,66 @@ export default function DepartmentPage() {
       return
     }
 
-    setSelectedDepartment(rowData)
+    setDeleteTarget(rowData)
     setDeleteDialogOpen(true)
+  }
+
+  const handleDeleteDepartment = async (id: string) => {
+    try {
+      await dispatch(departmentThunks.deleteItem(id)).unwrap()
+      await handleRefreshDepartments()
+      showSuccessMessage("Xóa phòng ban thành công!")
+      setDeleteDialogOpen(false)
+      setDeleteTarget(null)
+      if (selectedDepartment?._id === id) {
+        handleCloseDialog()
+      }
+    } catch (error) {
+      showErrorMessage(getErrorMessage(error) || "Xóa phòng ban thất bại!")
+    }
+  }
+
+  const mapDepartmentImportRow = ({
+    rowNumber,
+    getValue,
+  }: {
+    rowNumber: number
+    getValue: (key: DepartmentImportKey) => unknown
+  }): BulkImportPreparedRow<DepartmentPayload, DepartmentImportPreview> => {
+    const errors: string[] = []
+    const departmentName = cleanImportText(getValue("departmentName"))
+    const departmentDescription = cleanImportText(
+      getValue("departmentDescription")
+    )
+    const isActive = parseImportBoolean(getValue("status"), true)
+
+    if (!departmentName) {
+      errors.push("Thiếu tên phòng ban.")
+    }
+
+    if (!departmentDescription) {
+      errors.push("Thiếu mô tả phòng ban.")
+    }
+
+    return {
+      id: `department-${rowNumber}-${departmentName}`,
+      rowNumber,
+      payload:
+        errors.length === 0
+          ? {
+              departmentName,
+              departmentDescription,
+              isActive,
+            }
+          : null,
+      preview: {
+        departmentName,
+        departmentDescription,
+        status: isActive ? "Đang hoạt động" : "Ngừng hoạt động",
+      },
+      errors,
+      warnings: [],
+    }
   }
 
   return (
@@ -452,19 +412,27 @@ export default function DepartmentPage() {
             <h1 className="text-xl font-bold text-slate-900">
               Quản lý phòng ban
             </h1>
-            {/* <p className="mt-1 text-sm text-slate-500">
-              Quản lý tên phòng ban, mô tả và trạng thái hoạt động.
-            </p> */}
           </div>
 
-          <button
-            type="button"
-            onClick={openCreateDialog}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700"
-          >
-            <Plus size={18} />
-            Thêm phòng ban
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setBulkImportOpen(true)}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+            >
+              <UploadCloud size={18} />
+              Tạo hàng loạt
+            </button>
+
+            <button
+              type="button"
+              onClick={openCreateDialog}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700"
+            >
+              <Plus size={18} />
+              Thêm phòng ban
+            </button>
+          </div>
         </div>
 
         <DataTable
@@ -473,6 +441,7 @@ export default function DepartmentPage() {
           loading={loading}
           emptyText="Chưa có dữ liệu phòng ban"
           getRowKey={(item) => item._id}
+          pagination={{ itemLabel: "phòng ban" }}
           onView={onView}
           onEdit={onEdit}
           onDelete={onDeleteClick}
@@ -536,11 +505,15 @@ export default function DepartmentPage() {
             className="space-y-4"
           >
             <div>
-              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="department-name"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
                 Tên phòng ban
               </label>
 
               <input
+                id="department-name"
                 disabled={isViewMode}
                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
                 placeholder="Ví dụ: Sales"
@@ -559,11 +532,15 @@ export default function DepartmentPage() {
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="department-description"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
                 Mô tả
               </label>
 
               <textarea
+                id="department-description"
                 disabled={isViewMode}
                 rows={4}
                 className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
@@ -583,12 +560,19 @@ export default function DepartmentPage() {
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="department-is-active"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
                 Trạng thái
               </label>
 
-              <label className="flex h-11 items-center gap-3 rounded-lg border border-slate-200 px-3">
+              <label
+                htmlFor="department-is-active"
+                className="flex h-11 items-center gap-3 rounded-lg border border-slate-200 px-3"
+              >
                 <input
+                  id="department-is-active"
                   disabled={isViewMode}
                   type="checkbox"
                   className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed"
@@ -603,15 +587,30 @@ export default function DepartmentPage() {
         )}
       </ActionModal>
 
+      <CrudBulkImportModal
+        open={isBulkImportOpen}
+        title="Tạo phòng ban hàng loạt từ Excel"
+        entityLabel="phòng ban"
+        columns={DEPARTMENT_IMPORT_COLUMNS}
+        previewColumns={DEPARTMENT_IMPORT_PREVIEW_COLUMNS}
+        notes={[
+          'Cột "Trạng thái" có thể để trống, hệ thống sẽ mặc định là Đang hoạt động.',
+        ]}
+        onClose={() => setBulkImportOpen(false)}
+        onCompleted={handleRefreshDepartments}
+        mapRow={mapDepartmentImportRow}
+        createItem={createBulkDepartment}
+      />
+
       <AlertOption
         isOpen={isDeleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}
         onConfirm={() => {
-          if (!selectedDepartment?._id || deleteLoading) return
-          void handleDeleteDepartment(selectedDepartment._id)
+          if (!deleteTarget?._id || deleteLoading) return
+          void handleDeleteDepartment(deleteTarget._id)
         }}
         title="Xác nhận thao tác"
-        description={`Hành động này sẽ xóa phòng ban "${selectedDepartment?.departmentName}" khỏi hệ thống và không thể hoàn tác. Bạn có chắc chắn tiếp tục?`}
+        description={`Hành động này sẽ xóa phòng ban "${deleteTarget?.departmentName}" khỏi hệ thống và không thể hoàn tác. Bạn có chắc chắn tiếp tục?`}
         confirmText={deleteLoading ? "Đang xóa..." : "Xóa"}
         cancelText="Hủy"
         tone="destructive"

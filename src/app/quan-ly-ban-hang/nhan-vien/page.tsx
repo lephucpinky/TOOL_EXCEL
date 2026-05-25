@@ -1,25 +1,33 @@
 "use client"
 
-import {
-  APICreateEmployee,
-  APIDeleteEmployee,
-  APIGetEmployeeById,
-  APIGetEmployees,
-  APIUpdateEmployee,
-} from "@/services/employee"
-import { Employee, EmployeePayload } from "@/types/employee"
-
+import AlertError from "@/components/alert/AlertError"
 import AlertOption from "@/components/alert/AlertOption"
 import AlertSuccess from "@/components/alert/AlertSuccess"
-import AlertError from "@/components/alert/AlertError"
-import { Loader2, Plus, X } from "lucide-react"
+import CrudBulkImportModal, {
+  BulkImportColumnDefinition,
+  BulkImportPreparedRow,
+  BulkImportPreviewColumn,
+  cleanImportText,
+  parseImportBoolean,
+} from "@/components/common/CrudBulkImportModal"
+import DataTable, { DataTableColumn } from "@/components/common/Datatable"
+import { useAppDispatch, useAppSelector } from "@/store/hooks"
+import {
+  departmentThunks,
+  employeeActions,
+  employeeThunks,
+} from "@/store/slices"
+import { getErrorMessage } from "@/store/utils/crud"
+import { Department } from "@/types/department"
+import { Employee, EmployeePayload } from "@/types/employee"
+import { normalize } from "@/utils/excel"
+import { Loader2, Plus, UploadCloud, X } from "lucide-react"
 import { ReactNode, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
-import DataTable, { DataTableColumn } from "@/components/common/Datatable"
-
-import { APIGetDepartments } from "@/services/department"
-import { Department } from "@/types/department"
-
+const LIST_PARAMS = {
+  page: 1,
+  limit: 1000,
+}
 const emptyForm: EmployeePayload = {
   employeeName: "",
   employeeEmail: "",
@@ -28,74 +36,72 @@ const emptyForm: EmployeePayload = {
   isActive: true,
 }
 
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+type EmployeeImportKey =
+  | "employeeName"
+  | "employeeEmail"
+  | "employeePhone"
+  | "department"
+  | "status"
+
+type EmployeeImportPreview = {
+  employeeName: string
+  employeeEmail: string
+  employeePhone: string
+  department: string
+  status: string
+}
+
+const EMPLOYEE_IMPORT_COLUMNS: readonly BulkImportColumnDefinition<EmployeeImportKey>[] =
+  [
+    {
+      key: "employeeName",
+      label: "Tên nhân viên",
+      aliases: ["Tên nhân viên", "Nhân viên", "Employee Name"],
+      required: true,
+    },
+    {
+      key: "employeeEmail",
+      label: "Email",
+      aliases: ["Email", "Employee Email"],
+      required: true,
+    },
+    {
+      key: "employeePhone",
+      label: "Số điện thoại",
+      aliases: ["Số điện thoại", "Điện thoại", "Phone"],
+      required: true,
+    },
+    {
+      key: "department",
+      label: "Phòng ban",
+      aliases: ["Phòng ban", "Department", "Tên phòng ban"],
+      required: true,
+    },
+    {
+      key: "status",
+      label: "Trạng thái",
+      aliases: ["Trạng thái", "Status"],
+    },
+  ]
+
+const EMPLOYEE_IMPORT_PREVIEW_COLUMNS: readonly BulkImportPreviewColumn<
+  EmployeePayload,
+  EmployeeImportPreview
+>[] = [
+  { key: "employeeName", title: "Tên nhân viên" },
+  { key: "employeeEmail", title: "Email" },
+  {
+    key: "employeePhone",
+    title: "Số điện thoại",
+    className: "whitespace-nowrap",
+  },
+  { key: "department", title: "Phòng ban" },
+  { key: "status", title: "Trạng thái", className: "whitespace-nowrap" },
+]
+
 type ModeType = "create" | "view" | "edit" | null
-
-function normalizeEmployeeItem(item: any): Employee | null {
-  if (!item) return null
-
-  const id = item._id ?? item.id
-
-  if (!id) return null
-
-  return {
-    _id: id,
-    employeeName: item.employeeName ?? "",
-    employeeEmail: item.employeeEmail ?? "",
-    employeePhone: item.employeePhone ?? "",
-    departmentId:
-      typeof item.departmentId === "object"
-        ? (item.departmentId?._id ?? "")
-        : (item.departmentId ?? ""),
-    isActive: Boolean(item.isActive),
-  }
-}
-
-function normalizeEmployeeList(response: any): Employee[] {
-  const rawRoot =
-    response?.data?.data ??
-    response?.data?.content ??
-    response?.data?.items ??
-    response?.data?.result ??
-    response?.data ??
-    response?.content ??
-    response?.items ??
-    response?.result ??
-    response ??
-    []
-
-  const raw = Array.isArray(rawRoot)
-    ? rawRoot
-    : Array.isArray(rawRoot?.data)
-      ? rawRoot.data
-      : Array.isArray(rawRoot?.items)
-        ? rawRoot.items
-        : Array.isArray(rawRoot?.docs)
-          ? rawRoot.docs
-          : Array.isArray(rawRoot?.results)
-            ? rawRoot.results
-            : Array.isArray(rawRoot?.employees)
-              ? rawRoot.employees
-              : Array.isArray(rawRoot?.content)
-                ? rawRoot.content
-                : []
-
-  return raw
-    .map((item: any) => normalizeEmployeeItem(item?.content ?? item))
-    .filter(Boolean) as Employee[]
-}
-
-function normalizeEmployeeDetail(response: any): Employee | null {
-  const raw =
-    response?.data?.data ??
-    response?.data?.content ??
-    response?.data?.result ??
-    response?.data ??
-    response?.content ??
-    response?.result ??
-    response
-
-  return normalizeEmployeeItem(raw?.content ?? raw)
-}
 
 interface ActionModalProps {
   open: boolean
@@ -148,23 +154,43 @@ function ActionModal({
   )
 }
 
+function getDepartmentId(value: Employee["departmentId"] | string | undefined) {
+  if (typeof value === "object") {
+    return value?._id ?? ""
+  }
+
+  return value ?? ""
+}
+
+function buildEmployeeFormValues(detail: Employee | null): EmployeePayload {
+  return {
+    employeeName: detail?.employeeName || "",
+    employeeEmail: detail?.employeeEmail || "",
+    employeePhone: detail?.employeePhone || "",
+    departmentId: getDepartmentId(detail?.departmentId),
+    isActive: Boolean(detail?.isActive),
+  }
+}
+
 export default function EmployeePage() {
-  const [employees, setEmployees] = useState<Employee[]>([])
-  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(
-    null
+  const dispatch = useAppDispatch()
+  const {
+    items: employees,
+    current: selectedEmployee,
+    loading,
+    detailLoading,
+    submitLoading,
+    deleteLoading,
+  } = useAppSelector((state) => state.employees)
+  const { items: departments, loading: departmentLoading } = useAppSelector(
+    (state) => state.departments
   )
 
-  const [departments, setDepartments] = useState<Department[]>([])
-
+  const [deleteTarget, setDeleteTarget] = useState<Employee | null>(null)
   const [mode, setMode] = useState<ModeType>("create")
   const [open, setOpen] = useState(false)
+  const [isBulkImportOpen, setBulkImportOpen] = useState(false)
   const [isDeleteDialogOpen, setDeleteDialogOpen] = useState(false)
-
-  const [loading, setLoading] = useState(false)
-  const [detailLoading, setDetailLoading] = useState(false)
-  const [submitLoading, setSubmitLoading] = useState(false)
-  const [deleteLoading, setDeleteLoading] = useState(false)
-
   const [showSuccess, setShowSuccess] = useState(false)
   const [showError, setShowError] = useState(false)
   const [message, setMessage] = useState("")
@@ -194,47 +220,23 @@ export default function EmployeePage() {
     setTimeout(() => setShowError(false), 3000)
   }
 
-  const handleGetEmployees = async () => {
-    try {
-      setLoading(true)
-
-      const response = await APIGetEmployees()
-      const list = normalizeEmployeeList(response)
-
-      setEmployees(list)
-    } catch (err) {
-      console.error("APIGetEmployees error:", err)
-      showErrorMessage("Không thể tải danh sách nhân viên")
-    } finally {
-      setLoading(false)
-    }
-  }
-
   useEffect(() => {
-    handleGetEmployees()
-  }, [])
-  const handleGetDepartments = async () => {
-    try {
-      const res = await APIGetDepartments()
+    void dispatch(employeeThunks.fetchAll(LIST_PARAMS))
+      .unwrap()
+      .catch((error) => {
+        showErrorMessage(
+          getErrorMessage(error) || "Không thể tải danh sách nhân viên"
+        )
+      })
 
-      if (res?.status === 200 || res?.status === 201) {
-        const list = Array.isArray(res?.data)
-          ? res.data.map((item: any) => item?.content ?? item)
-          : []
-
-        setDepartments(list)
-        return
-      }
-
-      setDepartments([])
-    } catch (err) {
-      console.error("APIGetDepartments error:", err)
-      showErrorMessage("Không thể tải danh sách phòng ban")
-    }
-  }
-  useEffect(() => {
-    handleGetDepartments()
-  }, [])
+    void dispatch(departmentThunks.fetchAll(LIST_PARAMS))
+      .unwrap()
+      .catch((error) => {
+        showErrorMessage(
+          getErrorMessage(error) || "Không thể tải danh sách phòng ban"
+        )
+      })
+  }, [dispatch])
 
   const columns = useMemo<DataTableColumn<Employee>[]>(
     () => [
@@ -271,11 +273,7 @@ export default function EmployeePage() {
         key: "departmentId",
         title: "Phòng ban",
         render: (item) => {
-          const departmentId =
-            typeof item.departmentId === "object"
-              ? (item.departmentId?._id ?? "")
-              : (item.departmentId ?? "")
-
+          const departmentId = getDepartmentId(item.departmentId)
           const department = departments.find(
             (departmentItem) => departmentItem._id === departmentId
           )
@@ -309,85 +307,24 @@ export default function EmployeePage() {
     if (submitLoading || detailLoading) return
 
     setOpen(false)
-    setSelectedEmployee(null)
     setMode("create")
     reset(emptyForm)
+    dispatch(employeeActions.clearCurrent())
   }
 
   const openCreateDialog = () => {
-    setSelectedEmployee(null)
     setMode("create")
     reset(emptyForm)
+    dispatch(employeeActions.clearCurrent())
     setOpen(true)
   }
 
-  const handleCreateEmployee = async (data: EmployeePayload) => {
-    try {
-      setSubmitLoading(true)
-
-      const res = await APICreateEmployee(data)
-
-      if (res?.status === 201 || res?.status === 200) {
-        showSuccessMessage("Thêm nhân viên thành công!")
-        await handleGetEmployees()
-        handleCloseDialog()
-      }
-    } catch (err: any) {
-      console.error("APICreateEmployee error:", err)
-      showErrorMessage(
-        err?.response?.data?.message || "Thêm nhân viên thất bại!"
-      )
-    } finally {
-      setSubmitLoading(false)
-    }
+  const handleRefreshEmployees = async () => {
+    await dispatch(employeeThunks.fetchAll(LIST_PARAMS)).unwrap()
   }
 
-  const handleUpdateEmployee = async (id: string, data: EmployeePayload) => {
-    try {
-      setSubmitLoading(true)
-
-      const res = await APIUpdateEmployee(id, data)
-
-      if (res?.status === 200 || res?.status === 201) {
-        showSuccessMessage("Cập nhật nhân viên thành công!")
-        await handleGetEmployees()
-        handleCloseDialog()
-      }
-    } catch (err: any) {
-      console.error("APIUpdateEmployee error:", err)
-      showErrorMessage(
-        err?.response?.data?.message || "Cập nhật nhân viên thất bại!"
-      )
-    } finally {
-      setSubmitLoading(false)
-    }
-  }
-
-  const handleDeleteEmployee = async (id: string) => {
-    try {
-      setDeleteLoading(true)
-
-      const res = await APIDeleteEmployee(id)
-
-      if (res?.status === 200 || res?.status === 201 || res?.status === 204) {
-        showSuccessMessage("Xóa nhân viên thành công!")
-        setDeleteDialogOpen(false)
-        setSelectedEmployee(null)
-        setMode("create")
-        reset(emptyForm)
-        await handleGetEmployees()
-        return
-      }
-
-      showErrorMessage("Xóa nhân viên thất bại!")
-    } catch (err: any) {
-      console.error("APIDeleteEmployee error:", err)
-      showErrorMessage(
-        err?.response?.data?.message || "Xóa nhân viên thất bại!"
-      )
-    } finally {
-      setDeleteLoading(false)
-    }
+  const createBulkEmployee = async (payload: EmployeePayload) => {
+    await dispatch(employeeThunks.createItem(payload)).unwrap()
   }
 
   const onSubmit = async (data: EmployeePayload) => {
@@ -399,14 +336,28 @@ export default function EmployeePage() {
       isActive: Boolean(data.isActive),
     }
 
-    if (isCreateMode) {
-      await handleCreateEmployee(body)
-      return
-    }
+    try {
+      if (isCreateMode) {
+        await dispatch(employeeThunks.createItem(body)).unwrap()
+        await handleRefreshEmployees()
+        showSuccessMessage("Thêm nhân viên thành công!")
+        handleCloseDialog()
+        return
+      }
 
-    if (isEditMode && selectedEmployee?._id) {
-      await handleUpdateEmployee(selectedEmployee._id, body)
-      return
+      if (isEditMode && selectedEmployee?._id) {
+        await dispatch(
+          employeeThunks.updateItem({
+            id: selectedEmployee._id,
+            payload: body,
+          })
+        ).unwrap()
+        await handleRefreshEmployees()
+        showSuccessMessage("Cập nhật nhân viên thành công!")
+        handleCloseDialog()
+      }
+    } catch (error) {
+      showErrorMessage(getErrorMessage(error) || "Lưu nhân viên thất bại!")
     }
   }
 
@@ -417,42 +368,22 @@ export default function EmployeePage() {
     }
 
     try {
-      setDetailLoading(true)
-      setSelectedEmployee(null)
+      const detail = await dispatch(
+        employeeThunks.fetchById(rowData._id)
+      ).unwrap()
 
-      const res = await APIGetEmployeeById(rowData._id)
-
-      if (res?.status === 200 || res?.status === 201) {
-        const detail = normalizeEmployeeDetail(res)
-
-        if (!detail?._id) {
-          showErrorMessage("Không tìm thấy chi tiết nhân viên")
-          return
-        }
-
-        setSelectedEmployee(detail)
-
-        reset({
-          employeeName: detail.employeeName || "",
-          employeeEmail: detail.employeeEmail || "",
-          employeePhone: detail.employeePhone || "",
-          departmentId:
-            typeof detail.departmentId === "object"
-              ? (detail.departmentId?._id ?? "")
-              : (detail.departmentId ?? ""),
-          isActive: Boolean(detail.isActive),
-        })
-
-        setMode("view")
-        setOpen(true)
+      if (!detail?._id) {
+        showErrorMessage("Không tìm thấy chi tiết nhân viên")
+        return
       }
-    } catch (err: any) {
-      console.error("APIGetEmployeeById view error:", err)
+
+      reset(buildEmployeeFormValues(detail))
+      setMode("view")
+      setOpen(true)
+    } catch (error) {
       showErrorMessage(
-        err?.response?.data?.message || "Không thể tải chi tiết nhân viên"
+        getErrorMessage(error) || "Không thể tải chi tiết nhân viên"
       )
-    } finally {
-      setDetailLoading(false)
     }
   }
 
@@ -463,42 +394,22 @@ export default function EmployeePage() {
     }
 
     try {
-      setDetailLoading(true)
-      setSelectedEmployee(null)
+      const detail = await dispatch(
+        employeeThunks.fetchById(rowData._id)
+      ).unwrap()
 
-      const res = await APIGetEmployeeById(rowData._id)
-
-      if (res?.status === 200 || res?.status === 201) {
-        const detail = normalizeEmployeeDetail(res)
-
-        if (!detail?._id) {
-          showErrorMessage("Không tìm thấy chi tiết nhân viên")
-          return
-        }
-
-        setSelectedEmployee(detail)
-
-        reset({
-          employeeName: detail.employeeName || "",
-          employeeEmail: detail.employeeEmail || "",
-          employeePhone: detail.employeePhone || "",
-          departmentId:
-            typeof detail.departmentId === "object"
-              ? (detail.departmentId?._id ?? "")
-              : (detail.departmentId ?? ""),
-          isActive: Boolean(detail.isActive),
-        })
-
-        setMode("edit")
-        setOpen(true)
+      if (!detail?._id) {
+        showErrorMessage("Không tìm thấy chi tiết nhân viên")
+        return
       }
-    } catch (err: any) {
-      console.error("APIGetEmployeeById edit error:", err)
+
+      reset(buildEmployeeFormValues(detail))
+      setMode("edit")
+      setOpen(true)
+    } catch (error) {
       showErrorMessage(
-        err?.response?.data?.message || "Không thể tải dữ liệu nhân viên"
+        getErrorMessage(error) || "Không thể tải dữ liệu nhân viên"
       )
-    } finally {
-      setDetailLoading(false)
     }
   }
 
@@ -508,8 +419,92 @@ export default function EmployeePage() {
       return
     }
 
-    setSelectedEmployee(rowData)
+    setDeleteTarget(rowData)
     setDeleteDialogOpen(true)
+  }
+
+  const handleDeleteEmployee = async (id: string) => {
+    try {
+      await dispatch(employeeThunks.deleteItem(id)).unwrap()
+      await handleRefreshEmployees()
+      showSuccessMessage("Xóa nhân viên thành công!")
+      setDeleteDialogOpen(false)
+      setDeleteTarget(null)
+      if (selectedEmployee?._id === id) {
+        handleCloseDialog()
+      }
+    } catch (error) {
+      showErrorMessage(getErrorMessage(error) || "Xóa nhân viên thất bại!")
+    }
+  }
+
+  const mapEmployeeImportRow = ({
+    rowNumber,
+    getValue,
+  }: {
+    rowNumber: number
+    getValue: (key: EmployeeImportKey) => unknown
+  }): BulkImportPreparedRow<EmployeePayload, EmployeeImportPreview> => {
+    const errors: string[] = []
+    const employeeName = cleanImportText(getValue("employeeName"))
+    const employeeEmail = cleanImportText(getValue("employeeEmail"))
+    const employeePhone = cleanImportText(getValue("employeePhone"))
+    const departmentKeyword = cleanImportText(getValue("department"))
+    const isActive = parseImportBoolean(getValue("status"), true)
+
+    const matchedDepartment =
+      departments.find((department) =>
+        [department._id, department.departmentName].some(
+          (value) => normalize(value) === normalize(departmentKeyword)
+        )
+      ) || null
+
+    if (!employeeName) {
+      errors.push("Thiếu tên nhân viên.")
+    }
+
+    if (!employeeEmail) {
+      errors.push("Thiếu email nhân viên.")
+    } else if (!emailPattern.test(employeeEmail)) {
+      errors.push("Email nhân viên không hợp lệ.")
+    }
+
+    if (!employeePhone) {
+      errors.push("Thiếu số điện thoại.")
+    }
+
+    if (!departmentKeyword) {
+      errors.push("Thiếu phòng ban.")
+    } else if (!matchedDepartment) {
+      errors.push(
+        `Không tìm thấy phòng ban phù hợp với "${departmentKeyword}".`
+      )
+    }
+
+    return {
+      id: `employee-${rowNumber}-${employeeEmail || employeeName}`,
+      rowNumber,
+      payload:
+        errors.length === 0 && matchedDepartment
+          ? {
+              employeeName,
+              employeeEmail,
+              employeePhone,
+              departmentId: matchedDepartment._id,
+              isActive,
+            }
+          : null,
+      preview: {
+        employeeName,
+        employeeEmail,
+        employeePhone,
+        department:
+          matchedDepartment?.departmentName || departmentKeyword || "-",
+        status: isActive ? "Đang hoạt động" : "Ngừng hoạt động",
+      },
+      errors,
+      warnings: [],
+    }
   }
 
   return (
@@ -520,20 +515,28 @@ export default function EmployeePage() {
             <h1 className="text-xl font-bold text-slate-900">
               Quản lý nhân viên
             </h1>
-            {/* <p className="mt-1 text-sm text-slate-500">
-              Quản lý thông tin nhân viên, email, số điện thoại, phòng ban và
-              trạng thái hoạt động.
-            </p> */}
           </div>
 
-          <button
-            type="button"
-            onClick={openCreateDialog}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700"
-          >
-            <Plus size={18} />
-            Thêm nhân viên
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setBulkImportOpen(true)}
+              disabled={departmentLoading}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <UploadCloud size={18} />
+              Tạo hàng loạt
+            </button>
+
+            <button
+              type="button"
+              onClick={openCreateDialog}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700"
+            >
+              <Plus size={18} />
+              Thêm nhân viên
+            </button>
+          </div>
         </div>
 
         <DataTable
@@ -542,6 +545,7 @@ export default function EmployeePage() {
           loading={loading}
           emptyText="Chưa có dữ liệu nhân viên"
           getRowKey={(item) => item._id}
+          pagination={{ itemLabel: "nhân viên" }}
           onView={onView}
           onEdit={onEdit}
           onDelete={onDeleteClick}
@@ -605,11 +609,15 @@ export default function EmployeePage() {
             className="grid grid-cols-1 gap-4 md:grid-cols-2"
           >
             <div>
-              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="employee-name"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
                 Tên nhân viên
               </label>
 
               <input
+                id="employee-name"
                 disabled={isViewMode}
                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
                 placeholder="Ví dụ: Nguyen Van A"
@@ -628,11 +636,15 @@ export default function EmployeePage() {
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="employee-email"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
                 Email
               </label>
 
               <input
+                id="employee-email"
                 disabled={isViewMode}
                 type="email"
                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
@@ -654,11 +666,15 @@ export default function EmployeePage() {
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="employee-phone"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
                 Số điện thoại
               </label>
 
               <input
+                id="employee-phone"
                 disabled={isViewMode}
                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
                 placeholder="Ví dụ: 0987654321"
@@ -677,12 +693,16 @@ export default function EmployeePage() {
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="employee-department"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
                 Phòng ban
               </label>
 
               <select
-                disabled={isViewMode}
+                id="employee-department"
+                disabled={isViewMode || departmentLoading}
                 className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
                 {...register("departmentId", {
                   required: "Vui lòng chọn phòng ban",
@@ -692,7 +712,7 @@ export default function EmployeePage() {
               >
                 <option value="">-- Chọn phòng ban --</option>
 
-                {departments.map((department) => (
+                {departments.map((department: Department) => (
                   <option key={department._id} value={department._id}>
                     {department.departmentName}
                   </option>
@@ -707,12 +727,19 @@ export default function EmployeePage() {
             </div>
 
             <div className="md:col-span-2">
-              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="employee-is-active"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
                 Trạng thái
               </label>
 
-              <label className="flex h-11 items-center gap-3 rounded-lg border border-slate-200 px-3">
+              <label
+                htmlFor="employee-is-active"
+                className="flex h-11 items-center gap-3 rounded-lg border border-slate-200 px-3"
+              >
                 <input
+                  id="employee-is-active"
                   disabled={isViewMode}
                   type="checkbox"
                   className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed"
@@ -727,15 +754,31 @@ export default function EmployeePage() {
         )}
       </ActionModal>
 
+      <CrudBulkImportModal
+        open={isBulkImportOpen}
+        title="Tạo nhân viên hàng loạt từ Excel"
+        entityLabel="nhân viên"
+        columns={EMPLOYEE_IMPORT_COLUMNS}
+        previewColumns={EMPLOYEE_IMPORT_PREVIEW_COLUMNS}
+        notes={[
+          'Cột "Phòng ban" có thể nhập theo tên hoặc ID phòng ban.',
+          'Cột "Trạng thái" có thể để trống, hệ thống sẽ mặc định là Đang hoạt động.',
+        ]}
+        onClose={() => setBulkImportOpen(false)}
+        onCompleted={handleRefreshEmployees}
+        mapRow={mapEmployeeImportRow}
+        createItem={createBulkEmployee}
+      />
+
       <AlertOption
         isOpen={isDeleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}
         onConfirm={() => {
-          if (!selectedEmployee?._id || deleteLoading) return
-          void handleDeleteEmployee(selectedEmployee._id)
+          if (!deleteTarget?._id || deleteLoading) return
+          void handleDeleteEmployee(deleteTarget._id)
         }}
         title="Xác nhận thao tác"
-        description={`Hành động này sẽ xóa nhân viên "${selectedEmployee?.employeeName}" khỏi hệ thống và không thể hoàn tác. Bạn có chắc chắn tiếp tục?`}
+        description={`Hành động này sẽ xóa nhân viên "${deleteTarget?.employeeName}" khỏi hệ thống và không thể hoàn tác. Bạn có chắc chắn tiếp tục?`}
         confirmText={deleteLoading ? "Đang xóa..." : "Xóa"}
         cancelText="Hủy"
         tone="destructive"

@@ -1,10 +1,13 @@
 "use client"
 
+import ReduxProvider from "@/store/provider"
+import { useAppDispatch, useAppSelector } from "@/store/hooks"
+import { authActions } from "@/store/slices"
 import { Geist, Geist_Mono } from "next/font/google"
+import { usePathname, useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
 import "./globals.css"
 import { metadata } from "./metadata"
-import { useEffect, useState } from "react"
-import { useRouter, usePathname } from "next/navigation"
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -16,11 +19,7 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 })
 
-// Các route được phép vào không cần đăng nhập
-const PUBLIC_ROUTES = [
-  "/", // app/page.tsx - trang đối soát hiện tại của bạn
-  "/login",
-] as const
+const PUBLIC_ROUTES = ["/", "/login"] as const
 
 function isPublicRoute(pathname: string) {
   return PUBLIC_ROUTES.some((route) => {
@@ -32,38 +31,64 @@ function isPublicRoute(pathname: string) {
   })
 }
 
+function AuthGate({
+  children,
+}: Readonly<{
+  children: React.ReactNode
+}>) {
+  const dispatch = useAppDispatch()
+  const router = useRouter()
+  const pathname = usePathname()
+  const accessToken = useAppSelector((state) => state.auth.accessToken)
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    const token = localStorage.getItem("access_token")
+    const refreshToken = localStorage.getItem("refresh_token")
+
+    if (token) {
+      dispatch(
+        authActions.hydrateAuth({
+          accessToken: token,
+          refreshToken,
+        })
+      )
+    } else {
+      dispatch(authActions.logout())
+    }
+  }, [dispatch])
+
+  useEffect(() => {
+    const token = accessToken ?? localStorage.getItem("access_token")
+    const publicRoute = isPublicRoute(pathname)
+
+    if (!token && !publicRoute) {
+      router.replace("/login")
+      return
+    }
+
+    if (token && pathname === "/login") {
+      router.replace("/quan-ly-ban-hang")
+      return
+    }
+
+    setIsLoading(false)
+  }, [accessToken, pathname, router])
+
+  return isLoading ? (
+    <div className="flex min-h-screen items-center justify-center">
+      Đang tải...
+    </div>
+  ) : (
+    <>{children}</>
+  )
+}
+
 function RootLayoutContent({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
-  const router = useRouter()
-  const pathname = usePathname()
-  const [isLoading, setIsLoading] = useState(true)
-
-  useEffect(() => {
-    const checkAuth = () => {
-      const token = localStorage.getItem("access_token")
-      const publicRoute = isPublicRoute(pathname)
-
-      // Nếu chưa đăng nhập và route không public thì mới đá về login
-      if (!token && !publicRoute) {
-        router.replace("/login")
-        return
-      }
-
-      // Nếu đã đăng nhập mà vào /login thì đẩy về trang chính
-      if (token && pathname === "/login") {
-        router.replace("/")
-        return
-      }
-
-      setIsLoading(false)
-    }
-
-    checkAuth()
-  }, [pathname, router])
-
   return (
     <html lang="en">
       <head>
@@ -73,13 +98,9 @@ function RootLayoutContent({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {isLoading ? (
-          <div className="flex min-h-screen items-center justify-center">
-            Đang tải...
-          </div>
-        ) : (
-          children
-        )}
+        <ReduxProvider>
+          <AuthGate>{children}</AuthGate>
+        </ReduxProvider>
       </body>
     </html>
   )

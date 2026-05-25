@@ -1,15 +1,18 @@
 "use client"
 
-import { APILogin } from "@/services/auth"
+import { useAppDispatch, useAppSelector } from "@/store/hooks"
+import { loginThunk } from "@/store/slices"
+import { getErrorMessage } from "@/store/utils/crud"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
 
 export default function LoginPage() {
   const router = useRouter()
+  const dispatch = useAppDispatch()
+  const loading = useAppSelector((state) => state.auth.loading)
 
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
-  const [loading, setLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState("")
 
   const handleLogin = async () => {
@@ -24,25 +27,17 @@ export default function LoginPage() {
     }
 
     try {
-      setLoading(true)
       setErrorMessage("")
 
-      const response = await APILogin({
-        username: username.trim(),
-        password: password.trim(),
-      })
+      const response = await dispatch(
+        loginThunk({
+          username: username.trim(),
+          password: password.trim(),
+        })
+      ).unwrap()
 
-      const token =
-        response?.content?.access_token ||
-        response?.content?.accessToken ||
-        response?.access_token ||
-        response?.accessToken
-
-      const refreshToken =
-        response?.content?.refresh_token ||
-        response?.content?.refreshToken ||
-        response?.refresh_token ||
-        response?.refreshToken
+      const token = response?.accessToken
+      const refreshToken = response?.refreshToken
 
       if (!token) {
         setErrorMessage("Đăng nhập thành công nhưng không nhận được token")
@@ -53,22 +48,17 @@ export default function LoginPage() {
 
       if (refreshToken) {
         localStorage.setItem("refresh_token", refreshToken)
+      } else {
+        localStorage.removeItem("refresh_token")
       }
 
       router.replace("/quan-ly-ban-hang")
-    } catch (err: any) {
-      console.error("Login error:", err)
-
-      const status = err?.response?.status
-      const message =
-        err?.response?.data?.message ||
-        err?.response?.data?.error ||
-        "Đăng nhập thất bại"
+    } catch (error: any) {
+      const status = error?.response?.status
+      const message = getErrorMessage(error) || "Đăng nhập thất bại"
 
       if (status === 403) {
-        setErrorMessage(
-          "Tài khoản không có quyền truy cập hoặc thiếu secret key"
-        )
+        setErrorMessage("Tài khoản không có quyền truy cập hoặc thiếu secret key")
         return
       }
 
@@ -78,8 +68,6 @@ export default function LoginPage() {
       }
 
       setErrorMessage(message)
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -162,7 +150,7 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
-                      handleLogin()
+                      void handleLogin()
                     }
                   }}
                   placeholder="Nhập mật khẩu"
@@ -172,7 +160,7 @@ export default function LoginPage() {
               </div>
 
               <button
-                onClick={handleLogin}
+                onClick={() => void handleLogin()}
                 disabled={loading}
                 className="h-11 w-full rounded-lg bg-blue-600 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
               >

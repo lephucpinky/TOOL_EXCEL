@@ -10,18 +10,20 @@ export type MInvoiceReceiptPostPayload = {
 
 export const APIExportMInvoiceReceiptPost = async (
   payload: MInvoiceReceiptPostPayload,
-  taxCode = process.env.NEXT_PUBLIC_MINVOICE_TAX_CODE || ""
+  taxCode: string
 ) => {
-  if (!taxCode) {
-    throw new Error("Thiếu NEXT_PUBLIC_MINVOICE_TAX_CODE trong file .env.local")
+  const normalizedTaxCode = String(taxCode || "").trim()
+
+  if (!normalizedTaxCode) {
+    throw new Error("Thiếu mã số thuế cấu hình hóa đơn.")
   }
 
   const response = await axiosInstance.post(
-    "/m-invoice-receipt-post/without-redis",
+    "/m-invoice-receipt-post",
     payload,
     {
       params: {
-        tax_code: taxCode,
+        tax_code: normalizedTaxCode,
       },
     }
   )
@@ -40,7 +42,7 @@ export const APIViewPrintInvoice = async (request: ViewPrintInvoiceType) => {
 
     return response.data
   } catch (error) {
-    console.error("Lỗi khi xem hoá đơn:", error)
+    console.error("Lỗi khi xem hóa đơn:", error)
     throw error
   }
 }
