@@ -247,7 +247,9 @@ export type InvoiceStatusValue = InvoiceStatus
 export function normalizeInvoiceStatusValue(
   value?: unknown
 ): InvoiceStatusValue | null {
-  const status = String(value || "").trim().toUpperCase()
+  const status = String(value || "")
+    .trim()
+    .toUpperCase()
 
   if (!status) return null
   if (CANCELLED_STATUS_SET.has(status)) return InvoiceStatus.CANCELLED

@@ -21,6 +21,7 @@ import type {
   ReceiptInvoicePayload,
 } from "@/types/receiptInvoice"
 import { getId } from "@/utils/invoice"
+import PageHeader from "../_components/PageHeader"
 
 const emptyForm: ReceiptInvoicePayload = {
   inv_invoiceSeries: "",
@@ -401,32 +402,21 @@ export default function ReceiptInvoiceConfigPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 p-5">
+    <div className="min-h-screen p-5">
       <div className="mx-auto max-w-7xl space-y-5">
-        <div className="rounded-xl bg-white p-5 shadow-sm">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] text-blue-700">
-                <Settings2 size={14} />
-                Cấu hình hóa đơn
-              </div>
-
-              <h1 className="text-xl font-bold text-slate-900">
-                Quản lý cấu hình hóa đơn
-              </h1>
-
-              <p className="mt-1 text-sm text-slate-500">
-                Thêm, chỉnh sửa ký hiệu hóa đơn và mã số thuế để áp dụng cho màn
-                hình hóa đơn đang sử dụng.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
+        <PageHeader
+          icon={<Settings2 size={24} />}
+          eyebrow="Cấu hình hóa đơn"
+          title="Quản lý cấu hình hóa đơn"
+          description="Thiết lập ký hiệu hóa đơn và mã số thuế để áp dụng cho quy trình xuất hóa đơn."
+          tone="violet"
+          actions={
+            <>
               <Link
                 href="/quan-ly-ban-hang/danh-sach"
                 className="inline-flex h-10 items-center justify-center rounded-lg border border-slate-200 px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
               >
-                Quay lại quản lý hóa đơn
+                Quay lại hóa đơn
               </Link>
 
               <button
@@ -450,9 +440,9 @@ export default function ReceiptInvoiceConfigPage() {
                 <Plus size={18} />
                 Thêm cấu hình
               </button>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+        />
 
         <DataTable
           data={configs}

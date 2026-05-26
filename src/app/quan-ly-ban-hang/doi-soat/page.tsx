@@ -7,6 +7,16 @@ import { exportChiHoaHongXlsx } from "@/services/file-chi-hoa-hong/exportChiHoaH
 
 import { SearchableSelect } from "@/components/select/SearchableSelect"
 import { exportXuatHoaDonXlsx } from "@/services/file-xuatHD/exportXuatHD"
+import {
+  CheckCircle2,
+  ClipboardCheck,
+  Download,
+  FileSpreadsheet,
+  Loader2,
+  UploadCloud,
+  X,
+} from "lucide-react"
+import PageHeader from "../_components/PageHeader"
 
 const ALL_VALUE = "__ALL__"
 
@@ -15,13 +25,13 @@ const TEMPLATE_CONFIG = {
     key: "commission",
     label: "Mẫu chi hoa hồng",
     templateUrl: "/templates/mau-chi-hoa-hong-text.xlsx",
-    exportLabel: "⬇️ Xuất Excel (Chi hoa hồng)",
+    exportLabel: "Xuất Excel (Chi hoa hồng)",
   },
   invoice: {
     key: "invoice",
     label: "Mẫu hóa đơn",
     templateUrl: "/templates/MAU_XUAT-HD.xlsx",
-    exportLabel: "⬇️ Xuất Excel (Hóa đơn)",
+    exportLabel: "Xuất Excel (Hóa đơn)",
   },
 } as const
 
@@ -251,130 +261,168 @@ export default function HomePage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 p-6">
-      <div className="mx-auto max-w-5xl space-y-6">
-        {/* chọn danh mục mẫu */}
-        <div className="rounded-xl bg-white p-5 shadow">
-          <div className="text-center text-base font-bold">
-            CHỌN DANH MỤC XUẤT FILE
-          </div>
+    <div className="min-h-screen p-5">
+      <div className="mx-auto max-w-6xl space-y-5">
+        <PageHeader
+          icon={<ClipboardCheck size={24} />}
+          eyebrow="Đối soát dữ liệu"
+          title="Đối soát & xuất file"
+          description="Tải file doanh số, chọn mẫu và xuất nhanh file hoa hồng hoặc hóa đơn."
+          tone="rose"
+          actions={
+            <button
+              type="button"
+              onClick={onExport}
+              disabled={!canExport}
+              className={[
+                "inline-flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-bold transition",
+                canExport
+                  ? "bg-blue-600 text-white hover:bg-blue-700"
+                  : "cursor-not-allowed bg-slate-200 text-slate-500",
+              ].join(" ")}
+            >
+              {exporting ? (
+                <Loader2 size={17} className="animate-spin" />
+              ) : (
+                <Download size={17} />
+              )}
+              {exporting ? "Đang xuất..." : currentTemplate.exportLabel}
+            </button>
+          }
+        />
 
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
-            {templateOptions.map((item) => {
-              const isActive = templateType === item.value
-              return (
-                <button
-                  key={item.value}
-                  type="button"
-                  onClick={() => {
-                    setTemplateType(item.value as TemplateKey)
-                    setExportErr("")
-                  }}
-                  className={`rounded-xl border p-4 text-left transition ${
-                    isActive
-                      ? "border-slate-400 bg-slate-100 text-slate-500 shadow"
-                      : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
-                  }`}
-                >
-                  <div className="flex flex-col justify-center text-center">
-                    {" "}
-                    <div className="text-sm font-semibold">Danh mục</div>
-                    <div className="mt-1 text-base font-bold">{item.label}</div>
-                  </div>
-                </button>
-              )
-            })}
-          </div>
-
-          {loadingTemplates && (
-            <div className="mt-3 text-center text-xs text-slate-500">
-              Đang tải template...
+        <section className="grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
+          <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
+                <FileSpreadsheet size={21} />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-slate-950">
+                  Chọn mẫu xuất
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Mẫu đang chọn sẽ quyết định định dạng file Excel.
+                </p>
+              </div>
             </div>
-          )}
 
-          {templateErr && (
-            <div className="mt-3 text-center text-xs text-red-600">
-              {templateErr}
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {templateOptions.map((item) => {
+                const isActive = templateType === item.value
+
+                return (
+                  <button
+                    key={item.value}
+                    type="button"
+                    onClick={() => {
+                      setTemplateType(item.value as TemplateKey)
+                      setExportErr("")
+                    }}
+                    className={[
+                      "flex min-h-[112px] flex-col justify-between rounded-lg border p-4 text-left transition",
+                      isActive
+                        ? "border-blue-500 bg-blue-50 text-blue-900 shadow-sm"
+                        : "border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-slate-50",
+                    ].join(" ")}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <FileSpreadsheet
+                        size={20}
+                        className={
+                          isActive ? "text-blue-700" : "text-slate-400"
+                        }
+                      />
+                      {isActive && (
+                        <CheckCircle2 size={18} className="text-blue-700" />
+                      )}
+                    </div>
+                    <div className="mt-4 text-sm font-bold">{item.label}</div>
+                  </button>
+                )
+              })}
             </div>
-          )}
-        </div>
 
-        {/* thông tin mẫu đang chọn */}
-        <div className="rounded-xl bg-white p-5 shadow">
-          <div className="text-center text-base font-bold uppercase">
-            {currentTemplate.label}
+            {loadingTemplates && (
+              <div className="mt-4 flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm font-medium text-slate-500">
+                <Loader2 size={16} className="animate-spin" />
+                Đang tải template...
+              </div>
+            )}
+
+            {templateErr && (
+              <div className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-600">
+                {templateErr}
+              </div>
+            )}
           </div>
 
-          <div className="mt-2 text-center text-sm text-slate-600">
-            {templateType === "commission"
-              ? "Xuất file theo mẫu chi hoa hồng"
-              : "Xuất file theo mẫu hóa đơn"}
-          </div>
-        </div>
+          <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+                <UploadCloud size={21} />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-slate-950">
+                  File theo dõi doanh số
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Hệ thống sẽ đọc danh sách đại lý từ file Excel đã chọn.
+                </p>
+              </div>
+            </div>
 
-        {/* upload sales */}
-        <div className="rounded-xl bg-white p-5 shadow">
-          <div className="flex items-start gap-3">
-            <div className="text-lg">📊</div>
-            <div className="flex-1">
-              <div className="text-base font-bold">File theo dõi doanh số</div>
+            <input
+              id="sales-file"
+              type="file"
+              accept=".xlsx,.xls"
+              className="hidden"
+              onChange={(e) => onPickSalesFile(e.target.files?.[0] ?? null)}
+            />
 
-              <input
-                id="sales-file"
-                type="file"
-                accept=".xlsx,.xls"
-                className="hidden"
-                onChange={(e) => onPickSalesFile(e.target.files?.[0] ?? null)}
-              />
+            <div className="mt-5 flex flex-col gap-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="text-sm font-bold text-slate-800">
+                  {salesFile ? salesFile.name : "Chưa chọn file"}
+                </div>
+                <div className="mt-1 text-xs font-medium text-slate-500">
+                  {salesFile
+                    ? "File đã sẵn sàng để lọc và xuất dữ liệu."
+                    : "Hỗ trợ .xlsx và .xls"}
+                </div>
+              </div>
 
-              <div className="mt-3 flex flex-wrap items-center gap-3">
+              <div className="flex shrink-0 items-center gap-2">
                 <label
                   htmlFor="sales-file"
-                  className="cursor-pointer rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold hover:bg-slate-50"
+                  className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 text-sm font-bold text-white transition hover:bg-slate-800"
                 >
-                  Choose File
+                  <UploadCloud size={17} />
+                  Chọn file
                 </label>
-
-                <div className="text-sm text-slate-700">
-                  {salesFile ? (
-                    <span className="font-semibold">{salesFile.name}</span>
-                  ) : (
-                    <span className="text-slate-500">No file chosen</span>
-                  )}
-                </div>
 
                 {salesFile && (
                   <button
                     type="button"
                     onClick={() => onPickSalesFile(null)}
-                    className="text-sm text-slate-500 underline hover:text-slate-700"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+                    aria-label="Xóa file đã chọn"
                   >
-                    Xoá
+                    <X size={17} />
                   </button>
-                )}
-              </div>
-
-              <div className="mt-2 text-sm text-slate-600">
-                {salesFile ? (
-                  <>
-                    Đã chọn: <b>{salesFile.name}</b>
-                  </>
-                ) : (
-                  "Chưa chọn file"
                 )}
               </div>
             </div>
           </div>
-        </div>
+        </section>
 
-        {/* filter + export */}
-        <div className="rounded-xl bg-white p-5 shadow">
-          <div className="grid gap-3 md:grid-cols-2">
+        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="grid gap-4 md:grid-cols-2">
             <div>
-              <div className="text-sm font-semibold text-slate-700">
+              <label className="text-sm font-bold text-slate-700">
                 Tên đại lý
-              </div>
-              <div className="mt-1">
+              </label>
+              <div className="mt-2">
                 <SearchableSelect
                   options={dealerOptions}
                   value={dealerName || undefined}
@@ -387,38 +435,28 @@ export default function HomePage() {
               </div>
 
               {!dealers.length && (
-                <div className="mt-1 text-xs text-slate-500">
-                  Upload file doanh số để lấy danh sách đại lý
+                <div className="mt-2 text-xs font-medium text-slate-500">
+                  Upload file doanh số để lấy danh sách đại lý.
                 </div>
               )}
             </div>
 
             <div>
-              <div className="text-sm font-semibold text-slate-700">
+              <label className="text-sm font-bold text-slate-700">
                 Mẫu đang xuất
-              </div>
-              <div className="mt-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+              </label>
+              <div className="mt-2 flex h-10 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700">
                 {currentTemplate.label}
               </div>
             </div>
           </div>
 
-          <button
-            onClick={onExport}
-            disabled={!canExport}
-            className={`mt-4 rounded-lg border-LightSilver px-5 py-3 text-sm font-semibold shadow-sm transition ${
-              canExport
-                ? "bg-slate-500 text-white hover:bg-slate-800"
-                : "bg-slate-200 text-slate-500"
-            }`}
-          >
-            {exporting ? "⏳ Đang xuất..." : currentTemplate.exportLabel}
-          </button>
-
           {exportErr && (
-            <div className="mt-2 text-xs text-red-600">{exportErr}</div>
+            <div className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-600">
+              {exportErr}
+            </div>
           )}
-        </div>
+        </section>
       </div>
     </div>
   )

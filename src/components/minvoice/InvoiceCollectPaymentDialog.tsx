@@ -1,0 +1,139 @@
+"use client"
+
+import { Banknote, CheckCircle2, X } from "lucide-react"
+
+import type { Bank } from "@/types/bank"
+import type { InvoiceApiRow } from "@/types/invoice"
+
+type Props = {
+  open: boolean
+  invoice: InvoiceApiRow | null
+  banks: Bank[]
+  bankId: string
+  amountValue: string
+  loadingBanks?: boolean
+  saving?: boolean
+  onBankChange: (value: string) => void
+  onAmountChange: (value: string) => void
+  onClose: () => void
+  onConfirm: () => void | Promise<void>
+}
+
+export default function InvoiceCollectPaymentDialog({
+  open,
+  invoice,
+  banks,
+  bankId,
+  amountValue,
+  loadingBanks = false,
+  saving = false,
+  onBankChange,
+  onAmountChange,
+  onClose,
+  onConfirm,
+}: Props) {
+  if (!open || !invoice) return null
+
+  const companyName =
+    invoice.inv_buyerLegalName || invoice.inv_buyerDisplayName || "-"
+
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/45 p-4">
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="w-full max-w-[520px] overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl"
+      >
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700">
+              <Banknote size={20} />
+            </span>
+            <div className="min-w-0">
+              <h2 className="truncate text-lg font-bold text-slate-900">
+                Thu tiền
+              </h2>
+              <p className="truncate text-sm text-slate-500">{companyName}</p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+            aria-label="Đóng"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="space-y-4 p-5">
+          <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-slate-500">Số hóa đơn</span>
+              <span className="font-semibold text-slate-800">
+                {invoice.orderNumber || invoice.inv_invoiceCreatedId || "-"}
+              </span>
+            </div>
+
+            <div className="grid gap-1.5">
+              <label className="text-slate-500">Tổng thanh toán</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={amountValue}
+                disabled={loadingBanks || saving}
+                onChange={(event) => onAmountChange(event.target.value)}
+                placeholder="Nhập tổng tiền thu"
+                className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-right text-sm font-bold text-emerald-700 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-slate-100"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+              Ngân hàng
+            </label>
+            <select
+              className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-slate-100"
+              value={bankId}
+              disabled={loadingBanks || saving}
+              onChange={(event) => onBankChange(event.target.value)}
+            >
+              <option value="">
+                {loadingBanks ? "Đang tải ngân hàng..." : "Chọn ngân hàng"}
+              </option>
+              {banks.map((bank) => (
+                <option key={bank._id} value={bank._id}>
+                  {bank.inv_buyerBankName}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="inline-flex h-10 min-w-[92px] items-center justify-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Hủy
+          </button>
+
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={saving || loadingBanks || !amountValue}
+            className="inline-flex h-10 min-w-[120px] items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <CheckCircle2 size={17} />
+            {saving ? "Đang lưu..." : "Xác nhận"}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}

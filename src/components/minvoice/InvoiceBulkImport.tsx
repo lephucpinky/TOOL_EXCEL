@@ -20,7 +20,6 @@ import { normalize, toNumber as toExcelNumber } from "@/utils/excel"
 import {
   formatMoney,
   getId,
-  normalizeDateInput,
   roundInvoiceMoney,
 } from "@/utils/invoice"
 import { buildCreateInvoiceApiBody } from "@/utils/invoicePayload"
@@ -299,13 +298,15 @@ export default function InvoiceBulkImport({
   }, [products, selectedProductId])
 
   const preparedRows = useMemo<PreparedImportRow[]>(() => {
+    const currentInvoiceDate = new Date().toISOString().slice(0, 10)
+
     return excelRows.map((row) => {
       const errors: string[] = []
       const warnings: string[] = []
 
       const agencyCode = cleanText(row.agencyCode)
       const invoiceSeries = cleanText(row.invoiceSeries)
-      const invoiceDate = normalizeDateInput(row.invoiceDate)
+      const invoiceDate = currentInvoiceDate
       const buyerCompany = cleanText(row.buyerCompany)
       const buyerName = cleanText(row.buyerName)
       const buyerTaxCode = cleanText(row.buyerTaxCode)
@@ -366,7 +367,6 @@ export default function InvoiceBulkImport({
         )
       }
 
-      if (!invoiceDate) errors.push("Ngày lập hóa đơn không hợp lệ.")
       if (!buyerCompany) errors.push("Thiếu tên đơn vị mua.")
       if (!buyerTaxCode) errors.push("Thiếu mã số thuế người mua.")
       if (!buyerAddress) errors.push("Thiếu địa chỉ người mua.")
@@ -393,7 +393,6 @@ export default function InvoiceBulkImport({
         errors.length > 0 || !product || !agency
           ? null
           : {
-              activationDate: invoiceDate || null,
               orderNumber: cleanText(row.lineCode),
               inv_invoiceSeries: invoiceSeries,
               inv_invoiceIssuedDate: invoiceDate,
@@ -850,11 +849,11 @@ export default function InvoiceBulkImport({
                 </div>
               </div>
 
-              <div className="bg-rose-50 rounded-2xl p-4">
-                <div className="text-rose-700 text-xs uppercase tracking-wide">
+              <div className="rounded-2xl bg-rose-50 p-4">
+                <div className="text-xs uppercase tracking-wide text-rose-700">
                   Có lỗi
                 </div>
-                <div className="text-rose-700 mt-2 text-2xl font-bold">
+                <div className="mt-2 text-2xl font-bold text-rose-700">
                   {invalidRows}
                 </div>
               </div>
@@ -897,7 +896,7 @@ export default function InvoiceBulkImport({
             </button>
 
             {invalidRows > 0 && (
-              <div className="text-rose-600 mt-3 text-sm">
+              <div className="mt-3 text-sm text-rose-600">
                 Cần xử lý hết lỗi trong bảng xem trước trước khi bấm tạo hóa
                 đơn.
               </div>
@@ -1027,7 +1026,7 @@ export default function InvoiceBulkImport({
                           )}
 
                           {row.errors.length > 0 && (
-                            <div className="text-rose-600 mt-2 space-y-1 text-xs">
+                            <div className="mt-2 space-y-1 text-xs text-rose-600">
                               {row.errors.map((error) => (
                                 <div key={error}>{error}</div>
                               ))}
@@ -1035,7 +1034,7 @@ export default function InvoiceBulkImport({
                           )}
 
                           {row.warnings.length > 0 && (
-                            <div className="text-amber-600 mt-2 space-y-1 text-xs">
+                            <div className="mt-2 space-y-1 text-xs text-amber-600">
                               {row.warnings.map((warning) => (
                                 <div key={warning}>{warning}</div>
                               ))}

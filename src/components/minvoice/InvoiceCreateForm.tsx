@@ -37,9 +37,11 @@ import {
 } from "@/utils/invoice"
 import {
   createAlreadyIssuingResolution,
+  createRateLimitedResolution,
   type InvoiceExportContext,
   type InvoiceExportResolution,
   isInvoiceAlreadyBeingIssuedError,
+  isInvoiceExportRateLimitedError,
   resolveInvoiceExportResult,
 } from "@/utils/invoiceExport"
 import { toNumber } from "@/utils/excel"
@@ -101,6 +103,23 @@ type Props = {
   receiptConfigLocked?: boolean
 }
 const today = new Date().toISOString().slice(0, 10)
+
+function resolveAgencyEmployee(
+  agency: Agency | null,
+  employees: Employee[]
+): Employee | null {
+  if (!agency?.employeeId) return null
+
+  if (typeof agency.employeeId === "object") {
+    return agency.employeeId
+  }
+
+  const employeeId = getId(agency.employeeId)
+
+  if (!employeeId) return null
+
+  return employees.find((item) => item._id === employeeId) || null
+}
 
 function getReceiptConfigOptionValue(
   config: ReceiptInvoiceConfig,
@@ -369,10 +388,9 @@ export default function InvoiceCreateForm({
       (initialInvoice as any).departmentId
     )
 
-    const resolvedEmployee = resolveOption<Employee>(
-      employees,
-      (initialInvoice as any).employeeId
-    )
+    const resolvedEmployee =
+      resolveOption<Employee>(employees, (initialInvoice as any).employeeId) ||
+      resolveAgencyEmployee(resolvedAgency, employees)
 
     const resolvedBank = resolveOption<Bank>(
       banks,
@@ -555,6 +573,10 @@ export default function InvoiceCreateForm({
     return mergeOptions(departments, [general.department])
   }, [departments, general.department])
 
+  const selectedAgencyEmployee = useMemo(() => {
+    return resolveAgencyEmployee(general.agency, employees)
+  }, [general.agency, employees])
+
   const filteredEmployees = employees.filter((item: any) => {
     if (!general.department?._id) return true
 
@@ -566,8 +588,15 @@ export default function InvoiceCreateForm({
   })
 
   const employeeOptions = useMemo(() => {
+    if (selectedAgencyEmployee) {
+      return mergeOptions(filteredEmployees, [
+        selectedAgencyEmployee,
+        general.employee,
+      ])
+    }
+
     return mergeOptions(filteredEmployees, [general.employee])
-  }, [filteredEmployees, general.employee])
+  }, [selectedAgencyEmployee, filteredEmployees, general.employee])
 
   const productOptions = useMemo(() => {
     return mergeOptions(products, [
@@ -722,21 +751,11 @@ export default function InvoiceCreateForm({
 
     if (key === "agency") {
       const agency = value as Agency | null
-
-      const employee =
-        agency?.employeeId && typeof agency.employeeId === "object"
-          ? agency.employeeId
-          : null
-
-      const department =
-        employee?.departmentId && typeof employee.departmentId === "object"
-          ? employee.departmentId
-          : null
+      const employee = resolveAgencyEmployee(agency, employees)
 
       setGeneral((prev) => ({
         ...prev,
         agency,
-        department,
         employee,
       }))
 
@@ -749,7 +768,7 @@ export default function InvoiceCreateForm({
       setGeneral((prev) => ({
         ...prev,
         department,
-        employee: null,
+        employee: prev.agency ? prev.employee : null,
       }))
 
       return
@@ -1150,7 +1169,9 @@ export default function InvoiceCreateForm({
         return
       }
 
-      showSuccessMessage(resolution.message)
+      if (resolution.status === InvoiceStatus.ISSUED) {
+        showSuccessMessage(resolution.message)
+      }
     } catch (err: any) {
       console.error("EXPORT_M_INVOICE_ERROR", {
         saleTransactionId: initialInvoice._id,
@@ -1163,7 +1184,13 @@ export default function InvoiceCreateForm({
       if (isInvoiceAlreadyBeingIssuedError(err)) {
         const resolution = createAlreadyIssuingResolution(err, exportContext)
         await onExported?.(initialInvoice._id, resolution)
-        showSuccessMessage(resolution.message)
+        return
+      }
+
+      if (isInvoiceExportRateLimitedError(err)) {
+        const resolution = createRateLimitedResolution(err, exportContext)
+        await onExported?.(initialInvoice._id, resolution)
+        showErrorMessage(resolution.message)
         return
       }
 
@@ -1327,6 +1354,7 @@ export default function InvoiceCreateForm({
                     employeeOptions.find(
                       (item) => item._id === e.target.value
                     ) || null
+
                   updateGeneral("employee", employee)
                 }}
               >
@@ -1798,7 +1826,9 @@ export default function InvoiceCreateForm({
 
             <button
               onClick={onEdit}
-              disabled={isCancelledInvoice}
+              disabled={
+                isCancelledInvoice || isIssuedInvoice || isIssuingInvoice
+              }
               className="rounded border border-indigo-500 bg-indigo-50 px-5 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Sửa

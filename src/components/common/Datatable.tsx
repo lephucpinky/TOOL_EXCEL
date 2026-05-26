@@ -37,6 +37,7 @@ interface DataTableProps<T> {
   getRowKey: (item: T, index: number) => string
   onView?: (item: T) => void
   onEdit?: (item: T) => void
+  canEdit?: (item: T) => boolean
   onDelete?: (item: T) => void
   renderActions?: (row: T) => ReactNode
   pagination?: DataTablePagination
@@ -80,6 +81,7 @@ export default function DataTable<T>({
   getRowKey,
   onView,
   onEdit,
+  canEdit,
   onDelete,
   renderActions,
   pagination = false,
@@ -254,7 +256,7 @@ export default function DataTable<T>({
 
                           {renderActions?.(item)}
 
-                          {onEdit && (
+                          {onEdit && (!canEdit || canEdit(item)) && (
                             <button
                               type="button"
                               onClick={(event) => {

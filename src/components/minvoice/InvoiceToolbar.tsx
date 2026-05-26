@@ -102,14 +102,14 @@ export default function InvoiceToolbar({
         Tạo HĐ hàng loạt
       </ToolbarButton>
 
-      <ToolbarButton
+      {/* <ToolbarButton
         onClick={onDelete}
         variant="danger"
         disabled={loading || disableDelete}
       >
         <Trash2 size={15} />
         Xóa
-      </ToolbarButton>
+      </ToolbarButton> */}
 
       {/* <ToolbarButton onClick={onStats} disabled={loading || !onStats}>
         <BarChart3 size={15} />

@@ -15,9 +15,10 @@ import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import { productActions, productThunks } from "@/store/slices"
 import { getErrorMessage } from "@/store/utils/crud"
 import { Product, ProductPayload } from "@/types/product"
-import { Loader2, Plus, UploadCloud, X } from "lucide-react"
+import { Loader2, PackageSearch, Plus, UploadCloud, X } from "lucide-react"
 import { ReactNode, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
+import PageHeader from "../_components/PageHeader"
 
 const LIST_PARAMS = {
   page: 1,
@@ -517,35 +518,36 @@ export default function ProductPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 p-5">
+    <div className="min-h-screen p-5">
       <div className="mx-auto max-w-7xl space-y-5">
-        <div className="flex flex-col gap-3 rounded-xl bg-white p-5 shadow-sm md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-slate-900">
-              Quản lý sản phẩm
-            </h1>
-          </div>
+        <PageHeader
+          icon={<PackageSearch size={24} />}
+          eyebrow="Danh mục bán hàng"
+          title="Quản lý sản phẩm"
+          description="Quản lý mã sản phẩm, đơn vị tính, số lượng và thông tin thuế."
+          tone="amber"
+          actions={
+            <>
+              <button
+                type="button"
+                onClick={() => setBulkImportOpen(true)}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+              >
+                <UploadCloud size={18} />
+                Tạo hàng loạt
+              </button>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setBulkImportOpen(true)}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
-            >
-              <UploadCloud size={18} />
-              Tạo hàng loạt
-            </button>
-
-            <button
-              type="button"
-              onClick={openCreateDialog}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700"
-            >
-              <Plus size={18} />
-              Thêm sản phẩm
-            </button>
-          </div>
-        </div>
+              <button
+                type="button"
+                onClick={openCreateDialog}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700"
+              >
+                <Plus size={18} />
+                Thêm sản phẩm
+              </button>
+            </>
+          }
+        />
 
         <DataTable
           data={products}

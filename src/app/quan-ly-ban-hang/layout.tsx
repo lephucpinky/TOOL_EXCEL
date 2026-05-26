@@ -1,10 +1,10 @@
 import type { Metadata } from "next"
 
-import AppHeader from "@/components/AppHeader"
+import SalesShell from "./_components/SalesShell"
 
 export const metadata: Metadata = {
-  title: "M-Invoice",
-  description: "Quản lý hóa đơn",
+  title: "M-Invoice | Quản lý bán hàng",
+  description: "Quản lý bán hàng, hóa đơn, đại lý và danh mục",
 }
 
 export default function RootLayout({
@@ -12,14 +12,5 @@ export default function RootLayout({
 }: {
   children: React.ReactNode
 }) {
-  return (
-    <html lang="vi">
-      <body>
-        <AppHeader />
-        <main className="min-h-[calc(100vh-72px)] bg-slate-100">
-          {children}
-        </main>
-      </body>
-    </html>
-  )
+  return <SalesShell>{children}</SalesShell>
 }

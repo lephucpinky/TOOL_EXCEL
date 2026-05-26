@@ -8,9 +8,10 @@ import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import { bankActions, bankThunks } from "@/store/slices"
 import { getErrorMessage } from "@/store/utils/crud"
 import { Bank, BankPayload } from "@/types/bank"
-import { Loader2, Plus, X } from "lucide-react"
+import { Landmark, Loader2, Plus, X } from "lucide-react"
 import { ReactNode, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
+import PageHeader from "../_components/PageHeader"
 
 const emptyForm: BankPayload = {
   inv_buyerBankName: "",
@@ -122,11 +123,13 @@ export default function BankPage() {
   }
 
   useEffect(() => {
-    void dispatch(bankThunks.fetchAll(undefined)).unwrap().catch((error) => {
-      showErrorMessage(
-        getErrorMessage(error) || "Không thể tải danh sách ngân hàng"
-      )
-    })
+    void dispatch(bankThunks.fetchAll(undefined))
+      .unwrap()
+      .catch((error) => {
+        showErrorMessage(
+          getErrorMessage(error) || "Không thể tải danh sách ngân hàng"
+        )
+      })
   }, [dispatch])
 
   const columns = useMemo<DataTableColumn<Bank>[]>(
@@ -290,24 +293,25 @@ export default function BankPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 p-5">
+    <div className="min-h-screen p-5">
       <div className="mx-auto max-w-7xl space-y-5">
-        <div className="flex flex-col gap-3 rounded-xl bg-white p-5 shadow-sm md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-slate-900">
-              Quản lý ngân hàng
-            </h1>
-          </div>
-
-          <button
-            type="button"
-            onClick={openCreateDialog}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700"
-          >
-            <Plus size={18} />
-            Thêm ngân hàng
-          </button>
-        </div>
+        <PageHeader
+          icon={<Landmark size={24} />}
+          eyebrow="Thanh toán"
+          title="Quản lý ngân hàng"
+          description="Quản lý danh sách ngân hàng dùng cho giao dịch và hóa đơn."
+          tone="blue"
+          actions={
+            <button
+              type="button"
+              onClick={openCreateDialog}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700"
+            >
+              <Plus size={18} />
+              Thêm ngân hàng
+            </button>
+          }
+        />
 
         <DataTable
           data={banks}

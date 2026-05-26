@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { InvoiceApiRow, InvoiceStatus } from "@/types/invoice"
 import DataTable, { DataTableColumn } from "../common/Datatable"
-import { FileText, Loader2, Printer } from "lucide-react"
+import { FileText, HandCoins, Loader2, Printer } from "lucide-react"
 import {
   canStartInvoiceExport,
   getInvoiceStatus,
@@ -20,6 +20,7 @@ type Props = {
   onExportInvoice?: (row: InvoiceApiRow) => void | Promise<void>
   exportingInvoiceId?: string | null
   onViewMInvoicePdf?: (row: InvoiceApiRow) => void
+  onCollectPayment?: (row: InvoiceApiRow) => void
 }
 
 type InvoiceProductValue =
@@ -113,6 +114,7 @@ export default function InvoiceDataTable({
   onExportInvoice,
   exportingInvoiceId = null,
   onViewMInvoicePdf,
+  onCollectPayment,
 }: Props) {
   const [keyword, setKeyword] = useState("")
   const [paidFilter, setPaidFilter] = useState("")
@@ -522,6 +524,15 @@ export default function InvoiceDataTable({
         getRowKey={(invoice) => invoice._id}
         onView={onView}
         onEdit={onEdit}
+        canEdit={(invoice) => {
+          const status = getInvoiceStatus(invoice)
+
+          return ![
+            InvoiceStatus.ISSUED,
+            InvoiceStatus.ISSUING,
+            InvoiceStatus.CANCELLED,
+          ].includes(status)
+        }}
         renderActions={(invoice) => {
           const status = getInvoiceStatus(invoice)
           const isExporting = exportingInvoiceId === invoice._id
@@ -549,7 +560,7 @@ export default function InvoiceDataTable({
                   void onExportInvoice(invoice)
                 }}
                 title="Xuất hóa đơn"
-                className="border-amber-200 bg-amber-50 text-amber-700 hover:border-amber-400 hover:bg-amber-100 hover:text-amber-800 inline-flex h-8 w-8 items-center justify-center rounded-lg border shadow-sm transition"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 text-amber-700 shadow-sm transition hover:border-amber-400 hover:bg-amber-100 hover:text-amber-800"
               >
                 <FileText size={15} />
               </button>
@@ -559,17 +570,33 @@ export default function InvoiceDataTable({
           if (status !== InvoiceStatus.ISSUED) return null
 
           return (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                onViewMInvoicePdf?.(invoice)
-              }}
-              title="Xem mẫu hóa đơn PDF"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm transition hover:border-emerald-400 hover:bg-emerald-100 hover:text-emerald-800"
-            >
-              <Printer size={15} />
-            </button>
+            <>
+              {onCollectPayment && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onCollectPayment(invoice)
+                  }}
+                  title="Thu tiền"
+                  className="border-teal-200 bg-teal-50 text-teal-700 hover:border-teal-400 hover:bg-teal-100 hover:text-teal-800 inline-flex h-8 w-8 items-center justify-center rounded-lg border shadow-sm transition"
+                >
+                  <HandCoins size={15} />
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onViewMInvoicePdf?.(invoice)
+                }}
+                title="Xem mẫu hóa đơn PDF"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm transition hover:border-emerald-400 hover:bg-emerald-100 hover:text-emerald-800"
+              >
+                <Printer size={15} />
+              </button>
+            </>
           )
         }}
       />
@@ -612,7 +639,7 @@ export default function InvoiceDataTable({
 
         <div>
           <div className="text-xs text-slate-500">Còn lại</div>
-          <div className="text-amber-700 font-bold">
+          <div className="font-bold text-amber-700">
             {moneyFormatter.format(summary.remainingAmount)}
           </div>
         </div>
