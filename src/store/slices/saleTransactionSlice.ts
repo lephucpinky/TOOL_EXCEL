@@ -10,6 +10,10 @@ import {
 } from "@/services/saleTransaction"
 import { InvoiceApiRow } from "@/types/invoice"
 import { getErrorMessage } from "@/store/utils/crud"
+import {
+  normalizeSaleTransactionDetail,
+  normalizeSaleTransactionList,
+} from "@/utils/invoice"
 
 type SaleTransactionState = {
   items: InvoiceApiRow[]
@@ -33,24 +37,6 @@ const initialState: SaleTransactionState = {
   error: null,
 }
 
-function normalizeList(response: any): InvoiceApiRow[] {
-  const raw = response?.data ?? []
-
-  if (Array.isArray(raw)) return raw
-  if (Array.isArray(raw?.items)) return raw.items
-  if (Array.isArray(raw?.docs)) return raw.docs
-  if (Array.isArray(raw?.results)) return raw.results
-  if (Array.isArray(raw?.saleTransactions)) return raw.saleTransactions
-  if (Array.isArray(raw?.transactions)) return raw.transactions
-
-  return []
-}
-
-function normalizeDetail(response: any): InvoiceApiRow | null {
-  const detail = response?.data ?? null
-  return detail?._id ? detail : null
-}
-
 function upsertTransaction(items: InvoiceApiRow[], item: InvoiceApiRow) {
   const index = items.findIndex((existing) => existing._id === item._id)
 
@@ -66,7 +52,7 @@ export const fetchSaleTransactionsThunk = createAsyncThunk(
   "saleTransactions/fetchAll",
   async (params?: any) => {
     const response = await APIGetSaleTransactions(params)
-    return normalizeList(response)
+    return normalizeSaleTransactionList(response)
   }
 )
 
@@ -74,7 +60,7 @@ export const fetchSaleTransactionByIdThunk = createAsyncThunk(
   "saleTransactions/fetchById",
   async (id: string) => {
     const response = await APIGetSaleTransactionById(id)
-    return normalizeDetail(response)
+    return normalizeSaleTransactionDetail(response)
   }
 )
 
@@ -82,7 +68,7 @@ export const createSaleTransactionThunk = createAsyncThunk(
   "saleTransactions/create",
   async (payload: any) => {
     const response = await APICreateSaleTransaction(payload)
-    return normalizeDetail(response)
+    return normalizeSaleTransactionDetail(response)
   }
 )
 
@@ -90,7 +76,7 @@ export const updateSaleTransactionThunk = createAsyncThunk(
   "saleTransactions/update",
   async ({ id, payload }: { id: string; payload: any }) => {
     const response = await APIUpdateSaleTransaction(id, payload)
-    return normalizeDetail(response)
+    return normalizeSaleTransactionDetail(response)
   }
 )
 
@@ -98,7 +84,7 @@ export const updateSaleTransactionBankThunk = createAsyncThunk(
   "saleTransactions/updateBank",
   async ({ id, bankId }: { id: string; bankId: string }) => {
     const response = await APIUpdateSaleTransactionBank(id, { bankId })
-    return normalizeDetail(response)
+    return normalizeSaleTransactionDetail(response)
   }
 )
 
@@ -120,8 +106,20 @@ const saleTransactionSlice = createSlice({
     resetSaleTransactionState() {
       return initialState
     },
-    setCurrentSaleTransaction(state, action: { payload: InvoiceApiRow | null }) {
+    // Cho page cập nhật optimistic rows sau các tác vụ M-Invoice/thu tiền.
+    setSaleTransactions(state, action: { payload: InvoiceApiRow[] }) {
+      state.items = action.payload
+      state.initialized = true
+    },
+    setCurrentSaleTransaction(
+      state,
+      action: { payload: InvoiceApiRow | null }
+    ) {
       state.current = action.payload
+    },
+    upsertSaleTransaction(state, action: { payload: InvoiceApiRow }) {
+      state.current = action.payload
+      upsertTransaction(state.items, action.payload)
     },
   },
   extraReducers: (builder) => {

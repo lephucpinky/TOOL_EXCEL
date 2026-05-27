@@ -259,7 +259,7 @@ export default function Page() {
       {
         key: "index",
         title: "STT",
-        className: "w-[70px] text-slate-500",
+        className: "w-[10px] text-slate-500",
         render: (_item, index) => index + 1,
       },
       {

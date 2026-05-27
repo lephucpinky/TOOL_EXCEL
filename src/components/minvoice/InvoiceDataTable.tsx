@@ -1,16 +1,20 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import { createPortal } from "react-dom"
 import { InvoiceApiRow, InvoiceStatus } from "@/types/invoice"
 import DataTable, { DataTableColumn } from "../common/Datatable"
-import { FileText, HandCoins, Loader2, Printer } from "lucide-react"
 import {
-  canStartInvoiceExport,
-  getInvoiceStatus,
-  invoiceStatusClass,
-  invoiceStatusLabel,
-} from "@/utils/invoice"
-
+  FileText,
+  HandCoins,
+  Loader2,
+  Printer,
+  SlidersHorizontal,
+  X,
+} from "lucide-react"
+import Pagination from "../pagination/Pagination"
+import * as invoiceHelper from "@/utils/invoice"
+import { ToolbarButton } from "./InvoiceToolbar"
 type Props = {
   rows: InvoiceApiRow[]
   loading?: boolean
@@ -27,85 +31,6 @@ type InvoiceProductValue =
   | NonNullable<InvoiceApiRow["items"]>[number]["productId"]
   | NonNullable<InvoiceApiRow["items"]>[number]["product"]
 
-function getAgencyName(value: InvoiceApiRow["agencyId"]) {
-  if (!value || typeof value === "string") return ""
-  return String(value.agencyName || "")
-}
-
-function getDepartmentName(value: InvoiceApiRow["departmentId"]) {
-  if (!value || typeof value === "string") return ""
-  return String(value.departmentName || "")
-}
-
-function getEmployeeName(value: InvoiceApiRow["employeeId"]) {
-  if (!value || typeof value === "string") return ""
-  return String(value.employeeName || "")
-}
-
-function getProductCode(product: InvoiceProductValue) {
-  if (!product || typeof product === "string") return ""
-  return String(product.inv_itemCode || "")
-}
-
-function getProductName(product: InvoiceProductValue) {
-  if (!product || typeof product === "string") return ""
-  return String(product.inv_itemName || "")
-}
-
-function getAgencyCommissionPercent(agency: InvoiceApiRow["agencyId"]) {
-  if (!agency || typeof agency === "string") return 0
-  return Number(agency.commissionPercent || 0)
-}
-
-function getInvoicePaymentState(invoice: InvoiceApiRow) {
-  const totalAmount = Number(invoice.inv_TotalAmount || 0)
-  const paidAmount = Number(invoice.paidAmount || 0)
-  const remainingAmount =
-    invoice.remainingAmount !== undefined
-      ? Number(invoice.remainingAmount || 0)
-      : Math.max(totalAmount - paidAmount, 0)
-
-  if (invoice.isPaid && paidAmount <= 0) {
-    return {
-      isPaid: true,
-      paidAmount: totalAmount,
-      remainingAmount: 0,
-    }
-  }
-
-  return {
-    isPaid: Boolean(invoice.isPaid || paidAmount > 0),
-    paidAmount,
-    remainingAmount,
-  }
-}
-
-function buildPaginationItems(currentPage: number, totalPages: number) {
-  if (totalPages <= 7) {
-    return Array.from({ length: totalPages }, (_, index) => index + 1)
-  }
-
-  const items: Array<number | string> = [1]
-  const startPage = Math.max(2, currentPage - 1)
-  const endPage = Math.min(totalPages - 1, currentPage + 1)
-
-  if (startPage > 2) {
-    items.push("left-ellipsis")
-  }
-
-  for (let page = startPage; page <= endPage; page += 1) {
-    items.push(page)
-  }
-
-  if (endPage < totalPages - 1) {
-    items.push("right-ellipsis")
-  }
-
-  items.push(totalPages)
-
-  return items
-}
-
 export default function InvoiceDataTable({
   rows,
   loading = false,
@@ -117,15 +42,148 @@ export default function InvoiceDataTable({
   onCollectPayment,
 }: Props) {
   const [keyword, setKeyword] = useState("")
-  const [paidFilter, setPaidFilter] = useState("")
-  const [exportFilter, setExportFilter] = useState("")
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [mounted, setMounted] = useState(false)
+
+  const [draftFromDate, setDraftFromDate] = useState("")
+  const [draftToDate, setDraftToDate] = useState("")
+  const [draftExportStatusFilter, setDraftExportStatusFilter] = useState("")
+  const [draftOrderCreateFilter, setDraftOrderCreateFilter] = useState("")
+  const [draftAgencyFilter, setDraftAgencyFilter] = useState("")
+
+  const [fromDate, setFromDate] = useState("")
+  const [toDate, setToDate] = useState("")
+  const [exportStatusFilter, setExportStatusFilter] = useState("")
+  const [orderCreateFilter, setOrderCreateFilter] = useState("")
+  const [agencyFilter, setAgencyFilter] = useState("")
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(10)
+  const [pageSize, setPageSize] = useState(50)
+
+  const invoiceStatusLabel = invoiceHelper.invoiceStatusLabel
+  const invoiceStatusClass = invoiceHelper.invoiceStatusClass
+  const getInvoiceStatus = invoiceHelper.getInvoiceStatus
+  const canStartInvoiceExport = invoiceHelper.canStartInvoiceExport
+  const getAgencyName = (value: InvoiceApiRow["agencyId"]) => {
+    if (!value || typeof value === "string") return ""
+    return String(value.agencyName || "")
+  }
+
+  const getDepartmentName = (value: InvoiceApiRow["departmentId"]) => {
+    if (!value || typeof value === "string") return ""
+    return String(value.departmentName || "")
+  }
+
+  const getEmployeeName = (value: InvoiceApiRow["employeeId"]) => {
+    if (!value || typeof value === "string") return ""
+    return String(value.employeeName || "")
+  }
+
+  const getProductCode = (product: InvoiceProductValue) => {
+    if (!product || typeof product === "string") return ""
+    return String(product.inv_itemCode || "")
+  }
+
+  const getProductName = (product: InvoiceProductValue) => {
+    if (!product || typeof product === "string") return ""
+    return String(product.inv_itemName || "")
+  }
+
+  const getInvoicePaymentState = (invoice: InvoiceApiRow) => {
+    const totalAmount = Number(invoice.inv_TotalAmount || 0)
+    const paidAmount = Number(invoice.paidAmount || 0)
+    const remainingAmount =
+      invoice.remainingAmount !== undefined
+        ? Number(invoice.remainingAmount || 0)
+        : Math.max(totalAmount - paidAmount, 0)
+
+    if (invoice.isPaid && paidAmount <= 0) {
+      return {
+        isPaid: true,
+        paidAmount: totalAmount,
+        remainingAmount: 0,
+      }
+    }
+
+    return {
+      isPaid: Boolean(invoice.isPaid || paidAmount > 0),
+      paidAmount,
+      remainingAmount,
+    }
+  }
 
   const moneyFormatter = useMemo(() => {
     return new Intl.NumberFormat("vi-VN")
   }, [])
+  const agencyOptions = useMemo(() => {
+    const optionMap = new Map<string, string>()
 
+    rows.forEach((invoice) => {
+      const agencyName = getAgencyName(invoice.agencyId)
+      const agencyId = invoiceHelper.getId(invoice.agencyId) || agencyName
+
+      if (!agencyId || !agencyName) return
+
+      optionMap.set(agencyId, agencyName)
+    })
+
+    return Array.from(optionMap.entries())
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, "vi"))
+  }, [rows])
+
+  const hasActiveFilters = Boolean(
+    keyword ||
+      fromDate ||
+      toDate ||
+      exportStatusFilter ||
+      orderCreateFilter ||
+      agencyFilter
+  )
+
+  const handleClearFilters = () => {
+    setKeyword("")
+
+    setDraftFromDate("")
+    setDraftToDate("")
+    setDraftExportStatusFilter("")
+    setDraftOrderCreateFilter("")
+    setDraftAgencyFilter("")
+
+    setFromDate("")
+    setToDate("")
+    setExportStatusFilter("")
+    setOrderCreateFilter("")
+    setAgencyFilter("")
+
+    setPage(1)
+  }
+
+  const handleApplyFilters = () => {
+    setFromDate(draftFromDate)
+    setToDate(draftToDate)
+    setExportStatusFilter(draftExportStatusFilter)
+    setOrderCreateFilter(draftOrderCreateFilter)
+    setAgencyFilter(draftAgencyFilter)
+    setPage(1)
+    setFilterOpen(false)
+  }
+
+  const handleToggleFilter = () => {
+    setDraftFromDate(fromDate)
+    setDraftToDate(toDate)
+    setDraftExportStatusFilter(exportStatusFilter)
+    setDraftOrderCreateFilter(orderCreateFilter)
+    setDraftAgencyFilter(agencyFilter)
+    setFilterOpen((current) => !current)
+  }
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  const filterToolbarSlot =
+    mounted && typeof document !== "undefined"
+      ? document.getElementById("invoice-order-filter-toolbar-slot")
+      : null
   const filteredRows = useMemo(() => {
     const searchValue = keyword.trim().toLowerCase()
 
@@ -134,14 +192,20 @@ export default function InvoiceDataTable({
       const product = firstItem?.productId
 
       const invoiceStatus = getInvoiceStatus(invoice)
-      const exported = invoiceStatus === InvoiceStatus.ISSUED
-      const issuing = invoiceStatus === InvoiceStatus.ISSUING
+      const invoiceDate = invoiceHelper.normalizeDateInput(
+        invoice.inv_invoiceIssuedDate
+      )
+
+      const agencyName = getAgencyName(invoice.agencyId)
+      const agencyId = invoiceHelper.getId(invoice.agencyId) || agencyName
+
+      const orderCreated = Boolean(String(invoice.orderNumber || "").trim())
 
       const searchText = [
         invoice.inv_invoiceSeries,
         invoice.orderNumber,
         invoice.inv_invoiceIssuedDate,
-        getAgencyName(invoice.agencyId),
+        agencyName,
         getDepartmentName(invoice.departmentId),
         getEmployeeName(invoice.employeeId),
         invoice.inv_buyerTaxCode,
@@ -154,47 +218,69 @@ export default function InvoiceDataTable({
         getProductName(product),
         invoice.inv_invoiceCreatedId,
         invoiceStatusLabel[invoiceStatus],
-        exported ? "đã tạo đã xuất hóa đơn" : "",
-        issuing ? "đang xuất hóa đơn" : "",
-        !exported && !issuing ? "chưa tạo nháp" : "",
         invoice.note,
       ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
 
-      const paidStatus = getInvoicePaymentState(invoice).isPaid
-        ? "paid"
-        : "unpaid"
-      const exportStatus =
-        invoiceStatus === InvoiceStatus.ISSUED
-          ? "exported"
-          : invoiceStatus === InvoiceStatus.ISSUING
-            ? "issuing"
-            : invoiceStatus === InvoiceStatus.FAILED
-              ? "failed"
-              : "not_exported"
-
       const matchKeyword = searchValue ? searchText.includes(searchValue) : true
-      const matchPaid = paidFilter ? paidStatus === paidFilter : true
-      const matchExport = exportFilter ? exportStatus === exportFilter : true
 
-      return matchKeyword && matchPaid && matchExport
+      const matchFromDate = fromDate
+        ? Boolean(invoiceDate && invoiceDate >= fromDate)
+        : true
+
+      const matchToDate = toDate
+        ? Boolean(invoiceDate && invoiceDate <= toDate)
+        : true
+
+      const matchExportStatus = exportStatusFilter
+        ? invoiceStatus === exportStatusFilter
+        : true
+
+      const matchOrderCreate =
+        orderCreateFilter === "created"
+          ? orderCreated
+          : orderCreateFilter === "not_created"
+            ? !orderCreated
+            : true
+
+      const matchAgency = agencyFilter ? agencyId === agencyFilter : true
+
+      return (
+        matchKeyword &&
+        matchFromDate &&
+        matchToDate &&
+        matchExportStatus &&
+        matchOrderCreate &&
+        matchAgency
+      )
     })
-  }, [rows, keyword, paidFilter, exportFilter])
+  }, [
+    rows,
+    keyword,
+    fromDate,
+    toDate,
+    exportStatusFilter,
+    orderCreateFilter,
+    agencyFilter,
+  ])
 
   useEffect(() => {
     setPage(1)
-  }, [rows])
-
+  }, [
+    rows,
+    keyword,
+    fromDate,
+    toDate,
+    exportStatusFilter,
+    orderCreateFilter,
+    agencyFilter,
+  ])
   const totalPages = Math.max(Math.ceil(filteredRows.length / pageSize), 1)
   const safePage = Math.min(page, totalPages)
   const startIndex = (safePage - 1) * pageSize
   const pageRows = filteredRows.slice(startIndex, startIndex + pageSize)
-  const paginationItems = useMemo(
-    () => buildPaginationItems(safePage, totalPages),
-    [safePage, totalPages]
-  )
 
   const summary = useMemo(() => {
     return filteredRows.reduce(
@@ -286,7 +372,7 @@ export default function InvoiceDataTable({
     {
       key: "inv_invoiceSeries",
       title: "Ký hiệu HĐ",
-      className: "whitespace-nowrap text-center ",
+      className: "whitespace-nowrap text-center min-w-[100px] ",
       headerClassName: "text-center",
       render: (invoice) => invoice.inv_invoiceSeries || "-",
     },
@@ -301,7 +387,7 @@ export default function InvoiceDataTable({
         return (
           <div className="flex flex-col items-center gap-1">
             <span
-              className={`inline-flex min-w-[110px] justify-center rounded-full border px-2.5 py-1 text-xs font-semibold ${invoiceStatusClass[status]}`}
+              className={`inline-flex min-w-[150px] justify-center rounded-full border px-2.5 py-1 text-xs font-semibold ${invoiceStatusClass[status]}`}
             >
               {invoiceStatusLabel[status]}
             </span>
@@ -312,7 +398,7 @@ export default function InvoiceDataTable({
     {
       key: "agencyId",
       title: "Đại lý",
-      className: "min-w-[180px]",
+      className: "min-w-[130px]",
       render: (invoice) => getAgencyName(invoice.agencyId) || "-",
     },
     {
@@ -336,14 +422,14 @@ export default function InvoiceDataTable({
     {
       key: "companyName",
       title: "Tên công ty",
-      className: "min-w-[260px]",
+      className: "min-w-[150px]",
       render: (invoice) =>
         invoice.inv_buyerLegalName || invoice.inv_buyerDisplayName || "-",
     },
     {
       key: "inv_quantity",
       title: "SL",
-      className: "text-center font-semibold",
+      className: "text-center",
       headerClassName: "text-center",
       render: (invoice) => Number(invoice.inv_quantity || 0),
     },
@@ -357,13 +443,13 @@ export default function InvoiceDataTable({
     {
       key: "productName",
       title: "Tên SP",
-      className: "min-w-[220px]",
+      className: "min-w-[150px]",
       render: (invoice) => getProductName(invoice.items?.[0]?.productId) || "-",
     },
     {
       key: "inv_TotalAmountWithoutVAT",
       title: "Tổng giá trị",
-      className: "whitespace-nowrap text-right font-semibold",
+      className: "whitespace-nowrap text-right ",
       headerClassName: "text-right",
       render: (invoice) =>
         moneyFormatter.format(Number(invoice.inv_TotalAmountWithoutVAT || 0)),
@@ -371,7 +457,7 @@ export default function InvoiceDataTable({
     {
       key: "inv_vatAmount",
       title: "Tiền thuế",
-      className: "whitespace-nowrap text-right font-semibold",
+      className: "whitespace-nowrap text-right ",
       headerClassName: "text-right",
       render: (invoice) =>
         moneyFormatter.format(Number(invoice.inv_vatAmount || 0)),
@@ -379,7 +465,7 @@ export default function InvoiceDataTable({
     {
       key: "inv_TotalAmount",
       title: "Tổng xuất HĐ",
-      className: "whitespace-nowrap text-right font-semibold",
+      className: "whitespace-nowrap text-right min-w-[120px] ",
       headerClassName: "text-right",
       render: (invoice) =>
         moneyFormatter.format(Number(invoice.inv_TotalAmount || 0)),
@@ -431,7 +517,7 @@ export default function InvoiceDataTable({
 
         return (
           <span
-            className={`inline-flex min-w-[82px] justify-center rounded px-2 py-1 text-xs font-semibold ${
+            className={`inline-flex min-w-[82px] justify-center rounded-xl px-2 py-1 text-xs font-semibold ${
               isPaid
                 ? "bg-emerald-100 text-emerald-700"
                 : "bg-amber-100 text-amber-700"
@@ -445,7 +531,7 @@ export default function InvoiceDataTable({
     {
       key: "paidAmount",
       title: "Số tiền",
-      className: "whitespace-nowrap text-right font-semibold",
+      className: "whitespace-nowrap text-right ",
       headerClassName: "text-right",
       render: (invoice) =>
         moneyFormatter.format(getInvoicePaymentState(invoice).paidAmount),
@@ -453,7 +539,7 @@ export default function InvoiceDataTable({
     {
       key: "remainingAmount",
       title: "Còn lại",
-      className: "whitespace-nowrap text-right font-semibold",
+      className: "whitespace-nowrap text-right ",
       headerClassName: "text-right",
       render: (invoice) =>
         moneyFormatter.format(getInvoicePaymentState(invoice).remainingAmount),
@@ -467,52 +553,163 @@ export default function InvoiceDataTable({
   ]
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 bg-white p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          className="h-9 w-full max-w-[360px] rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-indigo-500"
-          value={keyword}
-          onChange={(e) => {
-            setPage(1)
-            setKeyword(e.target.value)
-          }}
-          placeholder="Tìm theo MST, công ty, đại lý, nhân viên, sản phẩm..."
-        />
+    <div className="mx-4 flex min-h-0 flex-1 flex-col gap-3 bg-white p-3">
+      {filterToolbarSlot &&
+        createPortal(
+          <div className="relative">
+            <ToolbarButton
+              onClick={handleToggleFilter}
+              variant={filterOpen || hasActiveFilters ? "primary" : "default"}
+              disabled={loading}
+            >
+              <SlidersHorizontal size={16} />
+            </ToolbarButton>
 
-        <select
-          className="h-9 rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-indigo-500"
-          value={paidFilter}
-          onChange={(e) => {
-            setPage(1)
-            setPaidFilter(e.target.value)
-          }}
-        >
-          <option value="">Tất cả thu tiền</option>
-          <option value="paid">Đã thu</option>
-          <option value="unpaid">Chưa thu</option>
-        </select>
+            {filterOpen && (
+              <div className="absolute left-0 top-[calc(100%+8px)] z-[999] w-[560px] max-w-[calc(100vw-32px)] rounded-lg border border-slate-200 bg-white p-6 shadow-xl">
+                <div className="grid gap-4">
+                  <div className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-center">
+                    <label className="text-sm font-medium text-slate-700">
+                      Từ ngày
+                    </label>
+                    <input
+                      type="date"
+                      value={draftFromDate}
+                      onChange={(e) => setDraftFromDate(e.target.value)}
+                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    />
+                  </div>
 
-        <select
-          className="h-9 rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-indigo-500"
-          value={exportFilter}
-          onChange={(e) => {
-            setPage(1)
-            setExportFilter(e.target.value)
-          }}
-        >
-          <option value="">Tất cả xuất HĐ</option>
-          <option value="exported">Đã xuất HĐ</option>
-          <option value="issuing">Đang xuất HĐ</option>
-          <option value="failed">Xuất thất bại</option>
-          <option value="not_exported">Chưa xuất HĐ</option>
-        </select>
+                  <div className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-center">
+                    <label className="text-sm font-medium text-slate-700">
+                      Đến ngày
+                    </label>
+                    <input
+                      type="date"
+                      value={draftToDate}
+                      onChange={(e) => setDraftToDate(e.target.value)}
+                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    />
+                  </div>
 
-        <div className="ml-auto text-sm text-slate-500">
-          Tổng:{" "}
-          <span className="font-semibold text-slate-800">
-            {filteredRows.length}
-          </span>{" "}
-          hóa đơn
+                  <div className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-center">
+                    <label className="text-sm font-medium text-slate-700">
+                      Trạng thái xuất hóa đơn
+                    </label>
+                    <select
+                      value={draftExportStatusFilter}
+                      onChange={(e) =>
+                        setDraftExportStatusFilter(e.target.value)
+                      }
+                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    >
+                      <option value="">Tất cả</option>
+                      <option value={InvoiceStatus.DRAFT}>Nháp</option>
+                      <option value={InvoiceStatus.ISSUING}>
+                        Đang xuất hóa đơn
+                      </option>
+                      <option value={InvoiceStatus.ISSUED}>
+                        Đã xuất hóa đơn
+                      </option>
+                      <option value={InvoiceStatus.FAILED}>
+                        Xuất thất bại
+                      </option>
+                      <option value={InvoiceStatus.CANCELLED}>Đã hủy</option>
+                    </select>
+                  </div>
+
+                  <div className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-center">
+                    <label className="text-sm font-medium text-slate-700">
+                      Trạng thái tạo đơn hàng
+                    </label>
+                    <select
+                      value={draftOrderCreateFilter}
+                      onChange={(e) =>
+                        setDraftOrderCreateFilter(e.target.value)
+                      }
+                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    >
+                      <option value="">Tất cả</option>
+                      <option value="created">Đã tạo đơn hàng</option>
+                      <option value="not_created">Chưa tạo đơn hàng</option>
+                    </select>
+                  </div>
+
+                  <div className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-center">
+                    <label className="text-sm font-medium text-slate-700">
+                      Đại lý
+                    </label>
+                    <select
+                      value={draftAgencyFilter}
+                      onChange={(e) => setDraftAgencyFilter(e.target.value)}
+                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    >
+                      <option value="">Tất cả đại lý</option>
+                      {agencyOptions.map((agency) => (
+                        <option key={agency.value} value={agency.value}>
+                          {agency.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 sm:pl-[170px]">
+                    <button
+                      type="button"
+                      onClick={handleApplyFilters}
+                      className="inline-flex h-11 items-center justify-center rounded-lg bg-blue-600 px-5 text-sm font-semibold text-white transition hover:bg-blue-700"
+                    >
+                      Lọc
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleClearFilters}
+                      className="inline-flex h-11 items-center justify-center rounded-lg bg-red-700 px-5 text-sm font-semibold text-white transition hover:bg-red-800"
+                    >
+                      Xóa lọc
+                    </button>
+                  </div>
+
+                  <div className="text-sm font-bold text-blue-700 sm:pl-[170px]">
+                    Tổng đơn hàng: {filteredRows.length}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>,
+          filterToolbarSlot
+        )}
+      <div className="relative z-40">
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            className="h-9 w-full max-w-[360px] rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-indigo-500"
+            value={keyword}
+            onChange={(e) => {
+              setPage(1)
+              setKeyword(e.target.value)
+            }}
+            placeholder="Tìm theo MST, công ty, đại lý, nhân viên, sản phẩm..."
+          />
+
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={handleClearFilters}
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700 transition hover:bg-red-100"
+            >
+              <X size={15} />
+              Xóa lọc
+            </button>
+          )}
+
+          <div className="ml-auto text-sm text-slate-500">
+            Tổng:{" "}
+            <span className="font-semibold text-slate-800">
+              {filteredRows.length}
+            </span>{" "}
+            hóa đơn
+          </div>
         </div>
       </div>
 
@@ -579,7 +776,7 @@ export default function InvoiceDataTable({
                     onCollectPayment(invoice)
                   }}
                   title="Thu tiền"
-                  className="border-teal-200 bg-teal-50 text-teal-700 hover:border-teal-400 hover:bg-teal-100 hover:text-teal-800 inline-flex h-8 w-8 items-center justify-center rounded-lg border shadow-sm transition"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-teal-200 bg-teal-50 text-teal-700 shadow-sm transition hover:border-teal-400 hover:bg-teal-100 hover:text-teal-800"
                 >
                   <HandCoins size={15} />
                 </button>
@@ -645,109 +842,17 @@ export default function InvoiceDataTable({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
-        <div className="space-y-1 text-xs text-slate-500">
-          <div>
-            Hiển thị{" "}
-            <span className="font-semibold text-slate-700">
-              {filteredRows.length === 0 ? 0 : startIndex + 1}
-            </span>{" "}
-            -{" "}
-            <span className="font-semibold text-slate-700">
-              {Math.min(startIndex + pageSize, filteredRows.length)}
-            </span>{" "}
-            trong{" "}
-            <span className="font-semibold text-slate-700">
-              {filteredRows.length}
-            </span>{" "}
-            bản ghi
-          </div>
-          <div>
-            Trang{" "}
-            <span className="font-semibold text-slate-700">{safePage}</span> /{" "}
-            <span className="font-semibold text-slate-700">{totalPages}</span>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <button
-            type="button"
-            className="h-8 rounded border border-slate-300 px-3 text-sm disabled:opacity-40"
-            disabled={safePage <= 1}
-            onClick={() => setPage(1)}
-          >
-            «
-          </button>
-
-          <button
-            type="button"
-            className="h-8 rounded border border-slate-300 px-3 text-sm disabled:opacity-40"
-            disabled={safePage <= 1}
-            onClick={() => setPage((prev) => Math.max(prev - 1, 1))}
-          >
-            ‹
-          </button>
-
-          <div className="flex items-center gap-1">
-            {paginationItems.map((item) =>
-              typeof item === "number" ? (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => setPage(item)}
-                  className={[
-                    "h-8 min-w-[34px] rounded-md border px-2 text-sm font-medium transition",
-                    item === safePage
-                      ? "border-indigo-500 bg-indigo-600 text-white"
-                      : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
-                  ].join(" ")}
-                >
-                  {item}
-                </button>
-              ) : (
-                <span
-                  key={item}
-                  className="inline-flex h-8 min-w-[26px] items-center justify-center text-sm text-slate-400"
-                >
-                  ...
-                </span>
-              )
-            )}
-          </div>
-
-          <button
-            type="button"
-            className="h-8 rounded border border-slate-300 px-3 text-sm disabled:opacity-40"
-            disabled={safePage >= totalPages}
-            onClick={() => setPage((prev) => Math.min(prev + 1, totalPages))}
-          >
-            ›
-          </button>
-
-          <button
-            type="button"
-            className="h-8 rounded border border-slate-300 px-3 text-sm disabled:opacity-40"
-            disabled={safePage >= totalPages}
-            onClick={() => setPage(totalPages)}
-          >
-            »
-          </button>
-
-          <select
-            className="h-8 rounded-md border border-slate-300 bg-white px-2 text-sm"
-            value={pageSize}
-            onChange={(e) => {
-              setPage(1)
-              setPageSize(Number(e.target.value))
-            }}
-          >
-            <option value={10}>10 / trang</option>
-            <option value={20}>20 / trang</option>
-            <option value={50}>50 / trang</option>
-            <option value={100}>100 / trang</option>
-          </select>
-        </div>
-      </div>
+      <Pagination
+        currentPage={safePage}
+        setCurrentPage={setPage}
+        totalItem={filteredRows.length}
+        itemPerPage={pageSize}
+        setItemPerPage={(nextPageSize) => {
+          setPage(1)
+          setPageSize(nextPageSize)
+        }}
+        pageSizeOptions={[10, 20, 50, 100]}
+      />
     </div>
   )
 }

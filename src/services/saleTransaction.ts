@@ -1,5 +1,16 @@
 import axiosInstance from "./axiosInstance"
 
+export type SaleTransactionReportExportParams = {
+  startDate?: string
+  endDate?: string
+  invoiceStatus?: string
+  isPaid?: boolean
+  agencyId?: string
+  employeeId?: string
+  departmentId?: string
+  bankId?: string
+}
+
 const normalizeResponse = (response: any) => {
   return {
     data:
@@ -9,6 +20,14 @@ const normalizeResponse = (response: any) => {
       response?.data,
     status: response?.status,
   }
+}
+
+const cleanParams = (params?: SaleTransactionReportExportParams) => {
+  return Object.fromEntries(
+    Object.entries(params || {}).filter(([, value]) => {
+      return value !== undefined && value !== null && value !== ""
+    })
+  )
 }
 
 const APICreateSaleTransaction = async (data: any) => {
@@ -199,6 +218,25 @@ const APIDeleteSaleTransaction = async (id: string) => {
   }
 }
 
+const APIExportSaleTransactionReport = async (
+  params?: SaleTransactionReportExportParams
+) => {
+  try {
+    const response = await axiosInstance.get(
+      "/sale-transaction/report/export",
+      {
+        params: cleanParams(params),
+        responseType: "blob",
+      }
+    )
+
+    return response
+  } catch (err) {
+    console.error("Error during export sale transaction report:", err)
+    throw err
+  }
+}
+
 const APISendSaleTransactionReceipt = async (id: string) => {
   try {
     const response = await axiosInstance.post(
@@ -228,5 +266,6 @@ export {
   APIUpdateSaleTransaction,
   APIUpdateSaleTransactionBank,
   APIDeleteSaleTransaction,
+  APIExportSaleTransactionReport,
   APISendSaleTransactionReceipt,
 }

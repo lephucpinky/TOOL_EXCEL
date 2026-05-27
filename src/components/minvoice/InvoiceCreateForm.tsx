@@ -1255,8 +1255,8 @@ export default function InvoiceCreateForm({
                 >
                   <option value="" disabled>
                     {receiptConfigs.length
-                      ? "Chọn cấu hình hóa đơn"
-                      : "Chưa có cấu hình hóa đơn"}
+                      ? "Chọn ký hiệu"
+                      : "Chưa có ký hiệu"}
                   </option>
                   {receiptConfigs.map((config, index) => (
                     <option

@@ -10,14 +10,7 @@ import InvoiceToolbar from "@/components/minvoice/InvoiceToolbar"
 import InvoiceCollectPaymentDialog from "@/components/minvoice/InvoiceCollectPaymentDialog"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import {
-  APICreateSaleTransaction,
-  APIDeleteSaleTransaction,
-  APIGetSaleTransactionById,
-  APIGetSaleTransactions,
-  APIUpdateSaleTransaction,
-  APIUpdateSaleTransactionBank,
-} from "@/services/saleTransaction"
+import { APIDeleteSaleTransaction } from "@/services/saleTransaction"
 
 import AlertOption from "@/components/alert/AlertOption"
 import AlertSuccess from "@/components/alert/AlertSuccess"
@@ -28,14 +21,7 @@ import {
   APIViewPrintInvoice,
 } from "@/services/mInvoiceReceipt"
 import { APIGetReceiptInvoices } from "@/services/receiptInvoice"
-import {
-  canStartInvoiceExport,
-  getExportInvoiceId,
-  getId,
-  getInvoiceStatus,
-  normalizeDateInput,
-  toNumber,
-} from "@/utils/invoice"
+import * as invoiceHelper from "@/utils/invoice"
 import { buildCreateInvoiceApiBody } from "@/utils/invoicePayload"
 import {
   applyInvoiceExportResolutionToRow,
@@ -48,6 +34,16 @@ import {
   isInvoiceExportRateLimitedError,
   resolveInvoiceExportResult,
 } from "@/utils/invoiceExport"
+import { useAppDispatch, useAppSelector } from "@/store/hooks"
+import {
+  createSaleTransactionThunk,
+  fetchSaleTransactionByIdThunk,
+  fetchSaleTransactionsThunk,
+  saleTransactionActions,
+  updateSaleTransactionBankThunk,
+  updateSaleTransactionThunk,
+} from "@/store/slices"
+import { getErrorMessage } from "@/store/utils/crud"
 import { InvoiceApiRow, InvoiceStatus } from "@/types/invoice"
 import type { Bank } from "@/types/bank"
 import type { ReceiptInvoiceConfig } from "@/types/receiptInvoice"
@@ -60,298 +56,24 @@ const LIST_PARAMS = {
   limit: 1000,
 }
 
-function normalizeSaleTransactionList(response: any): InvoiceApiRow[] {
-  const raw = response?.data ?? []
-
-  const list = Array.isArray(raw)
-    ? raw
-    : Array.isArray(raw?.items)
-      ? raw.items
-      : Array.isArray(raw?.docs)
-        ? raw.docs
-        : Array.isArray(raw?.results)
-          ? raw.results
-          : Array.isArray(raw?.saleTransactions)
-            ? raw.saleTransactions
-            : Array.isArray(raw?.transactions)
-              ? raw.transactions
-              : []
-
-  return list.filter((item: any) => item?._id)
-}
-
-function normalizeReceiptInvoiceList(response: any): ReceiptInvoiceConfig[] {
-  const raw = response?.data ?? []
-
-  const list = Array.isArray(raw)
-    ? raw
-    : Array.isArray(raw?.items)
-      ? raw.items
-      : Array.isArray(raw?.docs)
-        ? raw.docs
-        : Array.isArray(raw?.results)
-          ? raw.results
-          : Array.isArray(raw?.receiptInvoices)
-            ? raw.receiptInvoices
-            : Array.isArray(raw?.configs)
-              ? raw.configs
-              : raw
-                ? [raw]
-                : []
-
-  return list.filter(
-    (item: any) =>
-      item && (getId(item) || item.inv_invoiceSeries || item.tax_code)
-  )
-}
-
-function normalizeBankList(response: any): Bank[] {
-  const raw = response?.data ?? []
-
-  const list = Array.isArray(raw)
-    ? raw
-    : Array.isArray(raw?.items)
-      ? raw.items
-      : Array.isArray(raw?.docs)
-        ? raw.docs
-        : Array.isArray(raw?.results)
-          ? raw.results
-          : Array.isArray(raw?.banks)
-            ? raw.banks
-            : raw
-              ? [raw]
-              : []
-
-  return list.filter((item: any) => item?._id)
-}
-
-function getReceiptConfigOptionValue(
-  config: ReceiptInvoiceConfig,
-  index: number
-) {
-  return (
-    getId(config) ||
-    [config.inv_invoiceSeries, config.tax_code].filter(Boolean).join("::") ||
-    `receipt-config-${index}`
-  )
-}
-
-function formatReceiptConfigLabel(config: ReceiptInvoiceConfig) {
-  const invoiceSeries = String(config.inv_invoiceSeries || "").trim()
-  const description = String(config.description || "").trim()
-
-  if (invoiceSeries && description) {
-    return `${invoiceSeries} - ${description}`
-  }
-
-  return invoiceSeries || description || "Cấu hình hóa đơn chưa hoàn chỉnh"
-}
-
-function getInvoiceSellerTaxCode(invoice: InvoiceApiRow, fallbackTaxCode = "") {
-  const row = invoice as any
-
-  return String(
-    row?.exportInvoiceData?.tax_code ||
-      row?.exportInvoiceData?.data?.tax_code ||
-      row?.content?.tax_code ||
-      row?.tax_code ||
-      fallbackTaxCode ||
-      ""
-  ).trim()
-}
-
-function isInvoiceMatchedReceiptConfig(
-  invoice: InvoiceApiRow,
-  config?: ReceiptInvoiceConfig | null
-) {
-  if (!config) return true
-
-  const invoiceSeries = String(invoice.inv_invoiceSeries || "").trim()
-  const invoiceTaxCode = getInvoiceSellerTaxCode(invoice)
-  const configSeries = String(config.inv_invoiceSeries || "").trim()
-  const configTaxCode = String(config.tax_code || "").trim()
-
-  const sameSeries = configSeries && invoiceSeries === configSeries
-  const sameTaxCode = configTaxCode && invoiceTaxCode === configTaxCode
-
-  return Boolean(sameSeries || sameTaxCode)
-}
-
-function findReceiptConfigByValue(
-  receiptConfigs: ReceiptInvoiceConfig[],
-  value: string
-) {
-  if (!value) return null
-
-  return (
-    receiptConfigs.find(
-      (config, index) => getReceiptConfigOptionValue(config, index) === value
-    ) || null
-  )
-}
-
-function buildPdfFileUrl(filePath: string) {
-  if (!filePath) return ""
-
-  if (/^https?:\/\//i.test(filePath)) {
-    return filePath
-  }
-
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL || ""
-
-  return `${baseUrl.replace(/\/$/, "")}/${filePath.replace(/^\//, "")}`
-}
-
-function formatPaymentAmountInput(value: any) {
-  const numberValue = toNumber(value)
-
-  if (numberValue <= 0) return ""
-
-  return new Intl.NumberFormat("vi-VN").format(numberValue)
-}
-
-function parsePaymentAmountInput(value: string) {
-  const digits = String(value || "").replace(/[^\d]/g, "")
-
-  return digits ? Number(digits) : 0
-}
-function normalizeSaleTransactionDetail(response: any): InvoiceApiRow | null {
-  const detail = response?.data ?? null
-
-  return detail?._id ? detail : null
-}
-
-function preferDisplayValue(
-  serverValue: any,
-  clientValue: any,
-  fallbackValue?: any
-) {
-  if (serverValue && typeof serverValue === "object") return serverValue
-  if (clientValue && typeof clientValue === "object") return clientValue
-  return serverValue ?? clientValue ?? fallbackValue
-}
-
-function buildClientItems(payload: any) {
-  const items = Array.isArray(payload?.items) ? payload.items : []
-
-  return items.map((item: any) => ({
-    productId: item.product || item.productId || null,
-    product: item.product || item.productId || null,
-    quantity: toNumber(item.quantity ?? item.inv_quantity ?? 0),
-    inv_quantity: toNumber(item.inv_quantity ?? item.quantity ?? 0),
-    revenue: toNumber(item.revenue),
-    capitalPrice: toNumber(item.capitalPrice),
-    totalSalary: toNumber(item.totalSalary),
-    accountingAccountCode: Number(item.accountingAccountCode || 0),
-  }))
-}
-
-function hydrateSaleTransactionDetail(
-  detail: InvoiceApiRow,
-  payload?: any,
-  fallback?: InvoiceApiRow | null
-): InvoiceApiRow {
-  const clientSnapshot = payload?.__clientSnapshot || {}
-  const clientPayment = payload?.__clientPayment || {}
-  const clientItems = buildClientItems(payload)
-
-  const mergedItems =
-    Array.isArray(detail?.items) && detail.items.length
-      ? detail.items.map((item: any, index: number) => {
-          const clientItem = clientItems[index]
-          const fallbackItem = fallback?.items?.[index] as any
-
-          return {
-            ...item,
-            productId: preferDisplayValue(
-              item?.productId,
-              clientItem?.productId,
-              fallbackItem?.productId
-            ),
-            product: preferDisplayValue(
-              item?.product,
-              clientItem?.product,
-              fallbackItem?.product
-            ),
-            quantity:
-              item?.quantity ??
-              item?.inv_quantity ??
-              clientItem?.quantity ??
-              fallbackItem?.quantity,
-            inv_quantity:
-              item?.inv_quantity ??
-              item?.quantity ??
-              clientItem?.inv_quantity ??
-              fallbackItem?.inv_quantity,
-          }
-        })
-      : clientItems.length
-        ? clientItems
-        : fallback?.items || []
-
-  const totalItemQuantity = mergedItems.reduce((sum: number, item: any) => {
-    return sum + toNumber(item?.inv_quantity ?? item?.quantity ?? 0)
-  }, 0)
-
-  return {
-    ...(fallback || {}),
-    ...detail,
-    // activationDate:
-    //   detail.activationDate ??
-    //   payload?.activationDate ??
-    //   fallback?.activationDate,
-    agencyId: preferDisplayValue(
-      detail.agencyId,
-      clientSnapshot.agency,
-      fallback?.agencyId
-    ),
-    departmentId: preferDisplayValue(
-      detail.departmentId,
-      clientSnapshot.department,
-      fallback?.departmentId
-    ),
-    employeeId: preferDisplayValue(
-      detail.employeeId,
-      clientSnapshot.employee,
-      fallback?.employeeId
-    ),
-    bankId: preferDisplayValue(
-      detail.bankId,
-      clientSnapshot.bank,
-      fallback?.bankId
-    ),
-    inv_buyerBankName:
-      detail.inv_buyerBankName ||
-      clientSnapshot.bank?.inv_buyerBankName ||
-      fallback?.inv_buyerBankName ||
-      payload?.inv_buyerBankName ||
-      "",
-    inv_quantity: toNumber(
-      detail.inv_quantity ??
-        payload?.inv_quantity ??
-        fallback?.inv_quantity ??
-        totalItemQuantity
-    ),
-    items: mergedItems,
-    isPaid: detail.isPaid ?? clientPayment.isPaid ?? fallback?.isPaid ?? false,
-    paidAmount:
-      detail.paidAmount ??
-      clientPayment.paidAmount ??
-      fallback?.paidAmount ??
-      0,
-    paidDate:
-      detail.paidDate ?? clientPayment.paidDate ?? fallback?.paidDate ?? "",
-    remainingAmount:
-      detail.remainingAmount ??
-      clientPayment.remainingAmount ??
-      fallback?.remainingAmount ??
-      0,
-  }
-}
-
 export default function InvoiceListPage() {
-  const [apiRows, setApiRows] = useState<InvoiceApiRow[]>([])
-  const [loading, setLoading] = useState(false)
+  const dispatch = useAppDispatch()
+  const {
+    items: apiRows,
+    loading: listLoading,
+    detailLoading,
+    submitLoading,
+    deleteLoading,
+  } = useAppSelector((state) => state.saleTransactions)
+
+  // Redux giữ danh sách hóa đơn; page chỉ giữ state điều hướng, dialog và filter cục bộ.
+  const [pageLoading, setPageLoading] = useState(false)
+  const loading =
+    pageLoading ||
+    listLoading ||
+    detailLoading ||
+    submitLoading ||
+    deleteLoading
   const [mode, setMode] = useState<PageMode>("list")
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(
     null
@@ -373,6 +95,7 @@ export default function InvoiceListPage() {
   const [exportingInvoiceId, setExportingInvoiceId] = useState<string | null>(
     null
   )
+  const apiRowsRef = useRef<InvoiceApiRow[]>([])
   const issuingSyncQueueRef = useRef<Set<string>>(new Set())
   const issuingSyncTimeoutRef = useRef<
     Map<string, ReturnType<typeof setTimeout>>
@@ -416,12 +139,28 @@ export default function InvoiceListPage() {
       setTimeout(() => URL.revokeObjectURL(currentUrl), 0)
     }
   }
+
+  useEffect(() => {
+    apiRowsRef.current = apiRows
+  }, [apiRows])
+
+  const replaceInvoiceRows = (
+    updater: (rows: InvoiceApiRow[]) => InvoiceApiRow[]
+  ) => {
+    const nextRows = updater(apiRowsRef.current)
+    apiRowsRef.current = nextRows
+    dispatch(saleTransactionActions.setSaleTransactions(nextRows))
+  }
+
   const selectedInvoice = useMemo(() => {
     if (!selectedInvoiceId) return null
     return apiRows.find((item) => item._id === selectedInvoiceId) ?? null
   }, [apiRows, selectedInvoiceId])
   const activeReceiptConfig = useMemo(() => {
-    return findReceiptConfigByValue(receiptConfigs, selectedReceiptConfigValue)
+    return invoiceHelper.findReceiptConfigByValue(
+      receiptConfigs,
+      selectedReceiptConfigValue
+    )
   }, [receiptConfigs, selectedReceiptConfigValue])
   const listReceiptConfig = useMemo(() => {
     if (
@@ -434,7 +173,8 @@ export default function InvoiceListPage() {
     return (
       receiptConfigs.find(
         (config, index) =>
-          getReceiptConfigOptionValue(config, index) === listReceiptConfigValue
+          invoiceHelper.getReceiptConfigOptionValue(config, index) ===
+          listReceiptConfigValue
       ) || null
     )
   }, [receiptConfigs, listReceiptConfigValue])
@@ -442,21 +182,20 @@ export default function InvoiceListPage() {
     if (!listReceiptConfig) return apiRows
 
     return apiRows.filter((invoice) =>
-      isInvoiceMatchedReceiptConfig(invoice, listReceiptConfig)
+      invoiceHelper.isInvoiceMatchedReceiptConfig(invoice, listReceiptConfig)
     )
   }, [apiRows, listReceiptConfig])
 
   const upsertInvoiceRow = (nextRow: InvoiceApiRow) => {
-    setApiRows((prev) => {
-      const existed = prev.some((item) => item._id === nextRow._id)
+    const existed = apiRowsRef.current.some((item) => item._id === nextRow._id)
 
-      if (!existed) return [nextRow, ...prev]
+    apiRowsRef.current = existed
+      ? apiRowsRef.current.map((item) =>
+          item._id === nextRow._id ? nextRow : item
+        )
+      : [nextRow, ...apiRowsRef.current]
 
-      return prev.map((item) => {
-        if (item._id !== nextRow._id) return item
-        return nextRow
-      })
-    })
+    dispatch(saleTransactionActions.upsertSaleTransaction(nextRow))
   }
 
   const hydrateAndUpsertInvoice = (
@@ -464,7 +203,12 @@ export default function InvoiceListPage() {
     payload?: any,
     fallback?: InvoiceApiRow | null
   ) => {
-    const nextDetail = hydrateSaleTransactionDetail(detail, payload, fallback)
+    // API đôi khi chỉ trả id liên kết; hydrate giữ lại object hiển thị từ payload/fallback.
+    const nextDetail = invoiceHelper.hydrateSaleTransactionDetail(
+      detail,
+      payload,
+      fallback
+    )
     upsertInvoiceRow(nextDetail)
     return nextDetail
   }
@@ -502,15 +246,19 @@ export default function InvoiceListPage() {
         ""
     ).trim(),
     invoiceIssuedDate:
-      normalizeDateInput(
+      invoiceHelper.normalizeDateInput(
         resolution?.exportData?.inv_invoiceIssuedDate ||
           fallback?.inv_invoiceIssuedDate ||
           ""
       ) || undefined,
     taxCode: String(
       resolution?.exportData?.tax_code ||
-        (fallback ? getInvoiceSellerTaxCode(fallback) : "") ||
-        ""
+        (fallback
+          ? invoiceHelper.getInvoiceSellerTaxCode(
+              fallback,
+              activeReceiptConfig?.tax_code || ""
+            )
+          : "")
     ).trim(),
   })
 
@@ -518,21 +266,18 @@ export default function InvoiceListPage() {
     saleTransactionId: string,
     fallback?: InvoiceApiRow | null
   ) => {
-    const res = await APIGetSaleTransactionById(saleTransactionId)
+    const detail = await dispatch(
+      fetchSaleTransactionByIdThunk(saleTransactionId)
+    ).unwrap()
 
     console.log("ISSUING_INVOICE_SYNC_RESPONSE", {
       saleTransactionId,
-      response: res,
+      detail,
     })
 
-    if (res?.status !== 200 && res?.status !== 201) {
-      throw res
-    }
-
-    const detail = normalizeSaleTransactionDetail(res)
     if (!detail?._id) {
       return {
-        response: res,
+        response: null,
         detail: null,
       }
     }
@@ -545,11 +290,12 @@ export default function InvoiceListPage() {
     })
 
     return {
-      response: res,
+      response: null,
       detail: nextDetail,
     }
   }
 
+  // M-Invoice có thể trả trạng thái đang xử lý, nên page kiểm tra lại vài nhịp ngắn.
   const scheduleInvoiceRefresh = (
     saleTransactionId: string,
     fallback?: InvoiceApiRow | null,
@@ -685,7 +431,7 @@ export default function InvoiceListPage() {
     resolution: InvoiceExportResolution,
     options?: { openDetail?: boolean; fallbackRow?: InvoiceApiRow | null }
   ) => {
-    setApiRows((prev) =>
+    replaceInvoiceRows((prev) =>
       prev.map((row) => {
         if (row._id !== saleTransactionId) return row
 
@@ -711,25 +457,19 @@ export default function InvoiceListPage() {
     setMode("detail")
   }
 
+  // Danh sách chính đi qua Redux thunk; service/slice chịu trách nhiệm gọi API.
   const handleGetSaleTransactions = async () => {
     try {
-      setLoading(true)
-
-      const res = await APIGetSaleTransactions(LIST_PARAMS)
-
-      if (res?.status === 200 || res?.status === 201) {
-        setApiRows(normalizeSaleTransactionList(res))
-        return
-      }
-
-      setApiRows([])
+      const rows = await dispatch(
+        fetchSaleTransactionsThunk(LIST_PARAMS)
+      ).unwrap()
+      apiRowsRef.current = rows
     } catch (err: any) {
       console.error("APIGetSaleTransactions error:", err)
+      replaceInvoiceRows(() => [])
       showErrorMessage(
-        err?.response?.data?.message || "Không thể tải danh sách hóa đơn"
+        getErrorMessage(err) || "Không thể tải danh sách hóa đơn"
       )
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -740,7 +480,7 @@ export default function InvoiceListPage() {
       const res = await APIGetReceiptInvoices()
 
       if (res?.status === 200 || res?.status === 201) {
-        setReceiptConfigs(normalizeReceiptInvoiceList(res))
+        setReceiptConfigs(invoiceHelper.normalizeReceiptInvoiceList(res))
         return
       }
 
@@ -772,7 +512,8 @@ export default function InvoiceListPage() {
       if (!prev) return ""
 
       const existed = receiptConfigs.some(
-        (config, index) => getReceiptConfigOptionValue(config, index) === prev
+        (config, index) =>
+          invoiceHelper.getReceiptConfigOptionValue(config, index) === prev
       )
 
       return existed ? prev : ""
@@ -782,7 +523,8 @@ export default function InvoiceListPage() {
       if (prev === LIST_ALL_RECEIPT_CONFIG_VALUE) return prev
 
       const existed = receiptConfigs.some(
-        (config, index) => getReceiptConfigOptionValue(config, index) === prev
+        (config, index) =>
+          invoiceHelper.getReceiptConfigOptionValue(config, index) === prev
       )
 
       return existed ? prev : LIST_ALL_RECEIPT_CONFIG_VALUE
@@ -792,7 +534,8 @@ export default function InvoiceListPage() {
   useEffect(() => {
     if (!selectedInvoice || !receiptConfigs.length) return
 
-    const invoiceTaxCode = getInvoiceSellerTaxCode(selectedInvoice)
+    const invoiceTaxCode =
+      invoiceHelper.getInvoiceSellerTaxCode(selectedInvoice)
     const matchedIndex = receiptConfigs.findIndex((config) => {
       const sameSeries =
         String(config.inv_invoiceSeries || "").trim() ===
@@ -806,7 +549,7 @@ export default function InvoiceListPage() {
 
     if (matchedIndex < 0) return
 
-    const nextValue = getReceiptConfigOptionValue(
+    const nextValue = invoiceHelper.getReceiptConfigOptionValue(
       receiptConfigs[matchedIndex],
       matchedIndex
     )
@@ -818,7 +561,10 @@ export default function InvoiceListPage() {
 
   useEffect(() => {
     apiRows.forEach((invoice) => {
-      if (getInvoiceStatus(invoice) !== InvoiceStatus.ISSUING || !invoice._id) {
+      if (
+        invoiceHelper.getInvoiceStatus(invoice) !== InvoiceStatus.ISSUING ||
+        !invoice._id
+      ) {
         if (invoice._id) {
           cancelInvoiceRefresh(invoice._id)
         }
@@ -873,15 +619,15 @@ export default function InvoiceListPage() {
     }
 
     try {
-      setLoading(true)
+      setPageLoading(true)
       setDeleteDialogOpen(false)
 
       const res = await APIDeleteSaleTransaction(id)
 
       if (res?.status === 200 || res?.status === 201 || res?.status === 204) {
-        const detail = normalizeSaleTransactionDetail(res)
+        const detail = invoiceHelper.normalizeSaleTransactionDetail(res)
 
-        setApiRows((prev) =>
+        replaceInvoiceRows((prev) =>
           prev.map((row) => {
             if (row._id !== id) return row
 
@@ -906,102 +652,76 @@ export default function InvoiceListPage() {
 
       showErrorMessage(err?.response?.data?.message || "Hủy hóa đơn thất bại!")
     } finally {
-      setLoading(false)
+      setPageLoading(false)
       setPendingDeleteId(null)
     }
   }
 
   const handleEdit = async (row: any) => {
     try {
-      setLoading(true)
+      const detail = await dispatch(
+        fetchSaleTransactionByIdThunk(row._id)
+      ).unwrap()
 
-      const res = await APIGetSaleTransactionById(row._id)
-
-      if (res?.status === 200 || res?.status === 201) {
-        const detail = normalizeSaleTransactionDetail(res)
-
-        if (!detail?._id) {
-          showErrorMessage("Không tìm thấy dữ liệu hóa đơn")
-          return
-        }
-
-        const nextDetail = hydrateSaleTransactionDetail(detail, null, row)
-        setApiRows((prev) => {
-          const existed = prev.some((item) => item._id === nextDetail._id)
-
-          if (!existed) return [nextDetail, ...prev]
-
-          return prev.map((item) => {
-            if (item._id !== nextDetail._id) return item
-            return nextDetail
-          })
-        })
-
-        if (getInvoiceStatus(nextDetail) === "CANCELLED") {
-          showErrorMessage("Hóa đơn đã hủy, không thể chỉnh sửa.")
-          setSelectedInvoiceId(nextDetail._id)
-          setMode("detail")
-          return
-        }
-
-        if (getInvoiceStatus(nextDetail) === InvoiceStatus.ISSUED) {
-          showErrorMessage(
-            "Hóa đơn đã xuất, vui lòng dùng nút Thu tiền để cập nhật thanh toán."
-          )
-          setSelectedInvoiceId(nextDetail._id)
-          setMode("detail")
-          return
-        }
-
-        setSelectedInvoiceId(nextDetail._id)
-        setMode("edit")
+      if (!detail?._id) {
+        showErrorMessage("Không tìm thấy dữ liệu hóa đơn")
+        return
       }
+
+      const nextDetail = invoiceHelper.hydrateSaleTransactionDetail(
+        detail,
+        null,
+        row
+      )
+      upsertInvoiceRow(nextDetail)
+
+      if (invoiceHelper.getInvoiceStatus(nextDetail) === "CANCELLED") {
+        showErrorMessage("Hóa đơn đã hủy, không thể chỉnh sửa.")
+        setSelectedInvoiceId(nextDetail._id)
+        setMode("detail")
+        return
+      }
+
+      if (invoiceHelper.getInvoiceStatus(nextDetail) === InvoiceStatus.ISSUED) {
+        showErrorMessage(
+          "Hóa đơn đã xuất, vui lòng dùng nút Thu tiền để cập nhật thanh toán."
+        )
+        setSelectedInvoiceId(nextDetail._id)
+        setMode("detail")
+        return
+      }
+
+      setSelectedInvoiceId(nextDetail._id)
+      setMode("edit")
     } catch (err: any) {
       console.error("APIGetSaleTransactionById edit error:", err)
-      showErrorMessage(
-        err?.response?.data?.message || "Không thể tải dữ liệu hóa đơn"
-      )
-    } finally {
-      setLoading(false)
+      showErrorMessage(getErrorMessage(err) || "Không thể tải dữ liệu hóa đơn")
     }
   }
 
   const handleView = async (row: any) => {
     try {
-      setLoading(true)
+      const detail = await dispatch(
+        fetchSaleTransactionByIdThunk(row._id)
+      ).unwrap()
 
-      const res = await APIGetSaleTransactionById(row._id)
-
-      if (res?.status === 200 || res?.status === 201) {
-        const detail = normalizeSaleTransactionDetail(res)
-
-        if (!detail?._id) {
-          showErrorMessage("Không tìm thấy chi tiết hóa đơn")
-          return
-        }
-
-        setApiRows((prev) => {
-          const nextDetail = hydrateSaleTransactionDetail(detail, null, row)
-          const existed = prev.some((item) => item._id === nextDetail._id)
-
-          if (!existed) return [nextDetail, ...prev]
-
-          return prev.map((item) => {
-            if (item._id !== nextDetail._id) return item
-            return nextDetail
-          })
-        })
-
-        setSelectedInvoiceId(detail._id)
-        setMode("detail")
+      if (!detail?._id) {
+        showErrorMessage("Không tìm thấy chi tiết hóa đơn")
+        return
       }
+
+      const nextDetail = invoiceHelper.hydrateSaleTransactionDetail(
+        detail,
+        null,
+        row
+      )
+      upsertInvoiceRow(nextDetail)
+
+      setSelectedInvoiceId(nextDetail._id)
+      setMode("detail")
     } catch (err: any) {
       console.error("APIGetSaleTransactionById view error:", err)
-      showErrorMessage(
-        err?.response?.data?.message || "Không thể tải chi tiết hóa đơn"
-      )
-    } finally {
-      setLoading(false)
+      showErrorMessage(getErrorMessage(err) || "Không thể tải chi tiết hóa đơn")
     }
   }
 
@@ -1015,19 +735,23 @@ export default function InvoiceListPage() {
     setCollectPaymentBanks([])
   }
   const handleCollectPaymentAmountChange = (value: string) => {
-    const amount = parsePaymentAmountInput(value)
+    const amount = invoiceHelper.parsePaymentAmountInput(value)
 
-    setCollectPaymentAmount(amount > 0 ? formatPaymentAmountInput(amount) : "")
+    setCollectPaymentAmount(
+      amount > 0 ? invoiceHelper.formatPaymentAmountInput(amount) : ""
+    )
   }
   const handleOpenCollectPayment = async (row: InvoiceApiRow) => {
-    if (getInvoiceStatus(row) !== InvoiceStatus.ISSUED) {
+    if (invoiceHelper.getInvoiceStatus(row) !== InvoiceStatus.ISSUED) {
       showErrorMessage("Chỉ hóa đơn đã xuất thành công mới được thu tiền.")
       return
     }
 
     setCollectPaymentTarget(row)
-    setCollectPaymentBankId(getId(row.bankId))
-    setCollectPaymentAmount(formatPaymentAmountInput(row.inv_TotalAmount))
+    setCollectPaymentBankId(invoiceHelper.getId(row.bankId))
+    setCollectPaymentAmount(
+      invoiceHelper.formatPaymentAmountInput(row.inv_TotalAmount)
+    )
     setCollectPaymentBanks([])
     setCollectPaymentOpen(true)
 
@@ -1036,14 +760,14 @@ export default function InvoiceListPage() {
 
       const [bankRes, detailRes] = await Promise.all([
         APIGetBanks(),
-        APIGetSaleTransactionById(row._id),
+        dispatch(fetchSaleTransactionByIdThunk(row._id)).unwrap(),
       ])
 
-      const detail = normalizeSaleTransactionDetail(detailRes)
+      const detail = detailRes
       const nextTarget = detail?._id
-        ? hydrateSaleTransactionDetail(detail, null, row)
+        ? invoiceHelper.hydrateSaleTransactionDetail(detail, null, row)
         : row
-      const nextBanks = normalizeBankList(bankRes)
+      const nextBanks = invoiceHelper.normalizeBankList(bankRes)
       const currentBank =
         nextTarget.bankId && typeof nextTarget.bankId === "object"
           ? (nextTarget.bankId as Bank)
@@ -1058,9 +782,9 @@ export default function InvoiceListPage() {
 
       setCollectPaymentTarget(nextTarget)
       setCollectPaymentBanks(nextBanks)
-      setCollectPaymentBankId(getId(nextTarget.bankId))
+      setCollectPaymentBankId(invoiceHelper.getId(nextTarget.bankId))
       setCollectPaymentAmount(
-        formatPaymentAmountInput(nextTarget.inv_TotalAmount)
+        invoiceHelper.formatPaymentAmountInput(nextTarget.inv_TotalAmount)
       )
     } catch (err: any) {
       console.error("OPEN_COLLECT_PAYMENT_ERROR", err)
@@ -1083,7 +807,7 @@ export default function InvoiceListPage() {
       return
     }
 
-    if (getInvoiceStatus(target) !== InvoiceStatus.ISSUED) {
+    if (invoiceHelper.getInvoiceStatus(target) !== InvoiceStatus.ISSUED) {
       showErrorMessage("Chỉ hóa đơn đã xuất thành công mới được thu tiền.")
       return
     }
@@ -1098,7 +822,8 @@ export default function InvoiceListPage() {
     }
 
     const paidDate = new Date().toISOString().slice(0, 10)
-    const paidAmount = parsePaymentAmountInput(collectPaymentAmount)
+    const paidAmount =
+      invoiceHelper.parsePaymentAmountInput(collectPaymentAmount)
 
     if (paidAmount <= 0) {
       showErrorMessage("Vui lòng nhập tổng tiền thu hợp lệ.")
@@ -1113,8 +838,8 @@ export default function InvoiceListPage() {
     const clientPayload = {
       ...target,
       _id: target._id,
-      agencyId: getId(target.agencyId) || target.agencyId,
-      employeeId: getId(target.employeeId) || target.employeeId,
+      agencyId: invoiceHelper.getId(target.agencyId) || target.agencyId,
+      employeeId: invoiceHelper.getId(target.employeeId) || target.employeeId,
       bankId: selectedBank._id,
       inv_buyerBankName: selectedBank.inv_buyerBankName,
       isPaid: true,
@@ -1124,7 +849,9 @@ export default function InvoiceListPage() {
       remainingAmount: 0,
       items: (target.items || []).map((item) => ({
         ...item,
-        productId: getId(item.productId) || getId(item.product),
+        productId:
+          invoiceHelper.getId(item.productId) ||
+          invoiceHelper.getId(item.product),
       })),
       __clientSnapshot: {
         bank: selectedBank,
@@ -1140,15 +867,16 @@ export default function InvoiceListPage() {
     try {
       setCollectPaymentSaving(true)
 
-      const res = await APIUpdateSaleTransaction(target._id, body)
+      const detail = await dispatch(
+        updateSaleTransactionThunk({ id: target._id, payload: body })
+      ).unwrap()
 
-      if (res?.status !== 200 && res?.status !== 201) {
+      if (!detail?._id) {
         throw new Error("Thu tiền thất bại.")
       }
 
-      const detail = normalizeSaleTransactionDetail(res)
       const nextDetail = {
-        ...hydrateSaleTransactionDetail(
+        ...invoiceHelper.hydrateSaleTransactionDetail(
           detail || target,
           clientPayload,
           target
@@ -1165,7 +893,7 @@ export default function InvoiceListPage() {
         updatedAt: new Date().toISOString(),
       } as InvoiceApiRow
 
-      setApiRows((prev) =>
+      replaceInvoiceRows((prev) =>
         prev.map((item) => {
           if (item._id !== target._id) return item
           return nextDetail
@@ -1196,10 +924,8 @@ export default function InvoiceListPage() {
     const editingInvoice = mode === "edit" ? selectedInvoice : null
 
     try {
-      setLoading(true)
-
       if (editingInvoice?._id && payload?.bankOnlyEdit) {
-        if (getInvoiceStatus(editingInvoice) !== "ISSUED") {
+        if (invoiceHelper.getInvoiceStatus(editingInvoice) !== "ISSUED") {
           throw new Error(
             "Chỉ hóa đơn đã xuất thành công mới được sửa ngân hàng."
           )
@@ -1209,12 +935,14 @@ export default function InvoiceListPage() {
           throw new Error("Vui lòng chọn ngân hàng cần cập nhật.")
         }
 
-        const res = await APIUpdateSaleTransactionBank(editingInvoice._id, {
-          bankId: payload.bankId,
-        })
+        const detail = await dispatch(
+          updateSaleTransactionBankThunk({
+            id: editingInvoice._id,
+            bankId: payload.bankId,
+          })
+        ).unwrap()
 
-        if (res?.status === 200 || res?.status === 201) {
-          const detail = normalizeSaleTransactionDetail(res)
+        if (detail?._id) {
           const nextDetail = {
             ...editingInvoice,
             ...(detail || {}),
@@ -1224,7 +952,7 @@ export default function InvoiceListPage() {
             updatedAt: new Date().toISOString(),
           } as InvoiceApiRow
 
-          setApiRows((prev) =>
+          replaceInvoiceRows((prev) =>
             prev.map((item) => {
               if (item._id !== editingInvoice._id) return item
               return nextDetail
@@ -1241,7 +969,7 @@ export default function InvoiceListPage() {
 
       const allowPaymentUpdate =
         Boolean(editingInvoice?._id) &&
-        getInvoiceStatus(editingInvoice) === "ISSUED"
+        invoiceHelper.getInvoiceStatus(editingInvoice) === "ISSUED"
 
       const body = buildCreateInvoiceApiBody(payload, {
         includePayment: allowPaymentUpdate,
@@ -1254,45 +982,39 @@ export default function InvoiceListPage() {
         body,
       })
 
-      const res = editingInvoice?._id
-        ? await APIUpdateSaleTransaction(editingInvoice._id, body)
-        : await APICreateSaleTransaction(body)
+      const detail = editingInvoice?._id
+        ? await dispatch(
+            updateSaleTransactionThunk({
+              id: editingInvoice._id,
+              payload: body,
+            })
+          ).unwrap()
+        : await dispatch(createSaleTransactionThunk(body)).unwrap()
 
       console.log("SALE_TRANSACTION_SAVE_RESPONSE", {
         mode: editingInvoice?._id ? "update" : "create",
         saleTransactionId: editingInvoice?._id || null,
-        status: res?.status,
-        data: res?.data,
+        data: detail,
       })
 
-      if (res?.status === 200 || res?.status === 201) {
-        const detail = normalizeSaleTransactionDetail(res)
-        if (detail?._id) {
-          const nextDetail = {
-            ...hydrateSaleTransactionDetail(detail, payload, editingInvoice),
-            invoiceStatus:
-              (detail as any).invoiceStatus ||
-              (editingInvoice ? getInvoiceStatus(editingInvoice) : "DRAFT"),
-          } as InvoiceApiRow
+      if (detail?._id) {
+        const nextDetail = {
+          ...invoiceHelper.hydrateSaleTransactionDetail(
+            detail,
+            payload,
+            editingInvoice
+          ),
+          invoiceStatus:
+            (detail as any).invoiceStatus ||
+            (editingInvoice
+              ? invoiceHelper.getInvoiceStatus(editingInvoice)
+              : "DRAFT"),
+        } as InvoiceApiRow
 
-          setApiRows((prev) => {
-            const existed = prev.some((item) => item._id === nextDetail._id)
+        upsertInvoiceRow(nextDetail)
 
-            if (!existed) return [nextDetail, ...prev]
-
-            return prev.map((item) => {
-              if (item._id !== nextDetail._id) return item
-              return nextDetail
-            })
-          })
-
-          setSelectedInvoiceId(nextDetail._id)
-          setMode("detail")
-        } else {
-          await handleGetSaleTransactions()
-          setSelectedInvoiceId(null)
-          setMode("list")
-        }
+        setSelectedInvoiceId(nextDetail._id)
+        setMode("detail")
 
         return
       }
@@ -1310,8 +1032,6 @@ export default function InvoiceListPage() {
       })
 
       throw err
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -1331,8 +1051,8 @@ export default function InvoiceListPage() {
       return
     }
 
-    const currentStatus = getInvoiceStatus(row)
-    if (!canStartInvoiceExport(currentStatus)) {
+    const currentStatus = invoiceHelper.getInvoiceStatus(row)
+    if (!invoiceHelper.canStartInvoiceExport(currentStatus)) {
       showErrorMessage(
         "Chỉ hóa đơn nháp hoặc xuất thất bại mới được xuất hóa đơn."
       )
@@ -1341,7 +1061,7 @@ export default function InvoiceListPage() {
 
     const matchedReceiptConfig =
       receiptConfigs.find((config) =>
-        isInvoiceMatchedReceiptConfig(row, config)
+        invoiceHelper.isInvoiceMatchedReceiptConfig(row, config)
       ) ||
       activeReceiptConfig ||
       listReceiptConfig ||
@@ -1351,10 +1071,12 @@ export default function InvoiceListPage() {
       row.inv_invoiceSeries || matchedReceiptConfig?.inv_invoiceSeries || ""
     ).trim()
     const taxCode = String(
-      matchedReceiptConfig?.tax_code || getInvoiceSellerTaxCode(row) || ""
+      matchedReceiptConfig?.tax_code ||
+        invoiceHelper.getInvoiceSellerTaxCode(row) ||
+        ""
     ).trim()
     const invoiceIssuedDate =
-      normalizeDateInput(row.inv_invoiceIssuedDate) ||
+      invoiceHelper.normalizeDateInput(row.inv_invoiceIssuedDate) ||
       new Date().toISOString().slice(0, 10)
 
     if (!invoiceSeries) {
@@ -1455,11 +1177,10 @@ export default function InvoiceListPage() {
       setExportingInvoiceId(null)
     }
   }
-
   const handleViewMInvoicePdf = async (row: InvoiceApiRow) => {
     const token = process.env.NEXT_PUBLIC_MINVOICE_TOKEN || ""
-    const invInvoiceCreatedId = getExportInvoiceId(row)
-    const taxCode = getInvoiceSellerTaxCode(
+    const invInvoiceCreatedId = invoiceHelper.getExportInvoiceId(row)
+    const taxCode = invoiceHelper.getInvoiceSellerTaxCode(
       row,
       activeReceiptConfig?.tax_code || ""
     )
@@ -1496,7 +1217,7 @@ export default function InvoiceListPage() {
         return
       }
 
-      const nextPdfUrl = buildPdfFileUrl(filePath)
+      const nextPdfUrl = invoiceHelper.buildPdfFileUrl(filePath)
 
       setPdfUrl(nextPdfUrl)
     } catch (err: any) {
@@ -1538,10 +1259,6 @@ export default function InvoiceListPage() {
               />
 
               <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm lg:flex-row lg:items-center">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
-                  <SlidersHorizontal size={19} />
-                </div>
-
                 <select
                   className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-100 lg:max-w-[560px]"
                   value={listReceiptConfigValue}
@@ -1561,36 +1278,44 @@ export default function InvoiceListPage() {
                   </option>
                   {receiptConfigs.map((config, index) => (
                     <option
-                      key={getReceiptConfigOptionValue(config, index)}
-                      value={getReceiptConfigOptionValue(config, index)}
+                      key={invoiceHelper.getReceiptConfigOptionValue(
+                        config,
+                        index
+                      )}
+                      value={invoiceHelper.getReceiptConfigOptionValue(
+                        config,
+                        index
+                      )}
                     >
-                      {formatReceiptConfigLabel(config)}
+                      {invoiceHelper.formatReceiptConfigLabel(config)}
                     </option>
                   ))}
                 </select>
               </div>
             </div>
 
-            <InvoiceToolbar
-              onReload={handleReload}
-              onAdd={handleAdd}
-              onBulkImport={handleOpenBulkImport}
-              onDelete={handleDelete}
-              onViewAll={handleReload}
-              loading={loading}
-              disableDelete={!selectedInvoiceId}
-            />
+            <div className="mt-4 flex flex-col gap-4">
+              <InvoiceToolbar
+                onReload={handleReload}
+                onAdd={handleAdd}
+                onBulkImport={handleOpenBulkImport}
+                onDelete={handleDelete}
+                onViewAll={handleReload}
+                loading={loading}
+                disableDelete={!selectedInvoiceId}
+              />
 
-            <InvoiceDataTable
-              rows={listRows}
-              loading={loading}
-              onEdit={handleEdit}
-              onView={handleView}
-              onExportInvoice={handleExportInvoiceFromList}
-              exportingInvoiceId={exportingInvoiceId}
-              onViewMInvoicePdf={handleViewMInvoicePdf}
-              onCollectPayment={handleOpenCollectPayment}
-            />
+              <InvoiceDataTable
+                rows={listRows}
+                loading={loading}
+                onEdit={handleEdit}
+                onView={handleView}
+                onExportInvoice={handleExportInvoiceFromList}
+                exportingInvoiceId={exportingInvoiceId}
+                onViewMInvoicePdf={handleViewMInvoicePdf}
+                onCollectPayment={handleOpenCollectPayment}
+              />
+            </div>
           </>
         ) : mode === "bulk-import" ? (
           <InvoiceBulkImport
@@ -1674,7 +1399,7 @@ export default function InvoiceListPage() {
                 onClick={closePdfViewer}
                 className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-300 bg-white text-xl leading-none text-slate-600 hover:bg-slate-50"
               >
-                ×
+                x
               </button>
             </div>
 

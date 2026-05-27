@@ -34,7 +34,7 @@ type ToolbarButtonVariant =
   | "success"
   | "warning"
 
-function ToolbarButton({
+export function ToolbarButton({
   children,
   onClick,
   variant = "default",
@@ -82,11 +82,8 @@ export default function InvoiceToolbar({
   disableDelete = false,
 }: Props) {
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-4 py-3">
-      <ToolbarButton onClick={onReload} disabled={loading}>
-        <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
-        Tải dữ liệu
-      </ToolbarButton>
+    <div className="mx-4 flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-4 py-3">
+      <div id="invoice-order-filter-toolbar-slot" className="relative" />
 
       <ToolbarButton onClick={onAdd} variant="primary" disabled={loading}>
         <Plus size={15} />
@@ -100,6 +97,10 @@ export default function InvoiceToolbar({
       >
         <FileSpreadsheet size={15} />
         Tạo HĐ hàng loạt
+      </ToolbarButton>
+      <ToolbarButton onClick={onReload} disabled={loading}>
+        <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
+        Tải dữ liệu
       </ToolbarButton>
 
       {/* <ToolbarButton

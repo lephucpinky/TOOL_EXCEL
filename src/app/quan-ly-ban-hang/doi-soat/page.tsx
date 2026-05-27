@@ -8,6 +8,18 @@ import { exportChiHoaHongXlsx } from "@/services/file-chi-hoa-hong/exportChiHoaH
 import { SearchableSelect } from "@/components/select/SearchableSelect"
 import { exportXuatHoaDonXlsx } from "@/services/file-xuatHD/exportXuatHD"
 import {
+  APIExportSaleTransactionReport,
+  type SaleTransactionReportExportParams,
+} from "@/services/saleTransaction"
+import { useAppDispatch, useAppSelector } from "@/store/hooks"
+import {
+  agencyThunks,
+  bankThunks,
+  departmentThunks,
+  employeeThunks,
+} from "@/store/slices"
+import { getErrorMessage } from "@/store/utils/crud"
+import {
   CheckCircle2,
   ClipboardCheck,
   Download,
@@ -19,6 +31,25 @@ import {
 import PageHeader from "../_components/PageHeader"
 
 const ALL_VALUE = "__ALL__"
+const LIST_PARAMS = {
+  page: 1,
+  limit: 1000,
+}
+
+const INVOICE_STATUS_OPTIONS = [
+  { value: "", label: "Tất cả trạng thái" },
+  { value: "DRAFT", label: "Nháp" },
+  { value: "ISSUING", label: "Đang xuất hóa đơn" },
+  { value: "ISSUED", label: "Đã xuất hóa đơn" },
+  { value: "FAILED", label: "Xuất thất bại" },
+  { value: "CANCELLED", label: "Đã hủy" },
+]
+
+const PAYMENT_STATUS_OPTIONS = [
+  { value: "", label: "Tất cả thanh toán" },
+  { value: "true", label: "Đã thanh toán" },
+  { value: "false", label: "Chưa thanh toán" },
+]
 
 const TEMPLATE_CONFIG = {
   commission: {
@@ -36,6 +67,70 @@ const TEMPLATE_CONFIG = {
 } as const
 
 type TemplateKey = keyof typeof TEMPLATE_CONFIG
+type ReportFilters = {
+  startDate: string
+  endDate: string
+  invoiceStatus: string
+  isPaid: string
+  agencyId: string
+  employeeId: string
+  departmentId: string
+  bankId: string
+}
+
+function formatDateInput(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+
+  return `${year}-${month}-${day}`
+}
+
+function getCurrentMonthRange() {
+  const now = new Date()
+
+  return {
+    startDate: formatDateInput(new Date(now.getFullYear(), now.getMonth(), 1)),
+    endDate: formatDateInput(
+      new Date(now.getFullYear(), now.getMonth() + 1, 0)
+    ),
+  }
+}
+
+function createDefaultReportFilters(): ReportFilters {
+  const range = getCurrentMonthRange()
+
+  return {
+    startDate: range.startDate,
+    endDate: range.endDate,
+    invoiceStatus: "",
+    isPaid: "",
+    agencyId: "",
+    employeeId: "",
+    departmentId: "",
+    bankId: "",
+  }
+}
+
+function getFilenameFromDisposition(disposition?: string) {
+  if (!disposition) return ""
+
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utf8Match?.[1]) {
+    return decodeURIComponent(utf8Match[1].replace(/"/g, ""))
+  }
+
+  const asciiMatch = disposition.match(/filename="?([^";]+)"?/i)
+  return asciiMatch?.[1] || ""
+}
+
+function buildDefaultReportFileName(filters: ReportFilters) {
+  const suffix = [filters.startDate, filters.endDate].filter(Boolean).join("_")
+
+  return suffix
+    ? `sale-transaction-report_${suffix}.xlsx`
+    : "sale-transaction-report.xlsx"
+}
 
 function pickKeyFromRow(row: Record<string, any>, aliases: string[]) {
   const keys = Object.keys(row || {})
@@ -81,6 +176,20 @@ function uniqueSorted(arr: string[]) {
 }
 
 export default function HomePage() {
+  const dispatch = useAppDispatch()
+  const { items: agencies, loading: agenciesLoading } = useAppSelector(
+    (state) => state.agencies
+  )
+  const { items: employees, loading: employeesLoading } = useAppSelector(
+    (state) => state.employees
+  )
+  const { items: departments, loading: departmentsLoading } = useAppSelector(
+    (state) => state.departments
+  )
+  const { items: banks, loading: banksLoading } = useAppSelector(
+    (state) => state.banks
+  )
+
   const [templateType, setTemplateType] = useState<TemplateKey>("commission")
 
   const [salesFile, setSalesFile] = useState<File | null>(null)
@@ -104,6 +213,12 @@ export default function HomePage() {
 
   const [exporting, setExporting] = useState(false)
   const [exportErr, setExportErr] = useState<string>("")
+  const [reportFilters, setReportFilters] = useState<ReportFilters>(() =>
+    createDefaultReportFilters()
+  )
+  const [reportExporting, setReportExporting] = useState(false)
+  const [reportExportErr, setReportExportErr] = useState("")
+  const [catalogErr, setCatalogErr] = useState("")
 
   const dealerOptions = useMemo(
     () => [
@@ -130,6 +245,36 @@ export default function HomePage() {
   const currentTemplate = TEMPLATE_CONFIG[templateType]
   const currentTemplateWb =
     templateType === "commission" ? commissionTemplateWb : invoiceTemplateWb
+  const catalogsLoading =
+    agenciesLoading || employeesLoading || departmentsLoading || banksLoading
+  const reportDateInvalid = Boolean(
+    reportFilters.startDate &&
+      reportFilters.endDate &&
+      reportFilters.startDate > reportFilters.endDate
+  )
+  const canExportReport = !reportExporting && !reportDateInvalid
+
+  useEffect(() => {
+    ;(async () => {
+      const results = await Promise.allSettled([
+        dispatch(agencyThunks.fetchAll(LIST_PARAMS)).unwrap(),
+        dispatch(employeeThunks.fetchAll(LIST_PARAMS)).unwrap(),
+        dispatch(departmentThunks.fetchAll(LIST_PARAMS)).unwrap(),
+        dispatch(bankThunks.fetchAll(LIST_PARAMS)).unwrap(),
+      ])
+      const rejected = results.find(
+        (result): result is PromiseRejectedResult =>
+          result.status === "rejected"
+      )
+
+      if (rejected) {
+        setCatalogErr(
+          getErrorMessage(rejected.reason) ||
+            "Không thể tải đầy đủ danh mục lọc báo cáo."
+        )
+      }
+    })()
+  }, [dispatch])
 
   useEffect(() => {
     ;(async () => {
@@ -257,6 +402,79 @@ export default function HomePage() {
       alert(msg)
     } finally {
       setExporting(false)
+    }
+  }
+
+  function updateReportFilter(key: keyof ReportFilters, value: string) {
+    setReportFilters((prev) => ({
+      ...prev,
+      [key]: value,
+    }))
+    setReportExportErr("")
+  }
+
+  function buildReportParams(): SaleTransactionReportExportParams {
+    return {
+      startDate: reportFilters.startDate,
+      endDate: reportFilters.endDate,
+      invoiceStatus: reportFilters.invoiceStatus,
+      isPaid:
+        reportFilters.isPaid === ""
+          ? undefined
+          : reportFilters.isPaid === "true",
+      agencyId: reportFilters.agencyId,
+      employeeId: reportFilters.employeeId,
+      departmentId: reportFilters.departmentId,
+      bankId: reportFilters.bankId,
+    }
+  }
+
+  async function onExportReport() {
+    if (!canExportReport) return
+
+    if (reportDateInvalid) {
+      setReportExportErr("Ngày bắt đầu không được lớn hơn ngày kết thúc.")
+      return
+    }
+
+    setReportExportErr("")
+    setReportExporting(true)
+
+    try {
+      const response = await APIExportSaleTransactionReport(buildReportParams())
+      const blob =
+        response.data instanceof Blob
+          ? response.data
+          : new Blob([response.data], {
+              type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            })
+
+      if (!blob.size) {
+        throw new Error("API không trả về dữ liệu file báo cáo.")
+      }
+
+      const fileName =
+        getFilenameFromDisposition(response.headers?.["content-disposition"]) ||
+        buildDefaultReportFileName(reportFilters)
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement("a")
+
+      link.href = url
+      link.download = fileName
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 0)
+    } catch (e: any) {
+      console.error("Export sale transaction report failed:", e)
+      setReportExportErr(
+        e?.response?.data?.message ||
+          e?.response?.data?.error ||
+          e?.message ||
+          "Xuất báo cáo giao dịch bán hàng thất bại."
+      )
+    } finally {
+      setReportExporting(false)
     }
   }
 
@@ -454,6 +672,266 @@ export default function HomePage() {
           {exportErr && (
             <div className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-600">
               {exportErr}
+            </div>
+          )}
+        </section>
+        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+                <FileSpreadsheet size={21} />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-slate-950">
+                  Xuất báo cáo giao dịch bán hàng
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-slate-500">
+                  Lọc dữ liệu và tải file Excel báo cáo trực tiếp từ hệ thống.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setReportFilters(createDefaultReportFilters())
+                  setReportExportErr("")
+                }}
+                disabled={reportExporting}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <X size={17} />
+                Xóa lọc
+              </button>
+
+              <button
+                type="button"
+                onClick={onExportReport}
+                disabled={!canExportReport}
+                className={[
+                  "inline-flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-bold transition",
+                  canExportReport
+                    ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                    : "cursor-not-allowed bg-slate-200 text-slate-500",
+                ].join(" ")}
+              >
+                {reportExporting ? (
+                  <Loader2 size={17} className="animate-spin" />
+                ) : (
+                  <Download size={17} />
+                )}
+                {reportExporting ? "Đang xuất..." : "Xuất báo cáo"}
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div>
+              <label
+                htmlFor="report-start-date"
+                className="text-sm font-bold text-slate-700"
+              >
+                Từ ngày
+              </label>
+              <input
+                id="report-start-date"
+                type="date"
+                value={reportFilters.startDate}
+                onChange={(event) =>
+                  updateReportFilter("startDate", event.target.value)
+                }
+                className="mt-2 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="report-end-date"
+                className="text-sm font-bold text-slate-700"
+              >
+                Đến ngày
+              </label>
+              <input
+                id="report-end-date"
+                type="date"
+                value={reportFilters.endDate}
+                onChange={(event) =>
+                  updateReportFilter("endDate", event.target.value)
+                }
+                className="mt-2 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="report-invoice-status"
+                className="text-sm font-bold text-slate-700"
+              >
+                Trạng thái hóa đơn
+              </label>
+              <select
+                id="report-invoice-status"
+                value={reportFilters.invoiceStatus}
+                onChange={(event) =>
+                  updateReportFilter("invoiceStatus", event.target.value)
+                }
+                className="mt-2 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+              >
+                {INVOICE_STATUS_OPTIONS.map((option) => (
+                  <option key={option.value || "all"} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label
+                htmlFor="report-payment-status"
+                className="text-sm font-bold text-slate-700"
+              >
+                Thanh toán
+              </label>
+              <select
+                id="report-payment-status"
+                value={reportFilters.isPaid}
+                onChange={(event) =>
+                  updateReportFilter("isPaid", event.target.value)
+                }
+                className="mt-2 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+              >
+                {PAYMENT_STATUS_OPTIONS.map((option) => (
+                  <option key={option.value || "all"} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label
+                htmlFor="report-agency"
+                className="text-sm font-bold text-slate-700"
+              >
+                Đại lý
+              </label>
+              <select
+                id="report-agency"
+                value={reportFilters.agencyId}
+                disabled={catalogsLoading}
+                onChange={(event) =>
+                  updateReportFilter("agencyId", event.target.value)
+                }
+                className="mt-2 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-50 disabled:text-slate-400"
+              >
+                <option value="">Tất cả đại lý</option>
+                {agencies.map((agency) => (
+                  <option key={agency._id} value={agency._id}>
+                    {agency.agencyName}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label
+                htmlFor="report-employee"
+                className="text-sm font-bold text-slate-700"
+              >
+                Nhân viên
+              </label>
+              <select
+                id="report-employee"
+                value={reportFilters.employeeId}
+                disabled={catalogsLoading}
+                onChange={(event) =>
+                  updateReportFilter("employeeId", event.target.value)
+                }
+                className="mt-2 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-50 disabled:text-slate-400"
+              >
+                <option value="">Tất cả nhân viên</option>
+                {employees.map((employee) => (
+                  <option key={employee._id} value={employee._id}>
+                    {employee.employeeName}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label
+                htmlFor="report-department"
+                className="text-sm font-bold text-slate-700"
+              >
+                Phòng ban
+              </label>
+              <select
+                id="report-department"
+                value={reportFilters.departmentId}
+                disabled={catalogsLoading}
+                onChange={(event) =>
+                  updateReportFilter("departmentId", event.target.value)
+                }
+                className="mt-2 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-50 disabled:text-slate-400"
+              >
+                <option value="">Tất cả phòng ban</option>
+                {departments.map((department) => (
+                  <option key={department._id} value={department._id}>
+                    {department.departmentName}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label
+                htmlFor="report-bank"
+                className="text-sm font-bold text-slate-700"
+              >
+                Ngân hàng
+              </label>
+              <select
+                id="report-bank"
+                value={reportFilters.bankId}
+                disabled={catalogsLoading}
+                onChange={(event) =>
+                  updateReportFilter("bankId", event.target.value)
+                }
+                className="mt-2 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-50 disabled:text-slate-400"
+              >
+                <option value="">Tất cả ngân hàng</option>
+                {banks.map((bank) => (
+                  <option key={bank._id} value={bank._id}>
+                    {bank.inv_buyerBankName}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {catalogsLoading && (
+            <div className="mt-4 flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm font-medium text-slate-500">
+              <Loader2 size={16} className="animate-spin" />
+              Đang tải danh mục lọc...
+            </div>
+          )}
+
+          {reportDateInvalid && (
+            <div className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-700">
+              Ngày bắt đầu không được lớn hơn ngày kết thúc.
+            </div>
+          )}
+
+          {catalogErr && (
+            <div className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-700">
+              {catalogErr}
+            </div>
+          )}
+
+          {reportExportErr && (
+            <div className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-600">
+              {reportExportErr}
             </div>
           )}
         </section>

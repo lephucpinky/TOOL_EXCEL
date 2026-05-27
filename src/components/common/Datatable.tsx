@@ -1,17 +1,20 @@
 "use client"
 
 import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { Download, Eye, Loader2, Pencil, Plus, Trash2 } from "lucide-react"
+
+import { Button } from "@/components/ui/button"
 import {
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
-  Eye,
-  Inbox,
-  Loader2,
-  Pencil,
-  Trash2,
-} from "lucide-react"
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { cn } from "@/lib/utils"
+
+import SkeletonTable from "../skeleton/SkeletonTable"
+import Pagination from "../pagination/Pagination"
 
 export interface DataTableColumn<T> {
   key: string
@@ -29,55 +32,47 @@ type DataTablePagination =
       itemLabel?: string
     }
 
-interface DataTableProps<T> {
+export interface DataTableProps<T> {
   data: T[]
   columns: DataTableColumn<T>[]
   loading?: boolean
   emptyText?: string
-  getRowKey: (item: T, index: number) => string
+  getRowKey?: (item: T, index: number) => string
   onView?: (item: T) => void
   onEdit?: (item: T) => void
   canEdit?: (item: T) => boolean
   onDelete?: (item: T) => void
   renderActions?: (row: T) => ReactNode
   pagination?: DataTablePagination
+  titleTable?: string
+  totalItems?: number
+  currentPage?: number
+  setCurrentPage?: (page: number) => void
+  itemsPerPage?: number
+  setItemsPerPage?: (page: number) => void
+  onClickAddNew?: () => void
+  children?: ReactNode
+  openValue?: boolean
+  onClickOpenFilter?: () => void
+  filter?: boolean
+  type?: string
+  onExportExcel?: () => void
+  isExportLoading?: boolean
+  showExportButton?: boolean
 }
 
-function cn(...classes: Array<string | false | null | undefined>) {
-  return classes.filter(Boolean).join(" ")
+function getDefaultRowKey<T>(item: T, index: number) {
+  const row = item as Record<string, unknown>
+  const id = row.id ?? row._id
+
+  return id === undefined || id === null ? String(index) : String(id)
 }
 
-function buildPaginationItems(currentPage: number, totalPages: number) {
-  if (totalPages <= 7) {
-    return Array.from({ length: totalPages }, (_, index) => index + 1)
-  }
-
-  const items: Array<number | string> = [1]
-  const startPage = Math.max(2, currentPage - 1)
-  const endPage = Math.min(totalPages - 1, currentPage + 1)
-
-  if (startPage > 2) {
-    items.push("left-ellipsis")
-  }
-
-  for (let page = startPage; page <= endPage; page += 1) {
-    items.push(page)
-  }
-
-  if (endPage < totalPages - 1) {
-    items.push("right-ellipsis")
-  }
-
-  items.push(totalPages)
-
-  return items
-}
-
-export default function DataTable<T>({
+export function DataTable<T>({
   data,
   columns,
   loading = false,
-  emptyText = "Chưa có dữ liệu",
+  emptyText = "Không có dữ liệu",
   getRowKey,
   onView,
   onEdit,
@@ -85,16 +80,37 @@ export default function DataTable<T>({
   onDelete,
   renderActions,
   pagination = false,
+  titleTable,
+  totalItems,
+  currentPage,
+  setCurrentPage,
+  itemsPerPage,
+  setItemsPerPage,
+  onClickAddNew,
+  children,
+  onExportExcel,
+  isExportLoading = false,
+  showExportButton = false,
 }: DataTableProps<T>) {
   const hasActions = Boolean(onView || onEdit || onDelete || renderActions)
-  const colSpan = columns.length + (hasActions ? 1 : 0)
-  const actionColWidth = "w-[168px] min-w-[168px]"
+  const hasToolbar = Boolean(
+    titleTable || children || onClickAddNew || showExportButton
+  )
+  const firstColWidth = "w-[126px] min-w-[126px] max-w-[126px]"
+  const actionColWidth = "w-[180px] min-w-[180px] max-w-[180px]"
+  const stickyCoverBase =
+    "overflow-visible before:pointer-events-none before:absolute before:inset-y-0 before:z-0 before:bg-inherit before:content-['']"
+  const leftStickyCover = "overflow-hidden"
+  const rightStickyCover = cn(stickyCoverBase, "before:-left-6 before:-right-3")
 
-  const isPaginationEnabled = Boolean(pagination)
+  const isPaginationEnabled = Boolean(pagination || currentPage)
+  const isExternalPagination = currentPage !== undefined
+
   const initialPageSize =
-    pagination && pagination !== true ? (pagination.initialPageSize ?? 10) : 10
-  const itemLabel =
-    pagination && pagination !== true ? pagination.itemLabel || "dòng" : "dòng"
+    itemsPerPage ??
+    (pagination && pagination !== true
+      ? (pagination.initialPageSize ?? 10)
+      : 10)
   const pageSizeOptions = useMemo(() => {
     if (
       pagination &&
@@ -104,19 +120,19 @@ export default function DataTable<T>({
       return pagination.pageSizeOptions
     }
 
-    return [10, 20, 50]
+    return [10, 50, 100, 200, 300]
   }, [
     pagination,
     pagination && pagination !== true
       ? pagination.pageSizeOptions?.join(",")
-      : "10,20,50",
+      : "10,50,100,200,300",
   ])
 
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(initialPageSize)
 
   useEffect(() => {
-    if (!isPaginationEnabled) return
+    if (!isPaginationEnabled || itemsPerPage !== undefined) return
 
     setPageSize((previousPageSize) => {
       if (pageSizeOptions.includes(previousPageSize)) {
@@ -125,305 +141,308 @@ export default function DataTable<T>({
 
       return initialPageSize
     })
-  }, [initialPageSize, isPaginationEnabled, pageSizeOptions])
+  }, [initialPageSize, isPaginationEnabled, itemsPerPage, pageSizeOptions])
 
-  const totalRows = data.length
+  const effectivePage = currentPage ?? page
+  const effectivePageSize = itemsPerPage ?? pageSize
+  const totalRows = totalItems ?? data.length
   const totalPages = isPaginationEnabled
-    ? Math.max(Math.ceil(totalRows / pageSize), 1)
+    ? Math.max(Math.ceil(totalRows / effectivePageSize), 1)
     : 1
-  const safePage = Math.max(1, Math.min(page, totalPages))
-  const startIndex = isPaginationEnabled ? (safePage - 1) * pageSize : 0
-  const visibleRows = isPaginationEnabled
-    ? data.slice(startIndex, startIndex + pageSize)
-    : data
-  const paginationItems = isPaginationEnabled
-    ? buildPaginationItems(safePage, totalPages)
-    : []
+  const safePage = Math.max(1, Math.min(effectivePage, totalPages))
+  const startIndex = isPaginationEnabled
+    ? (safePage - 1) * effectivePageSize
+    : 0
+  const visibleRows =
+    isPaginationEnabled && !isExternalPagination
+      ? data.slice(startIndex, startIndex + effectivePageSize)
+      : data
 
   useEffect(() => {
+    if (isExternalPagination) return
+
     if (page > totalPages) {
       setPage(totalPages)
     }
-  }, [page, totalPages])
+  }, [isExternalPagination, page, totalPages])
+
+  const setSafePage = (nextPage: number) => {
+    const pageNumber = Math.max(1, Math.min(nextPage, totalPages))
+
+    if (setCurrentPage) {
+      setCurrentPage(pageNumber)
+      return
+    }
+
+    setPage(pageNumber)
+  }
+
+  const handleItemsPerPageChange = (nextPageSize: number) => {
+    if (setItemsPerPage) {
+      setItemsPerPage(nextPageSize)
+    } else {
+      setPageSize(nextPageSize)
+    }
+
+    if (setCurrentPage) {
+      setCurrentPage(1)
+    } else {
+      setPage(1)
+    }
+  }
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_14px_35px_rgba(15,23,42,0.08)]">
-      <div className="w-full overflow-x-auto">
-        <table className="w-full min-w-[860px] border-separate border-spacing-0 text-sm">
-          <thead>
-            <tr className="bg-slate-50">
-              {columns.map((column, index) => (
-                <th
-                  key={column.key}
-                  className={cn(
-                    "border-b border-slate-200 px-5 py-4 text-left text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500",
-                    index === 0 && "pl-6",
-                    column.headerClassName
-                  )}
-                >
-                  {column.title}
-                </th>
-              ))}
-
-              {hasActions && (
-                <th
-                  className={cn(
-                    "sticky right-0 z-30 border-b border-slate-200 bg-slate-50 px-3 py-4 text-center text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500 shadow-[-12px_0_18px_-18px_rgba(15,23,42,0.75)]",
-                    actionColWidth
-                  )}
-                >
-                  Thao tác
-                </th>
-              )}
-            </tr>
-          </thead>
-
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={colSpan} className="px-6 py-14">
-                  <div className="flex flex-col items-center justify-center text-center">
-                    <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-blue-50 text-blue-600">
-                      <Loader2 size={22} className="animate-spin" />
-                    </div>
-
-                    <p className="text-sm font-semibold text-slate-700">
-                      Đang tải dữ liệu
-                    </p>
-
-                    <p className="mt-1 text-xs text-slate-500">
-                      Vui lòng chờ trong giây lát...
-                    </p>
-                  </div>
-                </td>
-              </tr>
-            ) : visibleRows.length ? (
-              visibleRows.map((item, index) => {
-                const rowIndex = startIndex + index
-                const rowBg =
-                  rowIndex % 2 === 0
-                    ? "bg-white group-hover:bg-blue-50"
-                    : "bg-slate-50/50 group-hover:bg-blue-50"
-
-                return (
-                  <tr
-                    key={getRowKey(item, rowIndex)}
-                    className="group transition-colors duration-150"
-                  >
-                    {columns.map((column, columnIndex) => (
-                      <td
-                        key={column.key}
-                        className={cn(
-                          "border-b border-slate-100 px-5 py-4 align-middle text-slate-700 transition-colors",
-                          "max-w-[260px] overflow-hidden truncate whitespace-nowrap",
-                          rowBg,
-                          columnIndex === 0 &&
-                            "pl-6 font-medium text-slate-800",
-                          column.className
-                        )}
-                      >
-                        {column.render
-                          ? column.render(item, rowIndex)
-                          : String(
-                              (item as Record<string, unknown>)[column.key] ??
-                                ""
-                            )}
-                      </td>
-                    ))}
-
-                    {hasActions && (
-                      <td
-                        className={cn(
-                          "sticky right-0 z-30 border-b border-slate-100 px-3 py-3 shadow-[-12px_0_18px_-18px_rgba(15,23,42,0.75)] transition-colors",
-                          actionColWidth,
-                          rowIndex % 2 === 0 ? "bg-white" : "bg-slate-50"
-                        )}
-                      >
-                        <div className="flex items-center justify-center gap-2 whitespace-nowrap">
-                          {onView && (
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                onView(item)
-                              }}
-                              title="Xem"
-                              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
-                            >
-                              <Eye size={16} />
-                            </button>
-                          )}
-
-                          {renderActions?.(item)}
-
-                          {onEdit && (!canEdit || canEdit(item)) && (
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                onEdit(item)
-                              }}
-                              title="Sửa"
-                              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-blue-200 bg-blue-50 text-blue-600 shadow-sm transition hover:border-blue-400 hover:bg-blue-100 hover:text-blue-700"
-                            >
-                              <Pencil size={16} />
-                            </button>
-                          )}
-
-                          {onDelete && (
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                onDelete(item)
-                              }}
-                              title="Xóa"
-                              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-red-200 bg-red-50 text-red-600 shadow-sm transition hover:border-red-400 hover:bg-red-100 hover:text-red-700"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    )}
-                  </tr>
-                )
-              })
-            ) : (
-              <tr>
-                <td colSpan={colSpan} className="px-6 py-16">
-                  <div className="flex flex-col items-center justify-center text-center">
-                    <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-400">
-                      <Inbox size={23} />
-                    </div>
-
-                    <p className="text-sm font-semibold text-slate-700">
-                      Không có dữ liệu
-                    </p>
-
-                    <p className="mt-1 max-w-sm text-xs leading-5 text-slate-500">
-                      {emptyText}
-                    </p>
-                  </div>
-                </td>
-              </tr>
+    <div className="relative flex w-full flex-col gap-4 rounded-md border border-slate-200 bg-white p-2 font-sans sm:p-4">
+      {hasToolbar && (
+        <div className="flex w-full flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex min-w-0 items-center gap-4">
+            {titleTable && (
+              <h3 className="truncate text-base font-bold text-slate-900">
+                {titleTable}
+              </h3>
             )}
-          </tbody>
-        </table>
-      </div>
-
-      {isPaginationEnabled && totalRows > 0 && (
-        <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-col gap-2 text-sm text-slate-600 md:flex-row md:items-center md:gap-4">
-            <p>
-              Hiển thị{" "}
-              <span className="font-semibold text-slate-800">
-                {startIndex + 1}
-              </span>{" "}
-              -{" "}
-              <span className="font-semibold text-slate-800">
-                {Math.min(startIndex + visibleRows.length, totalRows)}
-              </span>{" "}
-              /{" "}
-              <span className="font-semibold text-slate-800">{totalRows}</span>{" "}
-              {itemLabel}
-            </p>
-
-            <label className="flex items-center gap-2 text-sm text-slate-600">
-              <span>Mỗi trang</span>
-              <select
-                value={pageSize}
-                onChange={(event) => {
-                  setPageSize(Number(event.target.value) || 10)
-                  setPage(1)
-                }}
-                className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              >
-                {pageSizeOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </label>
           </div>
 
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <span className="mr-1 text-sm text-slate-600">
-              Trang{" "}
-              <span className="font-semibold text-slate-800">{safePage}</span> /{" "}
-              <span className="font-semibold text-slate-800">{totalPages}</span>
-            </span>
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            {children}
 
-            <button
-              type="button"
-              disabled={safePage <= 1}
-              onClick={() => setPage(1)}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <ChevronsLeft size={16} />
-            </button>
-
-            <button
-              type="button"
-              disabled={safePage <= 1}
-              onClick={() =>
-                setPage((previousPage) => Math.max(previousPage - 1, 1))
-              }
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <ChevronLeft size={16} />
-            </button>
-
-            {paginationItems.map((item) =>
-              typeof item === "number" ? (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => setPage(item)}
-                  className={cn(
-                    "inline-flex h-9 min-w-9 items-center justify-center rounded-lg border px-3 text-sm font-semibold transition",
-                    item === safePage
-                      ? "border-blue-600 bg-blue-600 text-white"
-                      : "border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
-                  )}
-                >
-                  {item}
-                </button>
-              ) : (
-                <span
-                  key={item}
-                  className="inline-flex h-9 min-w-9 items-center justify-center px-1 text-slate-400"
-                >
-                  ...
-                </span>
-              )
+            {onClickAddNew && (
+              <Button
+                type="button"
+                className="flex items-center gap-2 bg-blue-600 text-white hover:bg-blue-700"
+                onClick={onClickAddNew}
+              >
+                <Plus className="h-4 w-4" />
+                <span>Thêm mới</span>
+              </Button>
             )}
 
-            <button
-              type="button"
-              disabled={safePage >= totalPages}
-              onClick={() =>
-                setPage((previousPage) =>
-                  Math.min(previousPage + 1, totalPages)
-                )
-              }
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <ChevronRight size={16} />
-            </button>
-
-            <button
-              type="button"
-              disabled={safePage >= totalPages}
-              onClick={() => setPage(totalPages)}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <ChevronsRight size={16} />
-            </button>
+            {showExportButton && (
+              <Button
+                type="button"
+                className="flex items-center gap-2 border border-emerald-600 bg-white text-emerald-700 hover:bg-emerald-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={onExportExcel}
+                disabled={isExportLoading || data.length === 0}
+              >
+                {isExportLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Đang xuất...</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-4 w-4" />
+                    <span>Xuất Excel</span>
+                  </>
+                )}
+              </Button>
+            )}
           </div>
         </div>
+      )}
+
+      {loading ? (
+        <SkeletonTable />
+      ) : (
+        <div className="rounded-md">
+          <div className="relative isolate max-h-[600px] overflow-auto">
+            <table className="relative w-full min-w-[860px] caption-bottom border-separate border-spacing-0 text-sm shadow-2xl">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  {columns.map((column, index) => {
+                    const isFirstColumn = index === 0
+                    const isLastDataColumn = index === columns.length - 1
+
+                    return (
+                      <TableHead
+                        key={column.key}
+                        className={cn(
+                          "sticky top-0 z-20 h-10 bg-[#2869B4] px-3 text-center font-semibold text-white",
+                          isFirstColumn && leftStickyCover,
+                          isFirstColumn && firstColWidth,
+                          isFirstColumn && "left-0 z-30",
+                          !hasActions && isLastDataColumn && rightStickyCover,
+                          !hasActions && isLastDataColumn && "right-0 z-50",
+                          column.headerClassName
+                        )}
+                      >
+                        <span className="relative z-10">{column.title}</span>
+                      </TableHead>
+                    )
+                  })}
+
+                  {hasActions && (
+                    <TableHead
+                      className={cn(
+                        rightStickyCover,
+                        "sticky right-0 top-0 z-[80] h-10 bg-[#2869B4] px-3 text-center font-semibold text-white",
+                        actionColWidth
+                      )}
+                    >
+                      <div className="relative z-10">Thao tác</div>
+                    </TableHead>
+                  )}
+                </TableRow>
+              </TableHeader>
+
+              <TableBody>
+                {visibleRows.length > 0 ? (
+                  visibleRows.map((item, index) => {
+                    const rowIndex = isExternalPagination
+                      ? startIndex + index
+                      : isPaginationEnabled
+                        ? startIndex + index
+                        : index
+                    const rowBg =
+                      rowIndex % 2 === 0
+                        ? "bg-white group-hover:bg-blue-50"
+                        : "bg-slate-50/60 group-hover:bg-blue-50"
+
+                    return (
+                      <TableRow
+                        className="group text-center"
+                        key={
+                          getRowKey?.(item, rowIndex) ??
+                          getDefaultRowKey(item, rowIndex)
+                        }
+                      >
+                        {columns.map((column, columnIndex) => {
+                          const isFirstColumn = columnIndex === 0
+                          const isLastDataColumn =
+                            columnIndex === columns.length - 1
+
+                          return (
+                            <TableCell
+                              key={column.key}
+                              className={cn(
+                                "border-b border-slate-100 px-3 py-3 align-middle text-slate-700 transition-colors",
+                                rowBg,
+                                isFirstColumn && leftStickyCover,
+                                isFirstColumn && firstColWidth,
+                                isFirstColumn &&
+                                  "sticky left-0 z-20 font-medium text-slate-800",
+                                !hasActions &&
+                                  isLastDataColumn &&
+                                  rightStickyCover,
+                                !hasActions &&
+                                  isLastDataColumn &&
+                                  "sticky right-0 z-40",
+                                column.className
+                              )}
+                            >
+                              {isFirstColumn ||
+                              (!hasActions && isLastDataColumn) ? (
+                                <div className="relative z-10">
+                                  {column.render
+                                    ? column.render(item, rowIndex)
+                                    : String(
+                                        (item as Record<string, unknown>)[
+                                          column.key
+                                        ] ?? ""
+                                      )}
+                                </div>
+                              ) : column.render ? (
+                                column.render(item, rowIndex)
+                              ) : (
+                                String(
+                                  (item as Record<string, unknown>)[
+                                    column.key
+                                  ] ?? ""
+                                )
+                              )}
+                            </TableCell>
+                          )
+                        })}
+
+                        {hasActions && (
+                          <TableCell
+                            className={cn(
+                              rightStickyCover,
+                              "sticky right-0 z-[60] border-b border-slate-100 px-3 py-2 transition-colors",
+                              rowIndex % 2 === 0
+                                ? "bg-white group-hover:bg-blue-50"
+                                : "bg-slate-50 group-hover:bg-blue-50",
+                              actionColWidth
+                            )}
+                          >
+                            <div className="relative z-10 flex items-center justify-center gap-2 whitespace-nowrap">
+                              {onView && (
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    onView(item)
+                                  }}
+                                  title="Xem"
+                                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+                                >
+                                  <Eye size={15} />
+                                </button>
+                              )}
+
+                              {renderActions?.(item)}
+
+                              {onEdit && (!canEdit || canEdit(item)) && (
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    onEdit(item)
+                                  }}
+                                  title="Sửa"
+                                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-blue-200 bg-blue-50 text-blue-600 shadow-sm transition hover:border-blue-400 hover:bg-blue-100 hover:text-blue-700"
+                                >
+                                  <Pencil size={15} />
+                                </button>
+                              )}
+
+                              {onDelete && (
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    onDelete(item)
+                                  }}
+                                  title="Xóa"
+                                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-red-200 bg-red-50 text-red-600 shadow-sm transition hover:border-red-400 hover:bg-red-100 hover:text-red-700"
+                                >
+                                  <Trash2 size={15} />
+                                </button>
+                              )}
+                            </div>
+                          </TableCell>
+                        )}
+                      </TableRow>
+                    )
+                  })
+                ) : (
+                  <TableRow>
+                    <TableCell
+                      colSpan={columns.length + (hasActions ? 1 : 0)}
+                      className="h-24 text-center text-sm font-medium text-slate-500"
+                    >
+                      {emptyText}
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {isPaginationEnabled && (
+        <Pagination
+          currentPage={safePage}
+          setCurrentPage={setSafePage}
+          totalItem={totalRows}
+          itemPerPage={effectivePageSize}
+          setItemPerPage={handleItemsPerPageChange}
+          pageSizeOptions={pageSizeOptions}
+        />
       )}
     </div>
   )
 }
+
+export default DataTable
