@@ -15,7 +15,10 @@ import { APIGetDepartments } from "@/services/department"
 import { APIGetEmployees } from "@/services/employee"
 import { APIGetProducts } from "@/services/product"
 import { APIGetBanks } from "@/services/bank"
-import { APIExportMInvoiceReceiptPost } from "@/services/mInvoiceReceipt"
+import {
+  APIExportMInvoiceReceiptPost,
+  APIGetMInvoiceReceiptJobStatus,
+} from "@/services/mInvoiceReceipt"
 import type { ReceiptInvoiceConfig } from "@/types/receiptInvoice"
 import AlertOption from "../alert/AlertOption"
 import AlertSuccess from "../alert/AlertSuccess"
@@ -37,12 +40,15 @@ import {
 } from "@/utils/invoice"
 import {
   createAlreadyIssuingResolution,
+  createInvoiceExportFailureResolution,
   createRateLimitedResolution,
+  getInvoiceExportAlertMessage,
+  getInvoiceExportErrorAlertMessage,
   type InvoiceExportContext,
   type InvoiceExportResolution,
   isInvoiceAlreadyBeingIssuedError,
   isInvoiceExportRateLimitedError,
-  resolveInvoiceExportResult,
+  resolveInvoiceExportResultWithJobStatus,
 } from "@/utils/invoiceExport"
 import { toNumber } from "@/utils/excel"
 import { InvoiceApiRow, InvoiceStatus } from "@/types/invoice"
@@ -86,6 +92,8 @@ type InvoiceItemForm = {
   accountingAccountCode: string
 }
 
+type InvoiceFieldErrors = Partial<Record<"taxCode" | "email", string>>
+
 type Props = {
   onBack: () => void
   onSaved?: (payload: any) => void
@@ -103,6 +111,7 @@ type Props = {
   receiptConfigLocked?: boolean
 }
 const today = new Date().toISOString().slice(0, 10)
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 function resolveAgencyEmployee(
   agency: Agency | null,
@@ -242,6 +251,7 @@ export default function InvoiceCreateForm({
   const [showError, setShowError] = useState(false)
   const [message, setMessage] = useState("")
   const [isCancelDialogOpen, setCancelDialogOpen] = useState(false)
+  const [fieldErrors, setFieldErrors] = useState<InvoiceFieldErrors>({})
 
   const receiptConfigSelectValue = useMemo(() => {
     if (selectedReceiptConfigValue) return selectedReceiptConfigValue
@@ -278,6 +288,24 @@ export default function InvoiceCreateForm({
     setMessage(text)
     setShowError(true)
     setTimeout(() => setShowError(false), 3000)
+  }
+
+  const validateRequiredField = (field: keyof InvoiceFieldErrors) => {
+    if (field === "taxCode") {
+      const message = general.taxCode.trim() ? "" : "Vui lòng nhập MST."
+      setFieldErrors((prev) => ({ ...prev, taxCode: message || undefined }))
+      return !message
+    }
+
+    const email = general.email.trim()
+    const message = !email
+      ? "Vui lòng nhập Email."
+      : emailPattern.test(email)
+        ? ""
+        : "Email không hợp lệ."
+
+    setFieldErrors((prev) => ({ ...prev, email: message || undefined }))
+    return !message
   }
 
   const handleCancelClick = () => {
@@ -749,6 +777,10 @@ export default function InvoiceCreateForm({
     // Hóa đơn đã ISSUED thì chỉ cho đổi ngân hàng, khóa toàn bộ thông tin khác.
     if (issuedLimitedEdit && !issuedEditableGeneralKeys.includes(key)) return
 
+    if (key === "taxCode" || key === "email") {
+      setFieldErrors((prev) => ({ ...prev, [key]: undefined }))
+    }
+
     if (key === "agency") {
       const agency = value as Agency | null
       const employee = resolveAgencyEmployee(agency, employees)
@@ -921,6 +953,7 @@ export default function InvoiceCreateForm({
     const agencyId = getId(general.agency)
     const employeeId = getId(general.employee)
     const bankId = getId(general.bank)
+    const nextFieldErrors: InvoiceFieldErrors = {}
 
     if (!general.symbol.trim()) {
       showErrorMessage("Vui lòng chọn cấu hình hóa đơn.")
@@ -932,15 +965,35 @@ export default function InvoiceCreateForm({
       return null
     }
 
+    const buyerEmail = general.email.trim()
+
     if (!general.taxCode.trim()) {
-      showErrorMessage("Vui lòng nhập MST.")
+      nextFieldErrors.taxCode = "Vui lòng nhập MST."
+    }
+
+    if (!buyerEmail) {
+      nextFieldErrors.email = "Vui lòng nhập Email."
+    } else if (!emailPattern.test(buyerEmail)) {
+      nextFieldErrors.email = "Email không hợp lệ."
+    }
+
+    if (nextFieldErrors.taxCode || nextFieldErrors.email) {
+      setFieldErrors(nextFieldErrors)
+      showErrorMessage(
+        nextFieldErrors.taxCode ||
+          nextFieldErrors.email ||
+          "Vui lòng kiểm tra thông tin."
+      )
       return null
     }
+
+    setFieldErrors({})
 
     if (!general.companyName.trim()) {
       showErrorMessage("Vui lòng nhập Tên công ty.")
       return null
     }
+
     if (!general.address.trim()) {
       showErrorMessage("Vui lòng nhập Địa chỉ.")
       return null
@@ -967,7 +1020,7 @@ export default function InvoiceCreateForm({
       inv_buyerTaxCode: general.taxCode.trim(),
       inv_buyerLegalName: general.companyName.trim(),
       inv_buyerDisplayName: general.companyName.trim(),
-      inv_buyerEmail: general.email.trim(),
+      inv_buyerEmail: buyerEmail,
       inv_buyerAddressLine: general.address.trim(),
       inv_buyerBankAccount: "",
       inv_buyerBankName: selectedBank?.inv_buyerBankName || "",
@@ -1155,7 +1208,11 @@ export default function InvoiceCreateForm({
         payload,
         activeReceiptTaxCode
       )
-      const resolution = resolveInvoiceExportResult(response, exportContext)
+      const resolution = await resolveInvoiceExportResultWithJobStatus(
+        response,
+        exportContext,
+        APIGetMInvoiceReceiptJobStatus
+      )
 
       console.log("EXPORT_M_INVOICE_RESOLUTION", {
         saleTransactionId: initialInvoice._id,
@@ -1165,13 +1222,18 @@ export default function InvoiceCreateForm({
       await onExported?.(initialInvoice._id, resolution)
 
       if (resolution.status === InvoiceStatus.FAILED) {
-        showErrorMessage(resolution.message)
+        showErrorMessage(
+          getInvoiceExportErrorAlertMessage(resolution, initialInvoice)
+        )
         return
       }
 
       if (resolution.status === InvoiceStatus.ISSUED) {
-        showSuccessMessage(resolution.message)
+        showSuccessMessage(getInvoiceExportAlertMessage(resolution))
+        return
       }
+
+      showSuccessMessage(getInvoiceExportAlertMessage(resolution))
     } catch (err: any) {
       console.error("EXPORT_M_INVOICE_ERROR", {
         saleTransactionId: initialInvoice._id,
@@ -1184,23 +1246,29 @@ export default function InvoiceCreateForm({
       if (isInvoiceAlreadyBeingIssuedError(err)) {
         const resolution = createAlreadyIssuingResolution(err, exportContext)
         await onExported?.(initialInvoice._id, resolution)
+        showSuccessMessage(getInvoiceExportAlertMessage(resolution))
         return
       }
 
       if (isInvoiceExportRateLimitedError(err)) {
         const resolution = createRateLimitedResolution(err, exportContext)
         await onExported?.(initialInvoice._id, resolution)
-        showErrorMessage(resolution.message)
+        showErrorMessage(
+          getInvoiceExportErrorAlertMessage(resolution, initialInvoice)
+        )
         return
       }
 
-      const message =
-        err?.response?.data?.message ||
-        err?.response?.data?.error ||
-        err?.message ||
-        "Xuất hóa đơn thất bại."
+      const resolution = createInvoiceExportFailureResolution(
+        err,
+        exportContext,
+        err?.message || "Xuất hóa đơn thất bại."
+      )
 
-      showErrorMessage(message)
+      await onExported?.(initialInvoice._id, resolution)
+      showErrorMessage(
+        getInvoiceExportErrorAlertMessage(resolution, initialInvoice)
+      )
     } finally {
       setExportInvoiceLoading(false)
     }
@@ -1370,14 +1438,32 @@ export default function InvoiceCreateForm({
             <div>
               <label className="mb-1 block text-[13px] font-medium text-slate-600">
                 MST
+                <span className="ml-0.5 text-red-500">*</span>
               </label>
               <input
-                className={inputClass}
+                className={`${inputClass} ${
+                  fieldErrors.taxCode ? "border-red-400 focus:border-red-500" : ""
+                }`}
                 value={general.taxCode}
                 disabled={mainFieldsDisabled}
                 onChange={(e) => updateGeneral("taxCode", e.target.value)}
+                onBlur={() => validateRequiredField("taxCode")}
                 placeholder="Nhập MST"
+                required
+                aria-required="true"
+                aria-invalid={Boolean(fieldErrors.taxCode)}
+                aria-describedby={
+                  fieldErrors.taxCode ? "invoice-tax-code-error" : undefined
+                }
               />
+              {fieldErrors.taxCode && (
+                <p
+                  id="invoice-tax-code-error"
+                  className="mt-1 text-xs font-medium text-red-600"
+                >
+                  {fieldErrors.taxCode}
+                </p>
+              )}
             </div>
 
             <div>
@@ -1396,14 +1482,33 @@ export default function InvoiceCreateForm({
             <div>
               <label className="mb-1 block text-[13px] font-medium text-slate-600">
                 Email
+                <span className="ml-0.5 text-red-500">*</span>
               </label>
               <input
-                className={inputClass}
+                type="email"
+                className={`${inputClass} ${
+                  fieldErrors.email ? "border-red-400 focus:border-red-500" : ""
+                }`}
                 value={general.email}
                 disabled={mainFieldsDisabled}
                 onChange={(e) => updateGeneral("email", e.target.value)}
+                onBlur={() => validateRequiredField("email")}
                 placeholder="Email xuất hóa đơn"
+                required
+                aria-required="true"
+                aria-invalid={Boolean(fieldErrors.email)}
+                aria-describedby={
+                  fieldErrors.email ? "invoice-email-error" : undefined
+                }
               />
+              {fieldErrors.email && (
+                <p
+                  id="invoice-email-error"
+                  className="mt-1 text-xs font-medium text-red-600"
+                >
+                  {fieldErrors.email}
+                </p>
+              )}
             </div>
 
             <div className="xl:col-span-2">

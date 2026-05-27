@@ -18,6 +18,7 @@ import AlertError from "@/components/alert/AlertError"
 import { APIGetBanks } from "@/services/bank"
 import {
   APIExportMInvoiceReceiptPost,
+  APIGetMInvoiceReceiptJobStatus,
   APIViewPrintInvoice,
 } from "@/services/mInvoiceReceipt"
 import { APIGetReceiptInvoices } from "@/services/receiptInvoice"
@@ -28,11 +29,15 @@ import {
   createAlreadyIssuingResolution,
   createInvoiceExportFailureResolution,
   createRateLimitedResolution,
+  getInvoiceExportAlertMessage,
+  getInvoiceExportErrorAlertMessage,
+  getInvoiceExportJobId,
   type InvoiceExportContext,
   type InvoiceExportResolution,
   isInvoiceAlreadyBeingIssuedError,
   isInvoiceExportRateLimitedError,
   resolveInvoiceExportResult,
+  resolveInvoiceExportResultWithJobStatus,
 } from "@/utils/invoiceExport"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import {
@@ -296,6 +301,25 @@ export default function InvoiceListPage() {
   }
 
   // M-Invoice có thể trả trạng thái đang xử lý, nên page kiểm tra lại vài nhịp ngắn.
+  const fetchInvoiceJobStatus = async (
+    jobId: string,
+    exportContext: InvoiceExportContext
+  ) => {
+    const response = await APIGetMInvoiceReceiptJobStatus(jobId)
+    const resolution = resolveInvoiceExportResult(response, exportContext)
+
+    console.log("ISSUING_INVOICE_JOB_STATUS_RESPONSE", {
+      jobId,
+      response,
+      resolution,
+    })
+
+    return {
+      response,
+      resolution,
+    }
+  }
+
   const scheduleInvoiceRefresh = (
     saleTransactionId: string,
     fallback?: InvoiceApiRow | null,
@@ -313,6 +337,9 @@ export default function InvoiceListPage() {
       fallback,
       initialResolution
     )
+    const jobId =
+      getInvoiceExportJobId(initialResolution?.exportData) ||
+      getInvoiceExportJobId(fallback)
 
     const finalizeRefresh = (resolution: InvoiceExportResolution) => {
       cancelInvoiceRefresh(saleTransactionId)
@@ -322,11 +349,11 @@ export default function InvoiceListPage() {
       })
 
       if (resolution.status === InvoiceStatus.ISSUED) {
-        showSuccessMessage(resolution.message)
+        showSuccessMessage(getInvoiceExportAlertMessage(resolution))
         return
       }
 
-      showErrorMessage(resolution.message)
+      showErrorMessage(getInvoiceExportErrorAlertMessage(resolution, fallback))
     }
 
     const runRefresh = (index: number) => {
@@ -345,10 +372,22 @@ export default function InvoiceListPage() {
       const timeoutId = setTimeout(() => {
         issuingSyncTimeoutRef.current.delete(saleTransactionId)
 
-        void fetchSaleTransactionDetail(saleTransactionId, fallback)
+        const refreshPromise = jobId
+          ? fetchInvoiceJobStatus(jobId, exportContext)
+          : fetchSaleTransactionDetail(saleTransactionId, fallback).then(
+              (result) => ({
+                response: result.response,
+                resolution: result.detail
+                  ? resolveInvoiceExportResult(result.detail, exportContext)
+                  : null,
+              })
+            )
+
+        void refreshPromise
           .then((result) => {
             console.log("ISSUING_INVOICE_SYNC_ATTEMPT", {
               saleTransactionId,
+              jobId,
               attempt: index + 1,
               delay,
               result,
@@ -365,9 +404,7 @@ export default function InvoiceListPage() {
               return
             }
 
-            const nextResolution = result?.detail
-              ? resolveInvoiceExportResult(result.detail, exportContext)
-              : null
+            const nextResolution = result?.resolution || null
 
             console.log("ISSUING_INVOICE_SYNC_RESOLUTION", {
               saleTransactionId,
@@ -386,7 +423,7 @@ export default function InvoiceListPage() {
             if (index === refreshIntervals.length - 1) {
               finalizeRefresh(
                 createInvoiceExportFailureResolution(
-                  result?.detail || result?.response,
+                  result?.resolution?.exportData || result?.response,
                   exportContext,
                   "Xuất hóa đơn thất bại."
                 )
@@ -399,6 +436,7 @@ export default function InvoiceListPage() {
           .catch((error) => {
             console.error("ISSUING_INVOICE_SYNC_ERROR", {
               saleTransactionId,
+              jobId,
               attempt: index + 1,
               delay,
               error,
@@ -1116,7 +1154,11 @@ export default function InvoiceListPage() {
         taxCode
       )
 
-      const resolution = resolveInvoiceExportResult(response, exportContext)
+      const resolution = await resolveInvoiceExportResultWithJobStatus(
+        response,
+        exportContext,
+        APIGetMInvoiceReceiptJobStatus
+      )
 
       console.log("EXPORT_M_INVOICE_FROM_LIST_RESOLUTION", {
         saleTransactionId: row._id,
@@ -1129,13 +1171,16 @@ export default function InvoiceListPage() {
       })
 
       if (resolution.status === InvoiceStatus.FAILED) {
-        showErrorMessage(resolution.message)
+        showErrorMessage(getInvoiceExportErrorAlertMessage(resolution, row))
         return
       }
 
       if (resolution.status === InvoiceStatus.ISSUED) {
-        showSuccessMessage(resolution.message)
+        showSuccessMessage(getInvoiceExportAlertMessage(resolution))
+        return
       }
+
+      showSuccessMessage(getInvoiceExportAlertMessage(resolution))
     } catch (err: any) {
       console.error("EXPORT_M_INVOICE_FROM_LIST_ERROR", {
         saleTransactionId: row._id,
@@ -1153,6 +1198,7 @@ export default function InvoiceListPage() {
           openDetail: false,
           fallbackRow: row,
         })
+        showSuccessMessage(getInvoiceExportAlertMessage(resolution))
         return
       }
 
@@ -1163,16 +1209,21 @@ export default function InvoiceListPage() {
           openDetail: false,
           fallbackRow: row,
         })
-        showErrorMessage(resolution.message)
+        showErrorMessage(getInvoiceExportErrorAlertMessage(resolution, row))
         return
       }
 
-      showErrorMessage(
-        err?.response?.data?.message ||
-          err?.response?.data?.error ||
-          err?.message ||
-          "Xuất hóa đơn thất bại."
+      const resolution = createInvoiceExportFailureResolution(
+        err,
+        exportContext,
+        err?.message || "Xuất hóa đơn thất bại."
       )
+
+      handleInvoiceExported(row._id, resolution, {
+        openDetail: false,
+        fallbackRow: row,
+      })
+      showErrorMessage(getInvoiceExportErrorAlertMessage(resolution, row))
     } finally {
       setExportingInvoiceId(null)
     }

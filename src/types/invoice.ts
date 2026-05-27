@@ -79,6 +79,9 @@ export type InvoiceApiRow = {
   isActive?: boolean
   exportInvoiceData?: Record<string, any>
   jobId?: string | null
+  invoiceErrorCode?: string
+  invoiceErrorMessage?: string
+  rawFailedReason?: string
 
   createdAt?: string
   updatedAt?: string

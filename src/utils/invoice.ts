@@ -194,6 +194,11 @@ export function getInvoiceExportData(value: any) {
     value?.content ||
     value?.data?.data ||
     value?.data ||
+    value?.response?.data?.content?.data ||
+    value?.response?.data?.content ||
+    value?.response?.data?.data?.data ||
+    value?.response?.data?.data ||
+    value?.response?.data ||
     value?.exportInvoiceData?.data ||
     value?.exportInvoiceData ||
     value ||
@@ -231,6 +236,10 @@ const ISSUING_STATUS_SET = new Set([
   "IN_PROGRESS",
   "INPROGRESS",
   "QUEUED",
+  "ACTIVE",
+  "WAITING",
+  "DELAYED",
+  "RUNNING",
 ])
 
 const ISSUED_STATUS_SET = new Set([
@@ -241,7 +250,7 @@ const ISSUED_STATUS_SET = new Set([
   "DONE",
 ])
 
-const FAILED_STATUS_SET = new Set(["FAILED", "FAIL", "ERROR"])
+const FAILED_STATUS_SET = new Set(["FAILED", "FAIL", "ERROR", "REJECTED"])
 const CANCELLED_STATUS_SET = new Set(["CANCELLED", "CANCELED", "VOID"])
 
 export type InvoiceStatusValue = InvoiceStatus

@@ -8,6 +8,30 @@ export type MInvoiceReceiptPostPayload = {
   editmode: number
 }
 
+export type MInvoiceReceiptJobStatus = {
+  code?: number
+  info?: string
+  message?: string
+  jobId?: string
+  jobName?: string
+  jobState?: string
+  attemptsMade?: number
+  failedReason?: string | null
+  stacktrace?: string[]
+  saleTransactionId?: string
+  invoiceStatus?: string
+  inv_invoiceCreatedId?: string
+  inv_invoiceSeries?: string
+  inv_invoiceIssuedDate?: string
+  orderNumber?: string
+  invoiceErrorCode?: string
+  invoiceErrorMessage?: string
+  rawFailedReason?: string
+  isProcessing?: boolean
+  isSuccess?: boolean
+  isFailed?: boolean
+}
+
 export const APIExportMInvoiceReceiptPost = async (
   payload: MInvoiceReceiptPostPayload,
   taxCode: string
@@ -24,6 +48,25 @@ export const APIExportMInvoiceReceiptPost = async (
     {
       params: {
         tax_code: normalizedTaxCode,
+      },
+    }
+  )
+
+  return response.data
+}
+
+export const APIGetMInvoiceReceiptJobStatus = async (jobId: string) => {
+  const normalizedJobId = String(jobId || "").trim()
+
+  if (!normalizedJobId) {
+    throw new Error("Thiếu jobId để kiểm tra trạng thái xuất hóa đơn.")
+  }
+
+  const response = await axiosInstance.get<MInvoiceReceiptJobStatus>(
+    "/m-invoice-receipt-post/job-status",
+    {
+      params: {
+        jobId: normalizedJobId,
       },
     }
   )
