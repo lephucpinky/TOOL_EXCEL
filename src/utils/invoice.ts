@@ -581,6 +581,24 @@ export function hydrateSaleTransactionDetail(
     return sum + toNumber(item?.inv_quantity ?? item?.quantity ?? 0)
   }, 0)
 
+  const amountCollected = toNumber(
+    detail.amountCollected ??
+      clientPayment.amountCollected ??
+      fallback?.amountCollected ??
+      detail.paidAmount ??
+      clientPayment.paidAmount ??
+      fallback?.paidAmount ??
+      0
+  )
+
+  const totalAmount = toNumber(
+    detail.inv_TotalAmount ??
+      payload?.inv_TotalAmount ??
+      fallback?.inv_TotalAmount
+  )
+
+  const remainingAmount = Math.max(totalAmount - amountCollected, 0)
+
   return {
     ...(fallback || {}),
     ...detail,
@@ -621,18 +639,23 @@ export function hydrateSaleTransactionDetail(
         totalItemQuantity
     ),
     items: mergedItems,
-    isPaid: detail.isPaid ?? clientPayment.isPaid ?? fallback?.isPaid ?? false,
+    isPaid:
+      detail.isPaid ??
+      clientPayment.isPaid ??
+      fallback?.isPaid ??
+      amountCollected > 0,
+
+    amountCollected,
+
     paidAmount:
       detail.paidAmount ??
       clientPayment.paidAmount ??
       fallback?.paidAmount ??
-      0,
+      amountCollected,
+
     paidDate:
       detail.paidDate ?? clientPayment.paidDate ?? fallback?.paidDate ?? "",
-    remainingAmount:
-      detail.remainingAmount ??
-      clientPayment.remainingAmount ??
-      fallback?.remainingAmount ??
-      0,
+
+    remainingAmount,
   }
 }

@@ -164,7 +164,7 @@ const APIGetSaleTransactionById = async (id: string) => {
 
 const APIUpdateSaleTransaction = async (id: string, data: any) => {
   try {
-    const response = await axiosInstance.put(`/sale-transaction/${id}`, data)
+    const response = await axiosInstance.patch(`/sale-transaction/${id}`, data)
 
     if (response.status >= 200 && response.status < 300) {
       return normalizeResponse(response)
@@ -184,7 +184,7 @@ const APIUpdateSaleTransactionBank = async (
   try {
     const body = typeof data === "string" ? { bankId: data } : data
     const response = await axiosInstance.patch(
-      `/sale-transaction/${id}/bank`,
+      `/sale-transaction/${id}/mark-paid`,
       body
     )
 

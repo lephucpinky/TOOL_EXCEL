@@ -3,6 +3,7 @@
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import { loginThunk } from "@/store/slices"
 import { getErrorMessage } from "@/store/utils/crud"
+import { Eye, EyeOff, Loader2 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
 
@@ -14,20 +15,25 @@ export default function LoginPage() {
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [errorMessage, setErrorMessage] = useState("")
+  const [successMessage, setSuccessMessage] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
 
   const handleLogin = async () => {
     if (!username.trim()) {
+      setSuccessMessage("")
       setErrorMessage("Vui lòng nhập tên đăng nhập")
       return
     }
 
     if (!password.trim()) {
+      setSuccessMessage("")
       setErrorMessage("Vui lòng nhập mật khẩu")
       return
     }
 
     try {
       setErrorMessage("")
+      setSuccessMessage("")
 
       const response = await dispatch(
         loginThunk({
@@ -40,11 +46,13 @@ export default function LoginPage() {
       const refreshToken = response?.refreshToken
 
       if (!token) {
-        setErrorMessage("Đăng nhập thành công nhưng không nhận được token")
+        setSuccessMessage("")
+        setErrorMessage("Sai tên đăng nhập hoặc mật khẩu")
         return
       }
 
       localStorage.setItem("access_token", token)
+      localStorage.setItem("auth_username", username.trim())
 
       if (refreshToken) {
         localStorage.setItem("refresh_token", refreshToken)
@@ -52,13 +60,21 @@ export default function LoginPage() {
         localStorage.removeItem("refresh_token")
       }
 
-      router.replace("/quan-ly-ban-hang")
+      setSuccessMessage("Đăng nhập thành công")
+
+      setTimeout(() => {
+        router.replace("/quan-ly-ban-hang")
+      }, 800)
     } catch (error: any) {
+      setSuccessMessage("")
+
       const status = error?.response?.status
       const message = getErrorMessage(error) || "Đăng nhập thất bại"
 
       if (status === 403) {
-        setErrorMessage("Tài khoản không có quyền truy cập hoặc thiếu secret key")
+        setErrorMessage(
+          "Tài khoản không có quyền truy cập hoặc thiếu secret key"
+        )
         return
       }
 
@@ -73,6 +89,17 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-slate-100">
+      {successMessage && (
+        <div className="fixed right-5 top-5 z-50 w-[320px] rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 shadow-lg">
+          {successMessage}
+        </div>
+      )}
+
+      {errorMessage && (
+        <div className="fixed right-5 top-5 z-50 w-[320px] rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 shadow-lg">
+          {errorMessage}
+        </div>
+      )}
       <div className="grid min-h-screen lg:grid-cols-[1.1fr_0.9fr]">
         <div className="bg-Charcoal p-10 text-white lg:flex lg:flex-col lg:justify-between">
           <div>
@@ -95,15 +122,10 @@ export default function LoginPage() {
               Quản lý bán hàng, hóa đơn, đại lý và hoa hồng.
             </h2>
 
-            <p className="mt-4 text-base leading-7 text-blue-100">
-              Đăng nhập để sử dụng hệ thống quản trị dữ liệu kế toán và bán
-              hàng.
-            </p>
+           
           </div>
 
-          <p className="text-sm text-blue-100">
-            © 2026 Accounting Management System
-          </p>
+         
         </div>
 
         <div className="flex items-center justify-center p-5">
@@ -120,12 +142,6 @@ export default function LoginPage() {
               </p>
             </div>
 
-            {errorMessage && (
-              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
-                {errorMessage}
-              </div>
-            )}
-
             <div className="space-y-4">
               <div>
                 <label className="mb-1.5 block text-sm font-semibold text-slate-700">
@@ -134,7 +150,11 @@ export default function LoginPage() {
 
                 <input
                   value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  onChange={(e) => {
+                    setUsername(e.target.value)
+                    setErrorMessage("")
+                    setSuccessMessage("")
+                  }}
                   placeholder="Nhập tên đăng nhập"
                   className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                 />
@@ -145,26 +165,45 @@ export default function LoginPage() {
                   Mật khẩu
                 </label>
 
-                <input
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      void handleLogin()
-                    }
-                  }}
-                  placeholder="Nhập mật khẩu"
-                  type="password"
-                  className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                />
+                <div className="relative">
+                  <input
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value)
+                      setErrorMessage("")
+                      setSuccessMessage("")
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        void handleLogin()
+                      }
+                    }}
+                    placeholder="Nhập mật khẩu"
+                    type={showPassword ? "text" : "password"}
+                    className="h-11 w-full rounded-lg border border-slate-300 px-3 pr-11 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    className="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                    aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
               </div>
 
               <button
                 onClick={() => void handleLogin()}
                 disabled={loading}
-                className="h-11 w-full rounded-lg bg-blue-600 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {loading ? "Đang đăng nhập..." : "Đăng nhập"}
+                {loading ? (
+                  <Loader2 size={20} className="animate-spin" />
+                ) : (
+                  "Đăng nhập"
+                )}
               </button>
             </div>
           </div>

@@ -112,6 +112,12 @@ type Props = {
 }
 const today = new Date().toISOString().slice(0, 10)
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const taxCodePattern = /^(?:\d{10}|\d{14})$/
+
+const taxCodeRequiredMessage = "Vui lòng nhập MST."
+const taxCodeInvalidMessage = "Mã số thuế phải là 10 hoặc 14 ký tự số."
+const emailRequiredMessage = "Vui lòng nhập Email."
+const emailInvalidMessage = "Email không hợp lệ."
 
 function resolveAgencyEmployee(
   agency: Agency | null,
@@ -290,24 +296,37 @@ export default function InvoiceCreateForm({
     setTimeout(() => setShowError(false), 3000)
   }
 
-  const validateRequiredField = (field: keyof InvoiceFieldErrors) => {
-    if (field === "taxCode") {
-      const message = general.taxCode.trim() ? "" : "Vui lòng nhập MST."
-      setFieldErrors((prev) => ({ ...prev, taxCode: message || undefined }))
-      return !message
-    }
+  const getTaxCodeError = (value: string) => {
+    const taxCode = value.trim()
 
-    const email = general.email.trim()
-    const message = !email
-      ? "Vui lòng nhập Email."
-      : emailPattern.test(email)
-        ? ""
-        : "Email không hợp lệ."
+    if (!taxCode) return taxCodeRequiredMessage
+    if (!taxCodePattern.test(taxCode)) return taxCodeInvalidMessage
 
-    setFieldErrors((prev) => ({ ...prev, email: message || undefined }))
-    return !message
+    return ""
   }
 
+  const getEmailError = (value: string) => {
+    const email = value.trim()
+
+    if (!email) return emailRequiredMessage
+    if (!emailPattern.test(email)) return emailInvalidMessage
+
+    return ""
+  }
+
+  const validateRequiredField = (field: keyof InvoiceFieldErrors) => {
+    const message =
+      field === "taxCode"
+        ? getTaxCodeError(general.taxCode)
+        : getEmailError(general.email)
+
+    setFieldErrors((prev) => ({
+      ...prev,
+      [field]: message || undefined,
+    }))
+
+    return !message
+  }
   const handleCancelClick = () => {
     if (readOnly) {
       onBack()
@@ -777,10 +796,6 @@ export default function InvoiceCreateForm({
     // Hóa đơn đã ISSUED thì chỉ cho đổi ngân hàng, khóa toàn bộ thông tin khác.
     if (issuedLimitedEdit && !issuedEditableGeneralKeys.includes(key)) return
 
-    if (key === "taxCode" || key === "email") {
-      setFieldErrors((prev) => ({ ...prev, [key]: undefined }))
-    }
-
     if (key === "agency") {
       const agency = value as Agency | null
       const employee = resolveAgencyEmployee(agency, employees)
@@ -967,16 +982,19 @@ export default function InvoiceCreateForm({
 
     const buyerEmail = general.email.trim()
 
-    if (!general.taxCode.trim()) {
-      nextFieldErrors.taxCode = "Vui lòng nhập MST."
+    const buyerTaxCode = general.taxCode.trim()
+
+    if (!buyerTaxCode) {
+      nextFieldErrors.taxCode = taxCodeRequiredMessage
+    } else if (!taxCodePattern.test(buyerTaxCode)) {
+      nextFieldErrors.taxCode = taxCodeInvalidMessage
     }
 
     if (!buyerEmail) {
-      nextFieldErrors.email = "Vui lòng nhập Email."
+      nextFieldErrors.email = emailRequiredMessage
     } else if (!emailPattern.test(buyerEmail)) {
-      nextFieldErrors.email = "Email không hợp lệ."
+      nextFieldErrors.email = emailInvalidMessage
     }
-
     if (nextFieldErrors.taxCode || nextFieldErrors.email) {
       setFieldErrors(nextFieldErrors)
       showErrorMessage(
@@ -1017,7 +1035,7 @@ export default function InvoiceCreateForm({
       employeeId: employeeId || undefined,
       bankId: bankId || undefined,
 
-      inv_buyerTaxCode: general.taxCode.trim(),
+      inv_buyerTaxCode: buyerTaxCode,
       inv_buyerLegalName: general.companyName.trim(),
       inv_buyerDisplayName: general.companyName.trim(),
       inv_buyerEmail: buyerEmail,
@@ -1322,9 +1340,7 @@ export default function InvoiceCreateForm({
                   onChange={(e) => handleReceiptConfigSelect(e.target.value)}
                 >
                   <option value="" disabled>
-                    {receiptConfigs.length
-                      ? "Chọn ký hiệu"
-                      : "Chưa có ký hiệu"}
+                    {receiptConfigs.length ? "Chọn ký hiệu" : "Chưa có ký hiệu"}
                   </option>
                   {receiptConfigs.map((config, index) => (
                     <option
@@ -1442,13 +1458,36 @@ export default function InvoiceCreateForm({
               </label>
               <input
                 className={`${inputClass} ${
-                  fieldErrors.taxCode ? "border-red-400 focus:border-red-500" : ""
+                  fieldErrors.taxCode
+                    ? "border-red-400 focus:border-red-500"
+                    : ""
                 }`}
                 value={general.taxCode}
                 disabled={mainFieldsDisabled}
-                onChange={(e) => updateGeneral("taxCode", e.target.value)}
+                onFocus={() => {
+                  if (!general.taxCode.trim()) {
+                    setFieldErrors((prev) => ({
+                      ...prev,
+                      taxCode: taxCodeRequiredMessage,
+                    }))
+                  }
+                }}
+                onChange={(e) => {
+                  const nextTaxCode = e.target.value
+                    .replace(/\D/g, "")
+                    .slice(0, 14)
+
+                  updateGeneral("taxCode", nextTaxCode)
+
+                  setFieldErrors((prev) => ({
+                    ...prev,
+                    taxCode: getTaxCodeError(nextTaxCode) || undefined,
+                  }))
+                }}
                 onBlur={() => validateRequiredField("taxCode")}
                 placeholder="Nhập MST"
+                inputMode="numeric"
+                maxLength={14}
                 required
                 aria-required="true"
                 aria-invalid={Boolean(fieldErrors.taxCode)}
@@ -1469,6 +1508,7 @@ export default function InvoiceCreateForm({
             <div>
               <label className="mb-1 block text-[13px] font-medium text-slate-600">
                 Tên cty
+                <span className="ml-0.5 text-red-500">*</span>
               </label>
               <input
                 className={inputClass}
@@ -1491,9 +1531,28 @@ export default function InvoiceCreateForm({
                 }`}
                 value={general.email}
                 disabled={mainFieldsDisabled}
-                onChange={(e) => updateGeneral("email", e.target.value)}
+                onFocus={() => {
+                  if (!general.email.trim()) {
+                    setFieldErrors((prev) => ({
+                      ...prev,
+                      email: emailRequiredMessage,
+                    }))
+                  }
+                }}
+                onChange={(e) => {
+                  const nextEmail = e.target.value
+
+                  updateGeneral("email", nextEmail)
+
+                  setFieldErrors((prev) => ({
+                    ...prev,
+                    email: getEmailError(nextEmail) || undefined,
+                  }))
+                }}
                 onBlur={() => validateRequiredField("email")}
                 placeholder="Email xuất hóa đơn"
+                inputMode="email"
+                autoComplete="email"
                 required
                 aria-required="true"
                 aria-invalid={Boolean(fieldErrors.email)}
@@ -1514,6 +1573,7 @@ export default function InvoiceCreateForm({
             <div className="xl:col-span-2">
               <label className="mb-1 block text-[13px] font-medium text-slate-600">
                 Địa chỉ
+                <span className="ml-0.5 text-red-500">*</span>
               </label>
               <input
                 className={inputClass}

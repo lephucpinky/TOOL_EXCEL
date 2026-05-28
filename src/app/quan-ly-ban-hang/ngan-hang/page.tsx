@@ -3,12 +3,26 @@
 import AlertError from "@/components/alert/AlertError"
 import AlertOption from "@/components/alert/AlertOption"
 import AlertSuccess from "@/components/alert/AlertSuccess"
+import CrudBulkImportModal, {
+  BulkImportColumnDefinition,
+  BulkImportPreparedRow,
+  BulkImportPreviewColumn,
+  cleanImportText,
+  parseImportBoolean,
+} from "@/components/common/CrudBulkImportModal"
 import DataTable, { DataTableColumn } from "@/components/common/Datatable"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import { bankActions, bankThunks } from "@/store/slices"
 import { getErrorMessage } from "@/store/utils/crud"
 import { Bank, BankPayload } from "@/types/bank"
-import { Landmark, Loader2, Plus, X } from "lucide-react"
+import {
+  Landmark,
+  Loader2,
+  Plus,
+  RefreshCcw,
+  UploadCloud,
+  X,
+} from "lucide-react"
 import { ReactNode, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import PageHeader from "../_components/PageHeader"
@@ -17,6 +31,36 @@ const emptyForm: BankPayload = {
   inv_buyerBankName: "",
   isActive: true,
 }
+
+type BankImportKey = "bankName" | "status"
+
+type BankImportPreview = {
+  bankName: string
+  status: string
+}
+
+const BANK_IMPORT_COLUMNS: readonly BulkImportColumnDefinition<BankImportKey>[] =
+  [
+    {
+      key: "bankName",
+      label: "Tên ngân hàng",
+      aliases: ["Tên ngân hàng", "Ngân hàng", "Bank Name"],
+      required: true,
+    },
+    {
+      key: "status",
+      label: "Trạng thái",
+      aliases: ["Trạng thái", "Status"],
+    },
+  ]
+
+const BANK_IMPORT_PREVIEW_COLUMNS: readonly BulkImportPreviewColumn<
+  BankPayload,
+  BankImportPreview
+>[] = [
+  { key: "bankName", title: "Tên ngân hàng" },
+  { key: "status", title: "Trạng thái", className: "whitespace-nowrap" },
+]
 
 type ModeType = "create" | "view" | "edit" | null
 
@@ -92,6 +136,7 @@ export default function BankPage() {
   const [deleteTarget, setDeleteTarget] = useState<Bank | null>(null)
   const [mode, setMode] = useState<ModeType>("create")
   const [open, setOpen] = useState(false)
+  const [isBulkImportOpen, setBulkImportOpen] = useState(false)
   const [isDeleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
   const [showError, setShowError] = useState(false)
@@ -143,6 +188,7 @@ export default function BankPage() {
       {
         key: "inv_buyerBankName",
         title: "Tên ngân hàng",
+        className: "w-[150px] text-slate-900",
         render: (item) => (
           <p className="font-semibold text-slate-900">
             {item.inv_buyerBankName}
@@ -153,7 +199,7 @@ export default function BankPage() {
         key: "isActive",
         title: "Trạng thái",
         headerClassName: "text-center",
-        className: "text-center",
+        className: "text-center w-[150px]",
         render: (item) => (
           <span
             className={[
@@ -189,6 +235,19 @@ export default function BankPage() {
 
   const handleRefreshBanks = async () => {
     await dispatch(bankThunks.fetchAll(undefined)).unwrap()
+  }
+  const onRefreshBanks = async () => {
+    try {
+      await handleRefreshBanks()
+    } catch (error) {
+      showErrorMessage(
+        getErrorMessage(error) || "Không thể tải danh sách ngân hàng"
+      )
+    }
+  }
+
+  const createBulkBank = async (payload: BankPayload) => {
+    await dispatch(bankThunks.createItem(payload)).unwrap()
   }
 
   const onSubmit = async (data: BankPayload) => {
@@ -292,6 +351,40 @@ export default function BankPage() {
     }
   }
 
+  const mapBankImportRow = ({
+    rowNumber,
+    getValue,
+  }: {
+    rowNumber: number
+    getValue: (key: BankImportKey) => unknown
+  }): BulkImportPreparedRow<BankPayload, BankImportPreview> => {
+    const errors: string[] = []
+    const bankName = cleanImportText(getValue("bankName"))
+    const isActive = parseImportBoolean(getValue("status"), true)
+
+    if (!bankName) {
+      errors.push("Thiếu tên ngân hàng.")
+    }
+
+    return {
+      id: `bank-${rowNumber}-${bankName}`,
+      rowNumber,
+      payload:
+        errors.length === 0
+          ? {
+              inv_buyerBankName: bankName,
+              isActive,
+            }
+          : null,
+      preview: {
+        bankName,
+        status: isActive ? "Đang hoạt động" : "Ngừng hoạt động",
+      },
+      errors,
+      warnings: [],
+    }
+  }
+
   return (
     <div className="min-h-screen p-5">
       <div className="mx-auto max-w-7xl space-y-5">
@@ -302,14 +395,37 @@ export default function BankPage() {
           description="Quản lý danh sách ngân hàng dùng cho giao dịch và hóa đơn."
           tone="blue"
           actions={
-            <button
-              type="button"
-              onClick={openCreateDialog}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700"
-            >
-              <Plus size={18} />
-              Thêm ngân hàng
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => setBulkImportOpen(true)}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+              >
+                <UploadCloud size={18} />
+                Tạo hàng loạt
+              </button>
+
+              <button
+                type="button"
+                onClick={openCreateDialog}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700"
+              >
+                <Plus size={18} />
+                Thêm ngân hàng
+              </button>
+              <button
+                type="button"
+                onClick={() => void onRefreshBanks()}
+                disabled={loading}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <RefreshCcw
+                  size={18}
+                  className={loading ? "animate-spin" : undefined}
+                />
+                Tải dữ liệu
+              </button>
+            </>
           }
         />
 
@@ -322,6 +438,7 @@ export default function BankPage() {
           onView={onView}
           onEdit={onEdit}
           onDelete={onDeleteClick}
+          pagination={{ itemLabel: "ngân hàng" }}
         />
       </div>
 
@@ -382,11 +499,15 @@ export default function BankPage() {
             className="space-y-4"
           >
             <div>
-              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="bank-name"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
                 Tên ngân hàng
               </label>
 
               <input
+                id="bank-name"
                 disabled={isViewMode}
                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
                 placeholder="Nhập tên ngân hàng"
@@ -419,6 +540,22 @@ export default function BankPage() {
           </form>
         )}
       </ActionModal>
+
+      <CrudBulkImportModal
+        open={isBulkImportOpen}
+        title="Tạo ngân hàng hàng loạt từ Excel"
+        entityLabel="ngân hàng"
+        columns={BANK_IMPORT_COLUMNS}
+        previewColumns={BANK_IMPORT_PREVIEW_COLUMNS}
+        notes={[
+          'Cột "Trạng thái" có thể để trống, hệ thống sẽ mặc định là Đang hoạt động.',
+          'Có thể nhập trạng thái là "Đang hoạt động", "Ngừng hoạt động", "active", "inactive", "1" hoặc "0".',
+        ]}
+        onClose={() => setBulkImportOpen(false)}
+        onCompleted={handleRefreshBanks}
+        mapRow={mapBankImportRow}
+        createItem={createBulkBank}
+      />
 
       <AlertOption
         isOpen={isDeleteDialogOpen}

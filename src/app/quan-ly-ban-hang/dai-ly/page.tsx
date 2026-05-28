@@ -328,7 +328,7 @@ export default function Page() {
         key: "commissionPercent",
         title: "% hoa hồng",
         headerClassName: "text-right",
-        className: "text-right",
+        className: "text-right w-[50px]",
         render: (item) => (
           <span className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
             {item.commissionPercent}%
@@ -338,6 +338,7 @@ export default function Page() {
       {
         key: "isActive",
         title: "Trạng thái",
+        className: "w-[160px] text-center",
         render: (item) => (
           <span
             className={[

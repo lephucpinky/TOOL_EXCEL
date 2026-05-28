@@ -8,6 +8,7 @@ import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import "./globals.css"
 import { metadata } from "./metadata"
+import { Loader2 } from "lucide-react"
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -45,12 +46,14 @@ function AuthGate({
   useEffect(() => {
     const token = localStorage.getItem("access_token")
     const refreshToken = localStorage.getItem("refresh_token")
+    const username = localStorage.getItem("auth_username")
 
     if (token) {
       dispatch(
         authActions.hydrateAuth({
           accessToken: token,
           refreshToken,
+          username,
         })
       )
     } else {
@@ -74,10 +77,19 @@ function AuthGate({
 
     setIsLoading(false)
   }, [accessToken, pathname, router])
-
   return isLoading ? (
     <div className="flex min-h-screen items-center justify-center">
-      Đang tải...
+      <div className="flex w-[360px] flex-col items-center rounded-2xl px-8 py-7 text-center">
+        <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-blue-50 text-blue-600">
+          <Loader2 size={32} className="animate-spin" />
+        </div>
+
+        <h2 className="text-base font-bold text-slate-900">Đang tải dữ liệu</h2>
+
+        <p className="mt-1 text-sm font-medium text-slate-500">
+          Vui lòng chờ trong giây lát...
+        </p>
+      </div>
     </div>
   ) : (
     <>{children}</>

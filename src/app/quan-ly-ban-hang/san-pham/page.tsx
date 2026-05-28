@@ -15,7 +15,14 @@ import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import { productActions, productThunks } from "@/store/slices"
 import { getErrorMessage } from "@/store/utils/crud"
 import { Product, ProductPayload } from "@/types/product"
-import { Loader2, PackageSearch, Plus, UploadCloud, X } from "lucide-react"
+import {
+  Loader2,
+  PackageSearch,
+  Plus,
+  RefreshCcw,
+  UploadCloud,
+  X,
+} from "lucide-react"
 import { ReactNode, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import PageHeader from "../_components/PageHeader"
@@ -336,6 +343,16 @@ export default function ProductPage() {
     await dispatch(productThunks.fetchAll(LIST_PARAMS)).unwrap()
   }
 
+  const onRefreshProducts = async () => {
+    try {
+      await handleRefreshProducts()
+    } catch (error) {
+      showErrorMessage(
+        getErrorMessage(error) || "Không thể tải lại danh sách sản phẩm"
+      )
+    }
+  }
+
   const createBulkProduct = async (payload: ProductPayload) => {
     await dispatch(productThunks.createItem(payload)).unwrap()
   }
@@ -544,6 +561,19 @@ export default function ProductPage() {
               >
                 <Plus size={18} />
                 Thêm sản phẩm
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void onRefreshProducts()}
+                disabled={loading}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <RefreshCcw
+                  size={18}
+                  className={loading ? "animate-spin" : undefined}
+                />
+                Tải dữ liệu
               </button>
             </>
           }

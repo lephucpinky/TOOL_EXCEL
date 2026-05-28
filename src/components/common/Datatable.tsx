@@ -18,7 +18,7 @@ import Pagination from "../pagination/Pagination"
 
 export interface DataTableColumn<T> {
   key: string
-  title: string
+  title: React.ReactNode
   render?: (item: T, index: number) => ReactNode
   className?: string
   headerClassName?: string

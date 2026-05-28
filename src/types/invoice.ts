@@ -29,7 +29,7 @@ export type InvoiceApiRow = {
 
   invoiceStatus?: InvoiceStatus
   bankId?: Bank | string | null
-
+  invoiceNumber?: number
   activationDate?: string | null
   inv_invoiceCreatedId?: string | null
   inv_invoiceSeries?: string
@@ -38,6 +38,7 @@ export type InvoiceApiRow = {
   inv_exchangeRate?: number
 
   orderNumber?: string
+  amountCollected?: number //lưu tiền khách đã thanh toán (nếu có)
   so_benh_an?: string
 
   inv_buyerDisplayName?: string

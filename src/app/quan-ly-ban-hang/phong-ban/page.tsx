@@ -15,7 +15,7 @@ import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import { departmentActions, departmentThunks } from "@/store/slices"
 import { getErrorMessage } from "@/store/utils/crud"
 import { Department, DepartmentPayload } from "@/types/department"
-import { Building2, Loader2, Plus, UploadCloud, X } from "lucide-react"
+import { Building2, Loader2, Plus, RefreshCcw, UploadCloud, X } from "lucide-react"
 import { ReactNode, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import PageHeader from "../_components/PageHeader"
@@ -249,6 +249,16 @@ export default function DepartmentPage() {
     await dispatch(departmentThunks.fetchAll(LIST_PARAMS)).unwrap()
   }
 
+  const onRefreshDepartments = async () => {
+    try {
+      await handleRefreshDepartments()
+    } catch (error) {
+      showErrorMessage(
+        getErrorMessage(error) || "Không thể tải lại danh sách phòng ban"
+      )
+    }
+  }
+
   const createBulkDepartment = async (payload: DepartmentPayload) => {
     await dispatch(departmentThunks.createItem(payload)).unwrap()
   }
@@ -432,6 +442,18 @@ export default function DepartmentPage() {
               >
                 <Plus size={18} />
                 Thêm phòng ban
+              </button>
+              <button
+                type="button"
+                onClick={() => void onRefreshDepartments()}
+                disabled={loading}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <RefreshCcw
+                  size={18}
+                  className={loading ? "animate-spin" : undefined}
+                />
+                Tải dữ liệu
               </button>
             </>
           }

@@ -89,24 +89,17 @@ export default function InvoiceDataTable({
   }
 
   const getInvoicePaymentState = (invoice: InvoiceApiRow) => {
-    const totalAmount = Number(invoice.inv_TotalAmount || 0)
-    const paidAmount = Number(invoice.paidAmount || 0)
-    const remainingAmount =
-      invoice.remainingAmount !== undefined
-        ? Number(invoice.remainingAmount || 0)
-        : Math.max(totalAmount - paidAmount, 0)
+    const totalAmount = invoiceHelper.toNumber(invoice.inv_TotalAmount)
 
-    if (invoice.isPaid && paidAmount <= 0) {
-      return {
-        isPaid: true,
-        paidAmount: totalAmount,
-        remainingAmount: 0,
-      }
-    }
+    const amountCollected = invoiceHelper.toNumber(
+      invoice.amountCollected ?? invoice.paidAmount ?? 0
+    )
+
+    const remainingAmount = Math.max(totalAmount - amountCollected, 0)
 
     return {
-      isPaid: Boolean(invoice.isPaid || paidAmount > 0),
-      paidAmount,
+      isPaid: Boolean(invoice.isPaid || amountCollected > 0),
+      paidAmount: amountCollected,
       remainingAmount,
     }
   }
@@ -369,12 +362,19 @@ export default function InvoiceDataTable({
         return textValue
       },
     },
+    // {
+    //   key: "inv_invoiceSeries",
+    //   title: "Ký hiệu HĐ",
+    //   className: "whitespace-nowrap text-center min-w-[100px] ",
+    //   headerClassName: "text-center",
+    //   render: (invoice) => invoice.inv_invoiceSeries || "-",
+    // },
     {
-      key: "inv_invoiceSeries",
-      title: "Ký hiệu HĐ",
-      className: "whitespace-nowrap text-center min-w-[100px] ",
+      key: "invoiceNumber",
+      title: "Số hoá đơn",
+      className: "whitespace-nowrap text-center min-w-[130px] ",
       headerClassName: "text-center",
-      render: (invoice) => invoice.inv_invoiceSeries || "-",
+      render: (invoice) => invoice.invoiceNumber || "-",
     },
     {
       key: "exportInvoiceStatus",
@@ -395,24 +395,24 @@ export default function InvoiceDataTable({
         )
       },
     },
-    {
-      key: "agencyId",
-      title: "Đại lý",
-      className: "min-w-[130px]",
-      render: (invoice) => getAgencyName(invoice.agencyId) || "-",
-    },
-    {
-      key: "departmentId",
-      title: "Phòng ban",
-      className: "min-w-[150px]",
-      render: (invoice) => getDepartmentName(invoice.departmentId) || "-",
-    },
-    {
-      key: "employeeId",
-      title: "NVKD",
-      className: "min-w-[160px]",
-      render: (invoice) => getEmployeeName(invoice.employeeId) || "-",
-    },
+    // {
+    //   key: "agencyId",
+    //   title: "Đại lý",
+    //   className: "min-w-[130px]",
+    //   render: (invoice) => getAgencyName(invoice.agencyId) || "-",
+    // },
+    // {
+    //   key: "departmentId",
+    //   title: "Phòng ban",
+    //   className: "min-w-[150px]",
+    //   render: (invoice) => getDepartmentName(invoice.departmentId) || "-",
+    // },
+    // {
+    //   key: "employeeId",
+    //   title: "NVKD",
+    //   className: "min-w-[160px]",
+    //   render: (invoice) => getEmployeeName(invoice.employeeId) || "-",
+    // },
     {
       key: "inv_buyerTaxCode",
       title: "MST",
@@ -449,19 +449,19 @@ export default function InvoiceDataTable({
     {
       key: "inv_TotalAmountWithoutVAT",
       title: "Tổng giá trị",
-      className: "whitespace-nowrap text-right ",
+      className: "whitespace-nowrap min-w-[150px] text-right ",
       headerClassName: "text-right",
       render: (invoice) =>
-        moneyFormatter.format(Number(invoice.inv_TotalAmountWithoutVAT || 0)),
+        moneyFormatter.format(Number(invoice.inv_TotalAmount || 0)),
     },
-    {
-      key: "inv_vatAmount",
-      title: "Tiền thuế",
-      className: "whitespace-nowrap text-right ",
-      headerClassName: "text-right",
-      render: (invoice) =>
-        moneyFormatter.format(Number(invoice.inv_vatAmount || 0)),
-    },
+    // {
+    //   key: "inv_vatAmount",
+    //   title: "Tiền thuế",
+    //   className: "whitespace-nowrap text-right ",
+    //   headerClassName: "text-right",
+    //   render: (invoice) =>
+    //     moneyFormatter.format(Number(invoice.inv_vatAmount || 0)),
+    // },
     {
       key: "inv_TotalAmount",
       title: "Tổng xuất HĐ",
@@ -530,20 +530,20 @@ export default function InvoiceDataTable({
     },
     {
       key: "paidAmount",
-      title: "Số tiền",
-      className: "whitespace-nowrap text-right ",
-      headerClassName: "text-right",
-      render: (invoice) =>
-        moneyFormatter.format(getInvoicePaymentState(invoice).paidAmount),
-    },
-    {
-      key: "remainingAmount",
-      title: "Còn lại",
-      className: "whitespace-nowrap text-right ",
+      title: "Số tiền thu",
+      className: "whitespace-nowrap text-right min-w-[120px] ",
       headerClassName: "text-right",
       render: (invoice) =>
         moneyFormatter.format(getInvoicePaymentState(invoice).remainingAmount),
     },
+    // {
+    //   key: "remainingAmount",
+    //   title: "Còn lại",
+    //   className: "whitespace-nowrap text-right ",
+    //   headerClassName: "text-right",
+    //   render: (invoice) =>
+    //     moneyFormatter.format(getInvoicePaymentState(invoice).remainingAmount),
+    // },
     // {
     //   key: "note",
     //   title: "Ghi chú",
@@ -741,7 +741,7 @@ export default function InvoiceDataTable({
                 type="button"
                 disabled
                 title="Đang xử lý xuất hóa đơn"
-                className="border-sky-200 bg-sky-50 text-sky-700 inline-flex h-8 w-8 items-center justify-center rounded-lg border shadow-sm transition disabled:cursor-not-allowed disabled:opacity-70"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sky-200 bg-sky-50 text-sky-700 shadow-sm transition disabled:cursor-not-allowed disabled:opacity-70"
               >
                 <Loader2 size={15} className="animate-spin" />
               </button>

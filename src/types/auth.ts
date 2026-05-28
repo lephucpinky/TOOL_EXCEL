@@ -3,6 +3,11 @@ export interface LoginPayload {
   password: string
 }
 
+export interface ChangePasswordPayload {
+  oldPassword: string
+  newPassword: string
+}
+
 export interface LoginResponse {
   code?: number
   message?: string

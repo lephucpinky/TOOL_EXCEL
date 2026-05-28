@@ -867,46 +867,23 @@ export default function InvoiceListPage() {
       showErrorMessage("Vui lòng nhập tổng tiền thu hợp lệ.")
       return
     }
-    const paymentSnapshot = {
-      isPaid: true,
-      paidAmount,
-      paidDate,
-      remainingAmount: 0,
-    }
-    const clientPayload = {
-      ...target,
-      _id: target._id,
-      agencyId: invoiceHelper.getId(target.agencyId) || target.agencyId,
-      employeeId: invoiceHelper.getId(target.employeeId) || target.employeeId,
-      bankId: selectedBank._id,
-      inv_buyerBankName: selectedBank.inv_buyerBankName,
-      isPaid: true,
-      paidAmount,
-      paidDate,
-      paymentDate: paidDate,
-      remainingAmount: 0,
-      items: (target.items || []).map((item) => ({
-        ...item,
-        productId:
-          invoiceHelper.getId(item.productId) ||
-          invoiceHelper.getId(item.product),
-      })),
-      __clientSnapshot: {
-        bank: selectedBank,
-      },
-      __clientPayment: paymentSnapshot,
-      inv_TotalAmount: paidAmount,
-    }
-    const body = buildCreateInvoiceApiBody(clientPayload, {
-      includePayment: true,
-      includeId: true,
-    })
+
+    const totalAmount = invoiceHelper.toNumber(target.inv_TotalAmount)
+    const remainingAmount = Math.max(totalAmount - paidAmount, 0)
 
     try {
       setCollectPaymentSaving(true)
 
+      /*
+      Theo BE hiện tại:
+      PATCH /sale-transaction/:id/mark-paid chỉ nhận { bankId }
+      Không gửi amountCollected lên BE nữa.
+    */
       const detail = await dispatch(
-        updateSaleTransactionThunk({ id: target._id, payload: body })
+        updateSaleTransactionBankThunk({
+          id: target._id,
+          bankId: selectedBank._id,
+        })
       ).unwrap()
 
       if (!detail?._id) {
@@ -914,19 +891,24 @@ export default function InvoiceListPage() {
       }
 
       const nextDetail = {
-        ...invoiceHelper.hydrateSaleTransactionDetail(
-          detail || target,
-          clientPayload,
-          target
-        ),
+        ...target,
+        ...(detail || {}),
+
         bankId: selectedBank,
         inv_buyerBankName: selectedBank.inv_buyerBankName,
-        inv_TotalAmount: paidAmount,
-        isPaid: true,
+
+        // Giữ nguyên tổng xuất hóa đơn
+        inv_TotalAmount: totalAmount,
+
+        // Chỉ lưu ở FE để hiển thị đúng số tiền đã nhập
+        amountCollected: paidAmount,
         paidAmount,
+
+        isPaid: true,
         paidDate,
         paymentDate: paidDate,
-        remainingAmount: 0,
+        remainingAmount,
+
         invoiceStatus: (detail as any)?.invoiceStatus || InvoiceStatus.ISSUED,
         updatedAt: new Date().toISOString(),
       } as InvoiceApiRow
@@ -944,9 +926,11 @@ export default function InvoiceListPage() {
       setCollectPaymentBankId("")
       setCollectPaymentAmount("")
       setCollectPaymentBanks([])
+
       showSuccessMessage("Thu tiền thành công.")
     } catch (err: any) {
       console.error("CONFIRM_COLLECT_PAYMENT_ERROR", err)
+
       showErrorMessage(
         err?.response?.data?.message ||
           err?.response?.data?.error ||

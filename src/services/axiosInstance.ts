@@ -110,6 +110,7 @@ axiosInstance.interceptors.response.use(
         if (typeof window !== "undefined") {
           localStorage.removeItem("access_token")
           localStorage.removeItem("refresh_token")
+          localStorage.removeItem("auth_username")
           window.location.href = "/"
         }
 
@@ -122,6 +123,7 @@ axiosInstance.interceptors.response.use(
       if (typeof window !== "undefined") {
         localStorage.removeItem("access_token")
         localStorage.removeItem("refresh_token")
+        localStorage.removeItem("auth_username")
         window.location.href = "/"
       }
     }

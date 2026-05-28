@@ -21,7 +21,14 @@ import { getErrorMessage } from "@/store/utils/crud"
 import { Department } from "@/types/department"
 import { Employee, EmployeePayload } from "@/types/employee"
 import { normalize } from "@/utils/excel"
-import { Loader2, Plus, UploadCloud, UserRound, X } from "lucide-react"
+import {
+  Loader2,
+  Plus,
+  RefreshCcw,
+  UploadCloud,
+  UserRound,
+  X,
+} from "lucide-react"
 import { ReactNode, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import PageHeader from "../_components/PageHeader"
@@ -324,6 +331,16 @@ export default function EmployeePage() {
     await dispatch(employeeThunks.fetchAll(LIST_PARAMS)).unwrap()
   }
 
+  const onRefreshEmployees = async () => {
+    try {
+      await handleRefreshEmployees()
+    } catch (error) {
+      showErrorMessage(
+        getErrorMessage(error) || "Không thể tải lại danh sách nhân viên"
+      )
+    }
+  }
+
   const createBulkEmployee = async (payload: EmployeePayload) => {
     await dispatch(employeeThunks.createItem(payload)).unwrap()
   }
@@ -536,6 +553,18 @@ export default function EmployeePage() {
               >
                 <Plus size={18} />
                 Thêm nhân viên
+              </button>
+              <button
+                type="button"
+                onClick={() => void onRefreshEmployees()}
+                disabled={loading}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <RefreshCcw
+                  size={18}
+                  className={loading ? "animate-spin" : undefined}
+                />
+                Tải dữ liệu
               </button>
             </>
           }
