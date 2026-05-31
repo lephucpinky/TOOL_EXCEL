@@ -12,6 +12,12 @@ export enum InvoiceStatus {
   CANCELLED = "CANCELLED",
 }
 
+export enum InvoicePaymentStatus {
+  UNPAID = "UNPAID",
+  PARTIAL = "PARTIAL",
+  PAID = "PAID",
+}
+
 export type InvoiceItem = {
   _id?: string
   productId?: Product | string | null
@@ -38,7 +44,9 @@ export type InvoiceApiRow = {
   inv_exchangeRate?: number
 
   orderNumber?: string
-  amountCollected?: number //lưu tiền khách đã thanh toán (nếu có)
+  suggestedAmountCollected?: number
+  amountCollected?: number
+
   so_benh_an?: string
 
   inv_buyerDisplayName?: string
@@ -75,10 +83,24 @@ export type InvoiceApiRow = {
   paymentDate?: string
   remainingAmount?: number
   minvoiceRevenue?: number
+
+  /**
+   * true chỉ khi amountCollected >= inv_TotalAmount.
+   * Không được set true chỉ vì đã thu một phần.
+   */
   isPaid?: boolean
+
+  /**
+   * Dùng cho UI:
+   * - UNPAID: chưa thu
+   * - PARTIAL: thu một phần
+   * - PAID: đã thu đủ
+   */
+  paymentStatus?: InvoicePaymentStatus
+
   note?: string
   isActive?: boolean
-  exportInvoiceData?: Record<string, any>
+  exportInvoiceData?: Record<string, unknown>
   jobId?: string | null
   invoiceErrorCode?: string
   invoiceErrorMessage?: string

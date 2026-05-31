@@ -17,7 +17,7 @@ import {
 import { APICreateUser } from "@/services/user"
 import { getErrorMessage } from "@/store/utils/crud"
 import type { UserRole } from "@/types/user"
-import PageHeader from "../_components/PageHeader"
+import PageHeader from "../../../components/header/PageHeader"
 
 const ROLE_OPTIONS: Array<{
   value: UserRole
@@ -95,7 +95,6 @@ export default function RegisterPage() {
       await APICreateUser({
         username: nextUsername,
         password: nextPassword,
-        role,
       })
 
       setSuccessMessage("Tạo tài khoản thành công")

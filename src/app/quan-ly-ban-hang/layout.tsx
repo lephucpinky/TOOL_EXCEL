@@ -1,6 +1,6 @@
 import type { Metadata } from "next"
 
-import SalesShell from "./_components/SalesShell"
+import SalesShell from "../../components/header/SalesShell"
 
 export const metadata: Metadata = {
   title: "M-Invoice | Quản lý bán hàng",

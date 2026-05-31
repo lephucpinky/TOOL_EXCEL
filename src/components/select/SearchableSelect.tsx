@@ -26,6 +26,8 @@ type Props = {
   searchPlaceholder?: string
   emptyText?: string
   disabled?: boolean
+  className?: string
+  contentClassName?: string
 }
 
 export function SearchableSelect({
@@ -36,6 +38,8 @@ export function SearchableSelect({
   searchPlaceholder = "Tìm kiếm...",
   emptyText = "Không tìm thấy kết quả",
   disabled,
+  className,
+  contentClassName,
 }: Props) {
   const [open, setOpen] = React.useState(false)
 
@@ -53,7 +57,10 @@ export function SearchableSelect({
           role="combobox"
           aria-expanded={open}
           disabled={disabled}
-          className="border-gray-100 w-full justify-between rounded-xl border font-normal"
+          className={cn(
+            "w-full justify-between rounded-xl font-normal",
+            className
+          )}
         >
           <span className="min-w-0 flex-1 truncate text-left">
             {selected ? selected.label : placeholder}
@@ -72,7 +79,8 @@ export function SearchableSelect({
           // ✅ giới hạn chiều cao để không “vỡ” layout
           "max-h-[320px] overflow-hidden",
           // ✅ đảm bảo nổi lên trên
-          "z-50"
+          "z-50",
+          contentClassName
         )}
       >
         <Command className="w-full">

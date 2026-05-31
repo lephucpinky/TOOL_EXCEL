@@ -500,6 +500,21 @@ export function parsePaymentAmountInput(value: string) {
   return digits ? Number(digits) : 0
 }
 
+export function getInvoiceAmountCollected(invoice?: InvoiceApiRow | null) {
+  if (!invoice) return 0
+
+  return toNumber((invoice as any).amountCollected ?? 0)
+}
+
+export function getInvoiceRemainingAmount(invoice?: InvoiceApiRow | null) {
+  if (!invoice) return 0
+
+  const totalAmount = toNumber(invoice.inv_TotalAmount)
+  const amountCollected = getInvoiceAmountCollected(invoice)
+
+  return Math.max(totalAmount - amountCollected, 0)
+}
+
 export function normalizeSaleTransactionDetail(
   response: any
 ): InvoiceApiRow | null {
@@ -581,21 +596,34 @@ export function hydrateSaleTransactionDetail(
     return sum + toNumber(item?.inv_quantity ?? item?.quantity ?? 0)
   }, 0)
 
-  const amountCollected = toNumber(
-    detail.amountCollected ??
-      clientPayment.amountCollected ??
-      fallback?.amountCollected ??
-      detail.paidAmount ??
-      clientPayment.paidAmount ??
-      fallback?.paidAmount ??
-      0
-  )
+  const detailTotalAmount = toNumber(detail.inv_TotalAmount)
+  const payloadTotalAmount = toNumber(payload?.inv_TotalAmount)
+  const fallbackTotalAmount = toNumber(fallback?.inv_TotalAmount)
 
-  const totalAmount = toNumber(
-    detail.inv_TotalAmount ??
-      payload?.inv_TotalAmount ??
-      fallback?.inv_TotalAmount
-  )
+  // Detail API có trường hợp trả inv_TotalAmount = 0 khi xem chi tiết,
+  // nên ưu tiên số > 0 để không làm mất tổng tiền thật trên bảng.
+  const totalAmount =
+    detailTotalAmount > 0
+      ? detailTotalAmount
+      : payloadTotalAmount > 0
+        ? payloadTotalAmount
+        : fallbackTotalAmount
+
+  const detailAmountCollected = toNumber(detail.amountCollected)
+  const clientAmountCollected = toNumber(clientPayment.amountCollected)
+  const payloadAmountCollected = toNumber(payload?.amountCollected)
+  const fallbackAmountCollected = toNumber(fallback?.amountCollected)
+
+  const amountCollected =
+    detailAmountCollected > 0
+      ? detailAmountCollected
+      : clientAmountCollected > 0
+        ? clientAmountCollected
+        : payloadAmountCollected > 0
+          ? payloadAmountCollected
+          : fallbackAmountCollected > 0
+            ? fallbackAmountCollected
+            : 0
 
   const remainingAmount = Math.max(totalAmount - amountCollected, 0)
 
@@ -647,15 +675,19 @@ export function hydrateSaleTransactionDetail(
 
     amountCollected,
 
-    paidAmount:
-      detail.paidAmount ??
-      clientPayment.paidAmount ??
-      fallback?.paidAmount ??
-      amountCollected,
+    // Giữ paidAmount như field mirror để những form cũ không bị vỡ UI,
+    // nhưng toàn bộ logic tính toán chỉ đọc amountCollected.
+    paidAmount: amountCollected,
+
+    remainingAmount,
 
     paidDate:
       detail.paidDate ?? clientPayment.paidDate ?? fallback?.paidDate ?? "",
 
-    remainingAmount,
+    paymentDate:
+      detail.paymentDate ??
+      clientPayment.paymentDate ??
+      fallback?.paymentDate ??
+      "",
   }
 }

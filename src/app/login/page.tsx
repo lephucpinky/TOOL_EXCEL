@@ -116,16 +116,6 @@ export default function LoginPage() {
               </div>
             </div>
           </div>
-
-          <div className="max-w-xl">
-            <h2 className="text-4xl font-bold leading-tight">
-              Quản lý bán hàng, hóa đơn, đại lý và hoa hồng.
-            </h2>
-
-           
-          </div>
-
-         
         </div>
 
         <div className="flex items-center justify-center p-5">

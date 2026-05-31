@@ -28,7 +28,7 @@ import {
   UploadCloud,
   X,
 } from "lucide-react"
-import PageHeader from "../_components/PageHeader"
+import PageHeader from "../../../components/header/PageHeader"
 
 const ALL_VALUE = "__ALL__"
 const LIST_PARAMS = {

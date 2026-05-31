@@ -90,20 +90,18 @@ export default function InvoiceDataTable({
 
   const getInvoicePaymentState = (invoice: InvoiceApiRow) => {
     const totalAmount = invoiceHelper.toNumber(invoice.inv_TotalAmount)
+    const amountCollected = invoiceHelper.toNumber(invoice.amountCollected ?? 0)
+    const safeAmountCollected = Math.max(amountCollected, 0)
+    const remainingAmount = Math.max(totalAmount - safeAmountCollected, 0)
 
-    const amountCollected = invoiceHelper.toNumber(
-      invoice.amountCollected ?? invoice.paidAmount ?? 0
-    )
-
-    const remainingAmount = Math.max(totalAmount - amountCollected, 0)
+    const isPaid = totalAmount > 0 && safeAmountCollected >= totalAmount
 
     return {
-      isPaid: Boolean(invoice.isPaid || amountCollected > 0),
-      paidAmount: amountCollected,
+      isPaid,
+      paidAmount: safeAmountCollected,
       remainingAmount,
     }
   }
-
   const moneyFormatter = useMemo(() => {
     return new Intl.NumberFormat("vi-VN")
   }, [])
@@ -529,9 +527,17 @@ export default function InvoiceDataTable({
       },
     },
     {
-      key: "paidAmount",
+      key: "amountCollected",
       title: "Số tiền thu",
       className: "whitespace-nowrap text-right min-w-[120px] ",
+      headerClassName: "text-right",
+      render: (invoice) =>
+        moneyFormatter.format(getInvoicePaymentState(invoice).paidAmount),
+    },
+    {
+      key: "paidAmount",
+      title: "Số tiền chênh lệch",
+      className: "whitespace-nowrap text-center min-w-[150px] ",
       headerClassName: "text-right",
       render: (invoice) =>
         moneyFormatter.format(getInvoicePaymentState(invoice).remainingAmount),

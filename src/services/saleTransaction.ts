@@ -1,4 +1,19 @@
+import type { AxiosResponse } from "axios"
 import axiosInstance from "./axiosInstance"
+import type { InvoiceApiRow } from "@/types/invoice"
+
+export type SaleTransactionListParams = {
+  page?: number
+  limit?: number
+  startDate?: string
+  endDate?: string
+  invoiceStatus?: string
+  isPaid?: boolean
+  agencyId?: string
+  employeeId?: string
+  departmentId?: string
+  bankId?: string
+}
 
 export type SaleTransactionReportExportParams = {
   startDate?: string
@@ -11,14 +26,45 @@ export type SaleTransactionReportExportParams = {
   bankId?: string
 }
 
-const normalizeResponse = (response: any) => {
+export type SaleTransactionPayload = Partial<
+  Omit<InvoiceApiRow, "exportInvoiceData" | "paymentStatus">
+> & {
+  exportInvoiceData?: Record<string, unknown>
+}
+
+export type UpdateSaleTransactionBankPayload = {
+  amountCollected: number
+  bankId: string
+}
+
+type ApiEnvelope<T> = {
+  content?: T
+  data?: T
+  result?: T
+}
+
+type NormalizedResponse<T> = {
+  data: T
+  status: number
+}
+
+const normalizeResponse = <T>(
+  response: AxiosResponse<ApiEnvelope<T> | T>
+): NormalizedResponse<T> => {
+  const body = response.data
+
+  if (body && typeof body === "object") {
+    const envelope = body as ApiEnvelope<T>
+
+    return {
+      data: envelope.content ?? envelope.data ?? envelope.result ?? (body as T),
+      status: response.status,
+    }
+  }
+
   return {
-    data:
-      response?.data?.content ??
-      response?.data?.data ??
-      response?.data?.result ??
-      response?.data,
-    status: response?.status,
+    data: body as T,
+    status: response.status,
   }
 }
 
@@ -30,228 +76,160 @@ const cleanParams = (params?: SaleTransactionReportExportParams) => {
   )
 }
 
-const APICreateSaleTransaction = async (data: any) => {
-  try {
-    const response = await axiosInstance.post("/sale-transaction/create", data)
+const APICreateSaleTransaction = async (data: SaleTransactionPayload) => {
+  const response = await axiosInstance.post("/sale-transaction/create", data)
 
-    if (response.status >= 200 && response.status < 300) {
-      return normalizeResponse(response)
-    }
-
-    return response
-  } catch (err) {
-    console.error("Error during create sale transaction:", err)
-    throw err
+  if (response.status >= 200 && response.status < 300) {
+    return normalizeResponse<InvoiceApiRow>(response)
   }
+
+  return response
 }
 
-const APIGetSaleTransactions = async (params?: any) => {
-  try {
-    const response = await axiosInstance.get("/sale-transaction", { params })
+const APIGetSaleTransactions = async (params?: SaleTransactionListParams) => {
+  const response = await axiosInstance.get("/sale-transaction", { params })
 
-    if (response.status >= 200 && response.status < 300) {
-      return normalizeResponse(response)
-    }
-
-    return response
-  } catch (err) {
-    console.error("Error during get sale transactions:", err)
-    throw err
+  if (response.status >= 200 && response.status < 300) {
+    return normalizeResponse<InvoiceApiRow[]>(response)
   }
+
+  return response
 }
 
 const APIGetSaleTransactionStats = async () => {
-  try {
-    const response = await axiosInstance.get("/sale-transaction/stats")
+  const response = await axiosInstance.get("/sale-transaction/stats")
 
-    if (response.status >= 200 && response.status < 300) {
-      return normalizeResponse(response)
-    }
-
-    return response
-  } catch (err) {
-    console.error("Error during get sale transaction stats:", err)
-    throw err
+  if (response.status >= 200 && response.status < 300) {
+    return normalizeResponse<Record<string, unknown>>(response)
   }
+
+  return response
 }
 
 const APISearchSaleTransactionsByDateRange = async (params: {
   startDate: string
   endDate: string
 }) => {
-  try {
-    const response = await axiosInstance.get(
-      "/sale-transaction/search/date-range",
-      { params }
-    )
+  const response = await axiosInstance.get(
+    "/sale-transaction/search/date-range",
+    { params }
+  )
 
-    if (response.status >= 200 && response.status < 300) {
-      return normalizeResponse(response)
-    }
-
-    return response
-  } catch (err) {
-    console.error("Error during search sale transactions by date range:", err)
-    throw err
+  if (response.status >= 200 && response.status < 300) {
+    return normalizeResponse<InvoiceApiRow[]>(response)
   }
+
+  return response
 }
 
 const APIGetSaleTransactionsByEmployee = async (employeeId: string) => {
-  try {
-    const response = await axiosInstance.get(
-      `/sale-transaction/by-employee/${employeeId}`
-    )
+  const response = await axiosInstance.get(
+    `/sale-transaction/by-employee/${employeeId}`
+  )
 
-    if (response.status >= 200 && response.status < 300) {
-      return normalizeResponse(response)
-    }
-
-    return response
-  } catch (err) {
-    console.error("Error during get sale transactions by employee:", err)
-    throw err
+  if (response.status >= 200 && response.status < 300) {
+    return normalizeResponse<InvoiceApiRow[]>(response)
   }
+
+  return response
 }
 
 const APIGetSaleTransactionsByAgency = async (agencyId: string) => {
-  try {
-    const response = await axiosInstance.get(
-      `/sale-transaction/by-agency/${agencyId}`
-    )
+  const response = await axiosInstance.get(
+    `/sale-transaction/by-agency/${agencyId}`
+  )
 
-    if (response.status >= 200 && response.status < 300) {
-      return normalizeResponse(response)
-    }
-
-    return response
-  } catch (err) {
-    console.error("Error during get sale transactions by agency:", err)
-    throw err
+  if (response.status >= 200 && response.status < 300) {
+    return normalizeResponse<InvoiceApiRow[]>(response)
   }
+
+  return response
 }
 
 const APIGetSaleTransactionsByDepartment = async (departmentId: string) => {
-  try {
-    const response = await axiosInstance.get(
-      `/sale-transaction/by-department/${departmentId}`
-    )
+  const response = await axiosInstance.get(
+    `/sale-transaction/by-department/${departmentId}`
+  )
 
-    if (response.status >= 200 && response.status < 300) {
-      return normalizeResponse(response)
-    }
-
-    return response
-  } catch (err) {
-    console.error("Error during get sale transactions by department:", err)
-    throw err
+  if (response.status >= 200 && response.status < 300) {
+    return normalizeResponse<InvoiceApiRow[]>(response)
   }
+
+  return response
 }
 
 const APIGetSaleTransactionById = async (id: string) => {
-  try {
-    const response = await axiosInstance.get(`/sale-transaction/${id}`)
+  const response = await axiosInstance.get(`/sale-transaction/${id}`)
 
-    if (response.status >= 200 && response.status < 300) {
-      return normalizeResponse(response)
-    }
-
-    return response
-  } catch (err) {
-    console.error("Error during get sale transaction by id:", err)
-    throw err
+  if (response.status >= 200 && response.status < 300) {
+    return normalizeResponse<InvoiceApiRow>(response)
   }
+
+  return response
 }
 
-const APIUpdateSaleTransaction = async (id: string, data: any) => {
-  try {
-    const response = await axiosInstance.patch(`/sale-transaction/${id}`, data)
+const APIUpdateSaleTransaction = async (
+  id: string,
+  data: SaleTransactionPayload
+) => {
+  const response = await axiosInstance.patch(`/sale-transaction/${id}`, data)
 
-    if (response.status >= 200 && response.status < 300) {
-      return normalizeResponse(response)
-    }
-
-    return response
-  } catch (err) {
-    console.error("Error during update sale transaction:", err)
-    throw err
+  if (response.status >= 200 && response.status < 300) {
+    return normalizeResponse<InvoiceApiRow>(response)
   }
+
+  return response
 }
 
 const APIUpdateSaleTransactionBank = async (
   id: string,
-  data: { bankId: string } | string
+  payload: UpdateSaleTransactionBankPayload
 ) => {
-  try {
-    const body = typeof data === "string" ? { bankId: data } : data
-    const response = await axiosInstance.patch(
-      `/sale-transaction/${id}/mark-paid`,
-      body
-    )
+  const response = await axiosInstance.patch(
+    `/sale-transaction/${id}/mark-paid`,
+    payload
+  )
 
-    if (response.status >= 200 && response.status < 300) {
-      return normalizeResponse(response)
-    }
-
-    return response
-  } catch (err) {
-    console.error("Error during update sale transaction bank:", err)
-    throw err
+  if (response.status >= 200 && response.status < 300) {
+    return normalizeResponse<InvoiceApiRow>(response)
   }
+
+  return response
 }
 
 const APIDeleteSaleTransaction = async (id: string) => {
-  try {
-    const response = await axiosInstance.delete(`/sale-transaction/${id}`)
+  const response = await axiosInstance.delete(`/sale-transaction/${id}`)
 
-    if (response.status === 204) {
-      return { data: null, status: 204 }
-    }
-
-    if (response.status >= 200 && response.status < 300) {
-      return normalizeResponse(response)
-    }
-
-    return response
-  } catch (err) {
-    console.error("Error during delete sale transaction:", err)
-    throw err
+  if (response.status === 204) {
+    return { data: null, status: 204 }
   }
+
+  if (response.status >= 200 && response.status < 300) {
+    return normalizeResponse<InvoiceApiRow | null>(response)
+  }
+
+  return response
 }
 
 const APIExportSaleTransactionReport = async (
   params?: SaleTransactionReportExportParams
 ) => {
-  try {
-    const response = await axiosInstance.get(
-      "/sale-transaction/report/export",
-      {
-        params: cleanParams(params),
-        responseType: "blob",
-      }
-    )
-
-    return response
-  } catch (err) {
-    console.error("Error during export sale transaction report:", err)
-    throw err
-  }
+  return axiosInstance.get("/sale-transaction/report/export", {
+    params: cleanParams(params),
+    responseType: "blob",
+  })
 }
 
 const APISendSaleTransactionReceipt = async (id: string) => {
-  try {
-    const response = await axiosInstance.post(
-      `/sale-transaction/${id}/send-receipt`
-    )
+  const response = await axiosInstance.post(
+    `/sale-transaction/${id}/send-receipt`
+  )
 
-    if (response.status >= 200 && response.status < 300) {
-      return normalizeResponse(response)
-    }
-
-    return response
-  } catch (err) {
-    console.error("Error during send sale transaction receipt:", err)
-    throw err
+  if (response.status >= 200 && response.status < 300) {
+    return normalizeResponse<InvoiceApiRow>(response)
   }
+
+  return response
 }
 
 export {

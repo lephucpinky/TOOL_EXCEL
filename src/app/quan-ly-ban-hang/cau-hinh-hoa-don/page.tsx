@@ -1,9 +1,9 @@
 "use client"
 
 import Link from "next/link"
-import { ReactNode, useEffect, useMemo, useState } from "react"
+import {  useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
-import { Loader2, Plus, RefreshCcw, Settings2, X } from "lucide-react"
+import { Loader2, Plus, RefreshCcw, Settings2, } from "lucide-react"
 
 import AlertError from "@/components/alert/AlertError"
 import AlertOption from "@/components/alert/AlertOption"
@@ -21,7 +21,8 @@ import type {
   ReceiptInvoicePayload,
 } from "@/types/receiptInvoice"
 import { getId } from "@/utils/invoice"
-import PageHeader from "../_components/PageHeader"
+import PageHeader from "../../../components/header/PageHeader"
+import ActionModal from "@/components/modal/ActionModal"
 
 const emptyForm: ReceiptInvoicePayload = {
   inv_invoiceSeries: "",
@@ -31,56 +32,7 @@ const emptyForm: ReceiptInvoicePayload = {
 
 type ModeType = "create" | "view" | "edit" | null
 
-interface ActionModalProps {
-  open: boolean
-  title: string
-  children: ReactNode
-  onClose: () => void
-  footer?: ReactNode
-  widthClassName?: string
-}
 
-function ActionModal({
-  open,
-  title,
-  children,
-  onClose,
-  footer,
-  widthClassName = "max-w-xl",
-}: ActionModalProps) {
-  if (!open) return null
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-      <div
-        className={[
-          "w-full rounded-2xl bg-white shadow-xl",
-          widthClassName,
-        ].join(" ")}
-      >
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <h2 className="text-base font-bold text-slate-900">{title}</h2>
-
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
-          >
-            <X size={18} />
-          </button>
-        </div>
-
-        <div className="px-5 py-4">{children}</div>
-
-        {footer && (
-          <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
-            {footer}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
 
 function normalizeReceiptInvoiceList(response: any): ReceiptInvoiceConfig[] {
   const raw = response?.data ?? []

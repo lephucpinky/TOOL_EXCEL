@@ -1,4 +1,8 @@
-import { createAsyncThunk, createSlice } from "@reduxjs/toolkit"
+import {
+  createAsyncThunk,
+  createSlice,
+  type PayloadAction,
+} from "@reduxjs/toolkit"
 
 import {
   APICreateSaleTransaction,
@@ -7,6 +11,9 @@ import {
   APIGetSaleTransactions,
   APIUpdateSaleTransaction,
   APIUpdateSaleTransactionBank,
+  type SaleTransactionListParams,
+  type SaleTransactionPayload,
+  type UpdateSaleTransactionBankPayload,
 } from "@/services/saleTransaction"
 import { InvoiceApiRow } from "@/types/invoice"
 import { getErrorMessage } from "@/store/utils/crud"
@@ -50,7 +57,7 @@ function upsertTransaction(items: InvoiceApiRow[], item: InvoiceApiRow) {
 
 export const fetchSaleTransactionsThunk = createAsyncThunk(
   "saleTransactions/fetchAll",
-  async (params?: any) => {
+  async (params?: SaleTransactionListParams) => {
     const response = await APIGetSaleTransactions(params)
     return normalizeSaleTransactionList(response)
   }
@@ -66,7 +73,7 @@ export const fetchSaleTransactionByIdThunk = createAsyncThunk(
 
 export const createSaleTransactionThunk = createAsyncThunk(
   "saleTransactions/create",
-  async (payload: any) => {
+  async (payload: SaleTransactionPayload) => {
     const response = await APICreateSaleTransaction(payload)
     return normalizeSaleTransactionDetail(response)
   }
@@ -74,7 +81,7 @@ export const createSaleTransactionThunk = createAsyncThunk(
 
 export const updateSaleTransactionThunk = createAsyncThunk(
   "saleTransactions/update",
-  async ({ id, payload }: { id: string; payload: any }) => {
+  async ({ id, payload }: { id: string; payload: SaleTransactionPayload }) => {
     const response = await APIUpdateSaleTransaction(id, payload)
     return normalizeSaleTransactionDetail(response)
   }
@@ -82,8 +89,18 @@ export const updateSaleTransactionThunk = createAsyncThunk(
 
 export const updateSaleTransactionBankThunk = createAsyncThunk(
   "saleTransactions/updateBank",
-  async ({ id, bankId }: { id: string; bankId: string }) => {
-    const response = await APIUpdateSaleTransactionBank(id, { bankId })
+  async ({
+    id,
+    bankId,
+    amountCollected,
+  }: {
+    id: string
+  } & UpdateSaleTransactionBankPayload) => {
+    const response = await APIUpdateSaleTransactionBank(id, {
+      amountCollected,
+      bankId,
+    })
+
     return normalizeSaleTransactionDetail(response)
   }
 )
@@ -106,18 +123,17 @@ const saleTransactionSlice = createSlice({
     resetSaleTransactionState() {
       return initialState
     },
-    // Cho page cập nhật optimistic rows sau các tác vụ M-Invoice/thu tiền.
-    setSaleTransactions(state, action: { payload: InvoiceApiRow[] }) {
+    setSaleTransactions(state, action: PayloadAction<InvoiceApiRow[]>) {
       state.items = action.payload
       state.initialized = true
     },
     setCurrentSaleTransaction(
       state,
-      action: { payload: InvoiceApiRow | null }
+      action: PayloadAction<InvoiceApiRow | null>
     ) {
       state.current = action.payload
     },
-    upsertSaleTransaction(state, action: { payload: InvoiceApiRow }) {
+    upsertSaleTransaction(state, action: PayloadAction<InvoiceApiRow>) {
       state.current = action.payload
       upsertTransaction(state.items, action.payload)
     },

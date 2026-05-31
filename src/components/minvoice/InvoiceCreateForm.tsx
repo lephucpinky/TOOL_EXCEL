@@ -23,6 +23,7 @@ import type { ReceiptInvoiceConfig } from "@/types/receiptInvoice"
 import AlertOption from "../alert/AlertOption"
 import AlertSuccess from "../alert/AlertSuccess"
 import AlertError from "../alert/AlertError"
+import { SearchableSelect } from "../select/SearchableSelect"
 import {
   canStartInvoiceExport,
   createItemId,
@@ -118,6 +119,18 @@ const taxCodeRequiredMessage = "Vui lòng nhập MST."
 const taxCodeInvalidMessage = "Mã số thuế phải là 10 hoặc 14 ký tự số."
 const emailRequiredMessage = "Vui lòng nhập Email."
 const emailInvalidMessage = "Email không hợp lệ."
+
+const invoiceSelectClass = `${inputClass} justify-between font-normal shadow-none hover:bg-white hover:text-slate-800`
+
+const receiptConfigSelectClass =
+  "h-8 w-[280px] justify-between rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700 shadow-none hover:bg-white hover:text-slate-700 focus:border-indigo-500 disabled:bg-slate-100"
+
+const itemTypeOptions = [
+  { value: "Mới", label: "Mới" },
+  { value: "Gia hạn", label: "Gia hạn" },
+  { value: "Tặng", label: "Tặng" },
+  { value: "Khác", label: "Khác" },
+]
 
 function resolveAgencyEmployee(
   agency: Agency | null,
@@ -281,6 +294,15 @@ export default function InvoiceCreateForm({
     general.symbol,
     activeReceiptTaxCode,
   ])
+
+  const receiptConfigSelectOptions = useMemo(
+    () =>
+      receiptConfigs.map((config, index) => ({
+        value: getReceiptConfigOptionValue(config, index),
+        label: formatReceiptConfigLabel(config),
+      })),
+    [receiptConfigs]
+  )
 
   const showSuccessMessage = (text: string) => {
     setShowError(false)
@@ -616,9 +638,31 @@ export default function InvoiceCreateForm({
     return mergeOptions(agencies, [general.agency])
   }, [agencies, general.agency])
 
+  const agencySelectOptions = useMemo(
+    () => [
+      { value: "", label: "Chọn đại lý" },
+      ...agencyOptions.map((item) => ({
+        value: getId(item),
+        label: `${item.agencyName} - ${item.commissionPercent}% HH`,
+      })),
+    ],
+    [agencyOptions]
+  )
+
   const departmentOptions = useMemo(() => {
     return mergeOptions(departments, [general.department])
   }, [departments, general.department])
+
+  const departmentSelectOptions = useMemo(
+    () => [
+      { value: "", label: "Chọn phòng ban" },
+      ...departmentOptions.map((item) => ({
+        value: getId(item),
+        label: item.departmentName,
+      })),
+    ],
+    [departmentOptions]
+  )
 
   const selectedAgencyEmployee = useMemo(() => {
     return resolveAgencyEmployee(general.agency, employees)
@@ -645,6 +689,17 @@ export default function InvoiceCreateForm({
     return mergeOptions(filteredEmployees, [general.employee])
   }, [selectedAgencyEmployee, filteredEmployees, general.employee])
 
+  const employeeSelectOptions = useMemo(
+    () => [
+      { value: "", label: "Chọn nhân viên" },
+      ...employeeOptions.map((item) => ({
+        value: getId(item),
+        label: item.employeeName,
+      })),
+    ],
+    [employeeOptions]
+  )
+
   const productOptions = useMemo(() => {
     return mergeOptions(products, [
       general.product,
@@ -652,9 +707,31 @@ export default function InvoiceCreateForm({
     ])
   }, [products, general.product, items])
 
+  const productCodeSelectOptions = useMemo(
+    () => [
+      { value: "", label: "Chọn mã hàng" },
+      ...productOptions.map((product) => ({
+        value: getId(product),
+        label: product.inv_itemCode || product.inv_itemName || getId(product),
+      })),
+    ],
+    [productOptions]
+  )
+
   const bankOptions = useMemo(() => {
     return mergeOptions(banks, [general.bank])
   }, [banks, general.bank])
+
+  const bankSelectOptions = useMemo(
+    () => [
+      { value: "", label: "Chọn ngân hàng" },
+      ...bankOptions.map((item) => ({
+        value: getId(item),
+        label: item.inv_buyerBankName,
+      })),
+    ],
+    [bankOptions]
+  )
   const computedItems = useMemo(() => {
     const commissionRate = Number(selectedAgency?.commissionPercent || 0)
 
@@ -1333,24 +1410,18 @@ export default function InvoiceCreateForm({
                   {formatReceiptConfigLabel(receiptConfig)}
                 </span>
               ) : (
-                <select
-                  className="h-8 min-w-[280px] rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700 outline-none focus:border-indigo-500 disabled:bg-slate-100"
+                <SearchableSelect
+                  options={receiptConfigSelectOptions}
                   value={receiptConfigSelectValue}
+                  onChange={handleReceiptConfigSelect}
+                  placeholder={
+                    receiptConfigs.length ? "Chọn ký hiệu" : "Chưa có ký hiệu"
+                  }
+                  searchPlaceholder="Tìm ký hiệu..."
+                  emptyText="Không tìm thấy ký hiệu"
                   disabled={mainFieldsDisabled || !receiptConfigs.length}
-                  onChange={(e) => handleReceiptConfigSelect(e.target.value)}
-                >
-                  <option value="" disabled>
-                    {receiptConfigs.length ? "Chọn ký hiệu" : "Chưa có ký hiệu"}
-                  </option>
-                  {receiptConfigs.map((config, index) => (
-                    <option
-                      key={getReceiptConfigOptionValue(config, index)}
-                      value={getReceiptConfigOptionValue(config, index)}
-                    >
-                      {formatReceiptConfigLabel(config)}
-                    </option>
-                  ))}
-                </select>
+                  className={receiptConfigSelectClass}
+                />
               )}
             </div>
 
@@ -1380,75 +1451,61 @@ export default function InvoiceCreateForm({
               <label className="mb-1 block text-[13px] font-medium text-slate-600">
                 Đại lý
               </label>
-              <select
-                className={inputClass}
+              <SearchableSelect
+                options={agencySelectOptions}
                 value={general.agency?._id || ""}
-                disabled={catalogLoading || mainFieldsDisabled}
-                onChange={(e) => {
+                onChange={(value) => {
                   const agency =
-                    agencyOptions.find((item) => item._id === e.target.value) ||
-                    null
+                    agencyOptions.find((item) => item._id === value) || null
                   updateGeneral("agency", agency)
                 }}
-              >
-                <option value="">Chọn đại lý</option>
-                {agencyOptions.map((item) => (
-                  <option key={item._id} value={item._id}>
-                    {item.agencyName} - {item.commissionPercent}% HH
-                  </option>
-                ))}
-              </select>
+                placeholder="Chọn đại lý"
+                searchPlaceholder="Tìm đại lý..."
+                emptyText="Không tìm thấy đại lý"
+                disabled={catalogLoading || mainFieldsDisabled}
+                className={invoiceSelectClass}
+              />
             </div>
 
             <div>
               <label className="mb-1 block text-[13px] font-medium text-slate-600">
                 Phòng ban
               </label>
-              <select
-                className={inputClass}
+              <SearchableSelect
+                options={departmentSelectOptions}
                 value={general.department?._id || ""}
-                disabled={catalogLoading || mainFieldsDisabled}
-                onChange={(e) => {
+                onChange={(value) => {
                   const department =
-                    departmentOptions.find(
-                      (item) => item._id === e.target.value
-                    ) || null
+                    departmentOptions.find((item) => item._id === value) || null
                   updateGeneral("department", department)
                 }}
-              >
-                <option value="">Chọn phòng ban</option>
-                {departmentOptions.map((item) => (
-                  <option key={item._id} value={item._id}>
-                    {item.departmentName}
-                  </option>
-                ))}
-              </select>
+                placeholder="Chọn phòng ban"
+                searchPlaceholder="Tìm phòng ban..."
+                emptyText="Không tìm thấy phòng ban"
+                disabled={catalogLoading || mainFieldsDisabled}
+                className={invoiceSelectClass}
+              />
             </div>
 
             <div>
               <label className="mb-1 block text-[13px] font-medium text-slate-600">
                 NVKD
               </label>
-              <select
-                className={inputClass}
+              <SearchableSelect
+                options={employeeSelectOptions}
                 value={general.employee?._id || ""}
-                disabled={catalogLoading || mainFieldsDisabled}
-                onChange={(e) => {
+                onChange={(value) => {
                   const employee =
-                    employeeOptions.find(
-                      (item) => item._id === e.target.value
-                    ) || null
+                    employeeOptions.find((item) => item._id === value) || null
 
                   updateGeneral("employee", employee)
                 }}
-              >
-                <option value="">Chọn nhân viên</option>
-                {employeeOptions.map((item) => (
-                  <option key={item._id} value={item._id}>
-                    {item.employeeName}
-                  </option>
-                ))}
-              </select>
+                placeholder="Chọn nhân viên"
+                searchPlaceholder="Tìm nhân viên..."
+                emptyText="Không tìm thấy nhân viên"
+                disabled={catalogLoading || mainFieldsDisabled}
+                className={invoiceSelectClass}
+              />
             </div>
 
             <div>
@@ -1636,24 +1693,20 @@ export default function InvoiceCreateForm({
               <label className="mb-1 block text-[13px] font-medium text-slate-600">
                 Ngân hàng
               </label>
-              <select
-                className={inputClass}
+              <SearchableSelect
+                options={bankSelectOptions}
                 value={general.bank?._id || ""}
-                disabled={bankFieldDisabled}
-                onChange={(e) => {
+                onChange={(value) => {
                   const bank =
-                    bankOptions.find((item) => item._id === e.target.value) ||
-                    null
+                    bankOptions.find((item) => item._id === value) || null
                   updateGeneral("bank", bank)
                 }}
-              >
-                <option value="">Chọn ngân hàng</option>
-                {bankOptions.map((item) => (
-                  <option key={item._id} value={item._id}>
-                    {item.inv_buyerBankName}
-                  </option>
-                ))}
-              </select>
+                placeholder="Chọn ngân hàng"
+                searchPlaceholder="Tìm ngân hàng..."
+                emptyText="Không tìm thấy ngân hàng"
+                disabled={bankFieldDisabled}
+                className={invoiceSelectClass}
+              />
             </div>
           </div>
         </section>
@@ -1763,26 +1816,23 @@ export default function InvoiceCreateForm({
                   </td>
 
                   <td className="border-b border-r border-slate-200 px-2 py-2">
-                    <select
-                      className={inputClass}
+                    <SearchableSelect
+                      options={productCodeSelectOptions}
                       value={item.product?._id || ""}
-                      disabled={catalogLoading || mainFieldsDisabled}
-                      onChange={(e) => {
+                      onChange={(value) => {
                         const product =
                           productOptions.find(
-                            (productItem) => productItem._id === e.target.value
+                            (productItem) => productItem._id === value
                           ) || null
 
                         updateItem(item.id, "product", product)
                       }}
-                    >
-                      <option value="">Chọn mã hàng</option>
-                      {productOptions.map((product) => (
-                        <option key={product._id} value={product._id}>
-                          {product.inv_itemCode}
-                        </option>
-                      ))}
-                    </select>
+                      placeholder="Chọn mã hàng"
+                      searchPlaceholder="Tìm mã hàng..."
+                      emptyText="Không tìm thấy mã hàng"
+                      disabled={catalogLoading || mainFieldsDisabled}
+                      className={invoiceSelectClass}
+                    />
                   </td>
 
                   <td className="border-b border-r border-slate-200 px-2 py-2">
@@ -1812,19 +1862,16 @@ export default function InvoiceCreateForm({
                   </td>
 
                   <td className="border-b border-r border-slate-200 px-2 py-2">
-                    <select
-                      className={inputClass}
+                    <SearchableSelect
+                      options={itemTypeOptions}
                       value={item.type}
+                      onChange={(value) => updateItem(item.id, "type", value)}
+                      placeholder="Chọn loại"
+                      searchPlaceholder="Tìm loại..."
+                      emptyText="Không tìm thấy loại"
                       disabled={mainFieldsDisabled}
-                      onChange={(e) =>
-                        updateItem(item.id, "type", e.target.value)
-                      }
-                    >
-                      <option value="Mới">Mới</option>
-                      <option value="Gia hạn">Gia hạn</option>
-                      <option value="Tặng">Tặng</option>
-                      <option value="Khác">Khác</option>
-                    </select>
+                      className={invoiceSelectClass}
+                    />
                   </td>
 
                   <td className="border-b border-r border-slate-200 px-2 py-2">

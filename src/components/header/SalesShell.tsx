@@ -13,7 +13,7 @@ import { jwtDecode } from "jwt-decode"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import type { FormEvent, ReactNode } from "react"
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 
 import {
   Dialog,
@@ -33,7 +33,7 @@ import { APIChangePassword } from "@/services/auth"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import { authActions } from "@/store/slices"
 import { getErrorMessage } from "@/store/utils/crud"
-import { navItems } from "@/constants/menu"
+import { navItems, UserRole } from "@/constants/menu"
 
 type TokenProfile = {
   username?: string
@@ -78,6 +78,63 @@ export default function SalesShell({ children }: { children: ReactNode }) {
   const username = useAppSelector((state) => state.auth.username)
 
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
+  const [categoryMenuOpen, setCategoryMenuOpen] = useState(false)
+  const categoryCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  )
+  const categoryUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  )
+  const categoryHoverLockedRef = useRef(false)
+
+  const clearCategoryCloseTimer = () => {
+    if (categoryCloseTimerRef.current) {
+      clearTimeout(categoryCloseTimerRef.current)
+      categoryCloseTimerRef.current = null
+    }
+  }
+
+  const clearCategoryUnlockTimer = () => {
+    if (categoryUnlockTimerRef.current) {
+      clearTimeout(categoryUnlockTimerRef.current)
+      categoryUnlockTimerRef.current = null
+    }
+  }
+
+  const openCategoryMenu = () => {
+    if (categoryHoverLockedRef.current) return
+
+    clearCategoryCloseTimer()
+    setCategoryMenuOpen(true)
+  }
+
+  const closeCategoryMenu = () => {
+    clearCategoryCloseTimer()
+
+    categoryCloseTimerRef.current = setTimeout(() => {
+      setCategoryMenuOpen(false)
+    }, 120)
+  }
+
+  const closeCategoryMenuImmediately = () => {
+    clearCategoryCloseTimer()
+    clearCategoryUnlockTimer()
+
+    categoryHoverLockedRef.current = true
+    setCategoryMenuOpen(false)
+
+    categoryUnlockTimerRef.current = setTimeout(() => {
+      categoryHoverLockedRef.current = false
+      categoryUnlockTimerRef.current = null
+    }, 1000)
+  }
+
+  const handleCategoryOpenChange = (open: boolean) => {
+    if (categoryHoverLockedRef.current && open) return
+
+    setCategoryMenuOpen(open)
+  }
+
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false)
   const [oldPassword, setOldPassword] = useState("")
   const [newPassword, setNewPassword] = useState("")
@@ -110,12 +167,40 @@ export default function SalesShell({ children }: { children: ReactNode }) {
   }, [accessToken])
 
   const visibleNavItems = useMemo(() => {
-    if (currentRole !== "user") return navItems
+    return navItems.filter((item) => {
+      if (!item.hiddenForRoles?.length) return true
 
-    return navItems.filter(
-      (item) => item.href !== "/quan-ly-ban-hang/tai-khoan"
-    )
+      return !item.hiddenForRoles.includes(currentRole as UserRole)
+    })
   }, [currentRole])
+
+  const mainNavItems = useMemo(
+    () => visibleNavItems.filter((item) => item.group !== "category"),
+    [visibleNavItems]
+  )
+
+  const categoryNavItems = useMemo(
+    () => visibleNavItems.filter((item) => item.group === "category"),
+    [visibleNavItems]
+  )
+
+  const isNavItemActive = (item: (typeof navItems)[number]) => {
+    if (item.exact && item.href === "/quan-ly-ban-hang") {
+      return pathname === item.href
+    }
+
+    return (
+      pathname === item.href ||
+      pathname.startsWith(`${item.href}/`) ||
+      Boolean(
+        item.matchPrefixes?.some(
+          (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+        )
+      )
+    )
+  }
+
+  const categoryActive = categoryNavItems.some(isNavItemActive)
 
   const resetChangePasswordForm = () => {
     setOldPassword("")
@@ -212,29 +297,18 @@ export default function SalesShell({ children }: { children: ReactNode }) {
           </Link>
 
           <nav className="flex min-w-0 flex-1 items-center justify-center gap-1 overflow-x-auto py-2">
-            {visibleNavItems.map((item) => {
-              const active =
-                item.exact && item.href === "/quan-ly-ban-hang"
-                  ? pathname === item.href
-                  : pathname === item.href ||
-                    pathname.startsWith(`${item.href}/`) ||
-                    Boolean(
-                      item.matchPrefixes?.some(
-                        (prefix) =>
-                          pathname === prefix ||
-                          pathname.startsWith(`${prefix}/`)
-                      )
-                    )
+            {mainNavItems.map((item) => {
+              const active = isNavItemActive(item)
 
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "inline-flex h-10 shrink-0 items-center gap-2 rounded-lg px-3 text-sm font-semibold transition",
+                    "inline-flex h-10 shrink-0 items-center gap-2 rounded-lg px-4 text-sm font-semibold transition",
                     active
                       ? "bg-blue-600 text-white shadow-sm shadow-blue-200"
-                      : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
+                      : ""
                   )}
                   aria-current={active ? "page" : undefined}
                 >
@@ -242,6 +316,79 @@ export default function SalesShell({ children }: { children: ReactNode }) {
                 </Link>
               )
             })}
+
+            {categoryNavItems.length > 0 && (
+              <Popover
+                open={categoryMenuOpen}
+                onOpenChange={handleCategoryOpenChange}
+              >
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    onMouseEnter={openCategoryMenu}
+                    onMouseLeave={closeCategoryMenu}
+                    onFocus={openCategoryMenu}
+                    onClick={(event) => {
+                      event.preventDefault()
+
+                      if (categoryMenuOpen) {
+                        closeCategoryMenuImmediately()
+                        return
+                      }
+
+                      openCategoryMenu()
+                    }}
+                    className={cn(
+                      "inline-flex h-10 shrink-0 items-center gap-2 rounded-lg px-4 text-sm font-semibold transition",
+                      categoryActive || categoryMenuOpen
+                        ? "bg-blue-600 text-white shadow-sm shadow-blue-200"
+                        : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
+                    )}
+                  >
+                    <span>Danh mục</span>
+                    <ChevronDown
+                      size={16}
+                      className={cn(
+                        "transition duration-200",
+                        categoryMenuOpen ? "rotate-180" : "rotate-0"
+                      )}
+                    />
+                  </button>
+                </PopoverTrigger>
+
+                <PopoverContent
+                  align="center"
+                  sideOffset={8}
+                  onMouseEnter={openCategoryMenu}
+                  onMouseLeave={closeCategoryMenu}
+                  className="w-56 overflow-hidden rounded-xl border border-slate-200 bg-white p-2 text-slate-900 shadow-xl shadow-slate-200/70"
+                >
+                  <div className="space-y-1">
+                    {categoryNavItems.map((item) => {
+                      const active = isNavItemActive(item)
+
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          onPointerDownCapture={closeCategoryMenuImmediately}
+                          onClick={closeCategoryMenuImmediately}
+                          className={cn(
+                            "flex h-10 items-center rounded-lg px-3 text-sm font-semibold transition",
+                            active
+                              ? "bg-blue-50 text-blue-700"
+                              : "text-slate-700 hover:bg-slate-100 hover:text-slate-950"
+                          )}
+                          aria-current={active ? "page" : undefined}
+                        >
+                          {item.label}
+                        </Link>
+                      )
+                    })}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            )}
           </nav>
 
           <Popover open={accountMenuOpen} onOpenChange={setAccountMenuOpen}>

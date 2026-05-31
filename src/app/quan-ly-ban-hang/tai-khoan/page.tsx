@@ -3,7 +3,9 @@
 import AlertError from "@/components/alert/AlertError"
 import AlertOption from "@/components/alert/AlertOption"
 import AlertSuccess from "@/components/alert/AlertSuccess"
-import DataTable, { DataTableColumn } from "@/components/common/Datatable"
+import DataTable from "@/components/common/Datatable"
+import type { DataTableColumn } from "@/components/common/Datatable"
+import PageHeader from "../../../components/header/PageHeader"
 import {
   APIDeleteUser,
   APIGetUserById,
@@ -11,7 +13,7 @@ import {
   APIUpdateUser,
 } from "@/services/user"
 import { getErrorMessage } from "@/store/utils/crud"
-import type { UpdateUserPayload, UserAccount, UserRole } from "@/types/user"
+import type { UserAccount, UserRole } from "@/types/user"
 import {
   Eye,
   EyeOff,
@@ -20,13 +22,12 @@ import {
   RefreshCcw,
   Search,
   UsersRound,
-  X,
 } from "lucide-react"
 import Link from "next/link"
-import { ReactNode, useEffect, useMemo, useState } from "react"
-import PageHeader from "../_components/PageHeader"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import ActionModal from "@/components/modal/ActionModal"
 
-const LIST_PARAMS = {
+const LIST_PARAMS = { 
   page: 1,
   limit: 1000,
 }
@@ -39,7 +40,7 @@ const ROLE_OPTIONS: Array<{
   { value: "USER", label: "User" },
 ]
 
-type ModeType = "view" | "edit" | null
+type ModeType = "view" | "edit"
 
 type UserFormValues = {
   username: string
@@ -48,155 +49,81 @@ type UserFormValues = {
   isActive: boolean
 }
 
-interface ActionModalProps {
-  open: boolean
-  title: string
-  children: ReactNode
-  onClose: () => void
-  footer?: ReactNode
-}
-
-function ActionModal({
-  open,
-  title,
-  children,
-  onClose,
-  footer,
-}: ActionModalProps) {
-  if (!open) return null
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-      <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <h2 className="text-base font-bold text-slate-900">{title}</h2>
-
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
-          >
-            <X size={18} />
-          </button>
-        </div>
-
-        <div className="px-5 py-4">{children}</div>
-
-        {footer && (
-          <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
-            {footer}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function extractUsers(value: unknown): UserAccount[] {
-  if (Array.isArray(value)) return value as UserAccount[]
-
-  if (value && typeof value === "object") {
-    const candidate = value as Record<string, unknown>
-
-    if (Array.isArray(candidate.items)) return candidate.items as UserAccount[]
-    if (Array.isArray(candidate.docs)) return candidate.docs as UserAccount[]
-    if (Array.isArray(candidate.results)) {
-      return candidate.results as UserAccount[]
-    }
-    if (Array.isArray(candidate.data)) return candidate.data as UserAccount[]
-    if (Array.isArray(candidate.users)) return candidate.users as UserAccount[]
-  }
-
-  return []
-}
-
-function extractUser(value: unknown): UserAccount | null {
-  if (!value || Array.isArray(value)) return null
-
-  if (typeof value === "object") {
-    const candidate = value as Record<string, unknown>
-
-    if (candidate.user && typeof candidate.user === "object") {
-      return candidate.user as UserAccount
-    }
-  }
-
-  return value as UserAccount
-}
-
-function getUserId(user: UserAccount) {
-  return user._id || user.id || ""
-}
-
-function getUsername(user: UserAccount) {
-  return user.username || user.userName || user.email || "-"
-}
-
-function normalizeRole(value: unknown): UserRole {
-  return String(value || "").toUpperCase() === "ADMIN" ? "ADMIN" : "USER"
-}
-
-function buildFormValues(user: UserAccount | null): UserFormValues {
-  return {
-    username: user ? getUsername(user) : "",
-    password: "",
-    role: normalizeRole(user?.role),
-    isActive: user?.isActive ?? true,
-  }
-}
-
-function formatDate(value?: string) {
-  if (!value) return "-"
-
-  const date = new Date(value)
-
-  if (Number.isNaN(date.getTime())) return "-"
-
-  return date.toLocaleDateString("vi-VN")
-}
-
 export default function AccountManagementPage() {
   const [users, setUsers] = useState<UserAccount[]>([])
   const [selectedUser, setSelectedUser] = useState<UserAccount | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<UserAccount | null>(null)
-  const [mode, setMode] = useState<ModeType>(null)
+
+  const [mode, setMode] = useState<ModeType>("view")
   const [open, setOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+
   const [loading, setLoading] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
   const [submitLoading, setSubmitLoading] = useState(false)
   const [deleteLoading, setDeleteLoading] = useState(false)
+
   const [showPassword, setShowPassword] = useState(false)
   const [keyword, setKeyword] = useState("")
   const [roleFilter, setRoleFilter] = useState<"ALL" | UserRole>("ALL")
+
   const [showSuccess, setShowSuccess] = useState(false)
   const [showError, setShowError] = useState(false)
   const [message, setMessage] = useState("")
-  const [formValues, setFormValues] = useState<UserFormValues>(
-    buildFormValues(null)
-  )
+
+  const [formValues, setFormValues] = useState<UserFormValues>({
+    username: "",
+    password: "",
+    role: "USER",
+    isActive: true,
+  })
+
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const detailRequestRef = useRef(0)
 
   const isViewMode = mode === "view"
   const isEditMode = mode === "edit"
 
-  const showSuccessMessage = (text: string) => {
+  const showSuccessMessage = useCallback((text: string) => {
+    if (successTimerRef.current) {
+      clearTimeout(successTimerRef.current)
+    }
+
     setMessage(text)
     setShowSuccess(true)
-    setTimeout(() => setShowSuccess(false), 3000)
-  }
+    setShowError(false)
 
-  const showErrorMessage = (text: string) => {
+    successTimerRef.current = setTimeout(() => {
+      setShowSuccess(false)
+    }, 3000)
+  }, [])
+
+  const showErrorMessage = useCallback((text: string) => {
+    if (errorTimerRef.current) {
+      clearTimeout(errorTimerRef.current)
+    }
+
     setMessage(text)
     setShowError(true)
-    setTimeout(() => setShowError(false), 3000)
-  }
+    setShowSuccess(false)
 
-  const fetchUsers = async () => {
+    errorTimerRef.current = setTimeout(() => {
+      setShowError(false)
+    }, 3000)
+  }, [])
+
+  const fetchUsers = useCallback(async () => {
     setLoading(true)
 
     try {
       const response = await APIGetUsers(LIST_PARAMS)
-      setUsers(extractUsers(response.data))
+
+      if (!Array.isArray(response.data)) {
+        throw new Error("Dữ liệu danh sách tài khoản không đúng định dạng")
+      }
+
+      setUsers(response.data)
     } catch (error) {
       showErrorMessage(
         getErrorMessage(error) || "Không thể tải danh sách tài khoản"
@@ -204,10 +131,22 @@ export default function AccountManagementPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [showErrorMessage])
 
   useEffect(() => {
     void fetchUsers()
+  }, [fetchUsers])
+
+  useEffect(() => {
+    return () => {
+      if (successTimerRef.current) {
+        clearTimeout(successTimerRef.current)
+      }
+
+      if (errorTimerRef.current) {
+        clearTimeout(errorTimerRef.current)
+      }
+    }
   }, [])
 
   const filteredUsers = useMemo(() => {
@@ -216,10 +155,10 @@ export default function AccountManagementPage() {
     return users.filter((user) => {
       const matchesKeyword =
         !normalizedKeyword ||
-        getUsername(user).toLowerCase().includes(normalizedKeyword) ||
-        getUserId(user).toLowerCase().includes(normalizedKeyword)
-      const matchesRole =
-        roleFilter === "ALL" || normalizeRole(user.role) === roleFilter
+        user.username?.toLowerCase().includes(normalizedKeyword) ||
+        user._id?.toLowerCase().includes(normalizedKeyword)
+
+      const matchesRole = roleFilter === "ALL" || user.role === roleFilter
 
       return matchesKeyword && matchesRole
     })
@@ -238,29 +177,27 @@ export default function AccountManagementPage() {
         title: "Tên đăng nhập",
         render: (item) => (
           <div className="text-center">
-            <p className="font-semibold text-slate-900">{getUsername(item)}</p>
+            <p className="font-semibold text-slate-900">
+              {item.username || "-"}
+            </p>
           </div>
         ),
       },
       {
         key: "role",
         title: "Vai trò",
-        render: (item) => {
-          const role = normalizeRole(item.role)
-
-          return (
-            <span
-              className={[
-                "inline-flex rounded-full px-3 py-1 text-xs font-bold",
-                role === "ADMIN"
-                  ? "bg-blue-50 text-blue-700"
-                  : "bg-slate-100 text-slate-700",
-              ].join(" ")}
-            >
-              {role}
-            </span>
-          )
-        },
+        render: (item) => (
+          <span
+            className={[
+              "inline-flex rounded-full px-3 py-1 text-xs font-bold",
+              item.role === "ADMIN"
+                ? "bg-blue-50 text-blue-700"
+                : "bg-slate-100 text-slate-700",
+            ].join(" ")}
+          >
+            {item.role || "-"}
+          </span>
+        ),
       },
       {
         key: "isActive",
@@ -281,7 +218,9 @@ export default function AccountManagementPage() {
         title: "Ngày tạo",
         render: (item) => (
           <span className="text-sm text-slate-600">
-            {formatDate(item.createdAt)}
+            {item.createdAt && !Number.isNaN(new Date(item.createdAt).getTime())
+              ? new Date(item.createdAt).toLocaleDateString("vi-VN")
+              : "-"}
           </span>
         ),
       },
@@ -289,53 +228,85 @@ export default function AccountManagementPage() {
     []
   )
 
+  const resetDialog = () => {
+    setOpen(false)
+    setMode("view")
+    setSelectedUser(null)
+    setShowPassword(false)
+    setFormValues({
+      username: "",
+      password: "",
+      role: "USER",
+      isActive: true,
+    })
+    detailRequestRef.current += 1
+  }
+
   const handleCloseDialog = () => {
     if (submitLoading || detailLoading) return
 
-    setOpen(false)
-    setMode(null)
-    setSelectedUser(null)
-    setShowPassword(false)
-    setFormValues(buildFormValues(null))
+    resetDialog()
   }
 
   const openUserDialog = async (user: UserAccount, nextMode: ModeType) => {
-    const id = getUserId(user)
-
-    if (!id) {
+    if (!user._id) {
       showErrorMessage("Không tìm thấy ID tài khoản")
       return
     }
+
+    const requestId = detailRequestRef.current + 1
+    detailRequestRef.current = requestId
 
     setMode(nextMode)
     setOpen(true)
     setDetailLoading(true)
     setSelectedUser(user)
-    setFormValues(buildFormValues(user))
+    setShowPassword(false)
+    setFormValues({
+      username: user.username || "",
+      password: "",
+      role: user.role === "ADMIN" ? "ADMIN" : "USER",
+      isActive: user.isActive ?? true,
+    })
 
     try {
-      const response = await APIGetUserById(id)
-      const detail = extractUser(response.data) || user
+      const response = await APIGetUserById(user._id)
+
+      if (detailRequestRef.current !== requestId) return
+
+      const detail = response.data as UserAccount
+
+      if (!detail?._id) {
+        throw new Error("Dữ liệu chi tiết tài khoản không đúng định dạng")
+      }
 
       setSelectedUser(detail)
-      setFormValues(buildFormValues(detail))
+      setFormValues({
+        username: detail.username || "",
+        password: "",
+        role: detail.role === "ADMIN" ? "ADMIN" : "USER",
+        isActive: detail.isActive ?? true,
+      })
     } catch (error) {
+      if (detailRequestRef.current !== requestId) return
+
       showErrorMessage(
         getErrorMessage(error) || "Không thể tải chi tiết tài khoản"
       )
     } finally {
-      setDetailLoading(false)
+      if (detailRequestRef.current === requestId) {
+        setDetailLoading(false)
+      }
     }
   }
 
   const handleUpdateUser = async () => {
-    if (!selectedUser) return
+    if (submitLoading || !selectedUser) return
 
-    const id = getUserId(selectedUser)
     const nextUsername = formValues.username.trim()
-    const nextPassword = formValues.password.trim()
+    const nextPassword = formValues.password
 
-    if (!id) {
+    if (!selectedUser._id) {
       showErrorMessage("Không tìm thấy ID tài khoản")
       return
     }
@@ -345,23 +316,39 @@ export default function AccountManagementPage() {
       return
     }
 
-    const payload: UpdateUserPayload = {
-      username: nextUsername,
-      role: formValues.role,
-      isActive: formValues.isActive,
+    if (nextPassword.length > 0 && nextPassword.trim().length === 0) {
+      showErrorMessage("Mật khẩu không được chỉ gồm khoảng trắng")
+      return
     }
 
-    if (nextPassword) {
+    const payload: {
+      username: string
+      password?: string
+    } = {
+      username: nextUsername,
+    }
+
+    if (nextPassword.length > 0) {
       payload.password = nextPassword
     }
 
     setSubmitLoading(true)
 
     try {
-      await APIUpdateUser(id, payload)
-      await fetchUsers()
+      const response = await APIUpdateUser(selectedUser._id, payload)
+
+      const updatedUser: UserAccount = {
+        ...selectedUser,
+        ...(response.data as UserAccount),
+        username: nextUsername,
+      }
+
+      setUsers((prev) =>
+        prev.map((item) => (item._id === selectedUser._id ? updatedUser : item))
+      )
+
       showSuccessMessage("Cập nhật tài khoản thành công!")
-      handleCloseDialog()
+      resetDialog()
     } catch (error) {
       showErrorMessage(getErrorMessage(error) || "Cập nhật tài khoản thất bại!")
     } finally {
@@ -370,7 +357,7 @@ export default function AccountManagementPage() {
   }
 
   const onDeleteClick = (user: UserAccount) => {
-    if (!getUserId(user)) {
+    if (!user._id) {
       showErrorMessage("Không tìm thấy ID tài khoản")
       return
     }
@@ -380,17 +367,19 @@ export default function AccountManagementPage() {
   }
 
   const handleDeleteUser = async () => {
-    if (!deleteTarget) return
+    if (deleteLoading || !deleteTarget) return
 
-    const id = getUserId(deleteTarget)
-
-    if (!id) return
+    if (!deleteTarget._id) {
+      showErrorMessage("Không tìm thấy ID tài khoản")
+      return
+    }
 
     setDeleteLoading(true)
 
     try {
-      await APIDeleteUser(id)
-      await fetchUsers()
+      await APIDeleteUser(deleteTarget._id)
+
+      setUsers((prev) => prev.filter((item) => item._id !== deleteTarget._id))
       showSuccessMessage("Xóa tài khoản thành công!")
       setDeleteDialogOpen(false)
       setDeleteTarget(null)
@@ -441,7 +430,7 @@ export default function AccountManagementPage() {
           columns={columns}
           loading={loading}
           emptyText="Chưa có dữ liệu tài khoản"
-          getRowKey={(item, index) => getUserId(item) || String(index)}
+          getRowKey={(item) => item._id || ""}
           pagination={{ itemLabel: "tài khoản" }}
           onView={(user) => void openUserDialog(user, "view")}
           onEdit={(user) => void openUserDialog(user, "edit")}
@@ -462,9 +451,13 @@ export default function AccountManagementPage() {
 
           <select
             value={roleFilter}
-            onChange={(event) =>
-              setRoleFilter(event.target.value as "ALL" | UserRole)
-            }
+            onChange={(event) => {
+              const value = event.target.value
+
+              setRoleFilter(
+                value === "ADMIN" || value === "USER" ? value : "ALL"
+              )
+            }}
             className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           >
             <option value="ALL">Tất cả vai trò</option>
@@ -592,14 +585,16 @@ export default function AccountManagementPage() {
               <select
                 id="account-role"
                 value={formValues.role}
-                onChange={(event) =>
+                onChange={(event) => {
+                  const value = event.target.value
+
                   setFormValues((prev) => ({
                     ...prev,
-                    role: event.target.value as UserRole,
+                    role: value === "ADMIN" ? "ADMIN" : "USER",
                   }))
-                }
-                disabled={isViewMode}
-                className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
+                }}
+                disabled
+                className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm outline-none transition disabled:text-slate-500"
               >
                 {ROLE_OPTIONS.map((item) => (
                   <option key={item.value} value={item.value}>
@@ -625,7 +620,7 @@ export default function AccountManagementPage() {
                   id="account-is-active"
                   type="checkbox"
                   checked={formValues.isActive}
-                  disabled={isViewMode}
+                  disabled
                   onChange={(event) =>
                     setFormValues((prev) => ({
                       ...prev,
@@ -639,33 +634,26 @@ export default function AccountManagementPage() {
                 </span>
               </label>
             </div>
-
-            <div className="grid gap-3 rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm text-slate-600 sm:grid-cols-2">
-              <div>
-                <div className="font-semibold text-slate-700">ID</div>
-                <div className="mt-1 break-all">
-                  {getUserId(selectedUser || {}) || "-"}
-                </div>
-              </div>
-              <div>
-                <div className="font-semibold text-slate-700">Ngày tạo</div>
-                <div className="mt-1">
-                  {formatDate(selectedUser?.createdAt)}
-                </div>
-              </div>
-            </div>
           </div>
         )}
       </ActionModal>
 
       <AlertOption
         isOpen={deleteDialogOpen}
-        onOpenChange={setDeleteDialogOpen}
+        onOpenChange={(nextOpen) => {
+          if (deleteLoading) return
+
+          setDeleteDialogOpen(nextOpen)
+
+          if (!nextOpen) {
+            setDeleteTarget(null)
+          }
+        }}
         onConfirm={() => void handleDeleteUser()}
         title="Xác nhận thao tác"
-        description={`Hành động này sẽ xóa tài khoản "${getUsername(
-          deleteTarget || {}
-        )}" khỏi hệ thống và không thể hoàn tác. Bạn có chắc chắn tiếp tục?`}
+        description={`Hành động này sẽ xóa tài khoản "${
+          deleteTarget?.username || "-"
+        }" khỏi hệ thống và không thể hoàn tác. Bạn có chắc chắn tiếp tục?`}
         confirmText={deleteLoading ? "Đang xóa..." : "Xóa"}
         cancelText="Hủy"
         tone="destructive"

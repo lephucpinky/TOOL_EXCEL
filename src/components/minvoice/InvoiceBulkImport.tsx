@@ -17,11 +17,7 @@ import type { Employee } from "@/types/employee"
 import type { Product } from "@/types/product"
 import type { ReceiptInvoiceConfig } from "@/types/receiptInvoice"
 import { normalize, toNumber as toExcelNumber } from "@/utils/excel"
-import {
-  formatMoney,
-  getId,
-  roundInvoiceMoney,
-} from "@/utils/invoice"
+import { formatMoney, getId, roundInvoiceMoney } from "@/utils/invoice"
 import { buildCreateInvoiceApiBody } from "@/utils/invoicePayload"
 
 type Props = {
@@ -42,6 +38,7 @@ type BulkImportExcelRow = {
   stt: string
   lineCode: string
   agencyCode: string
+  productCode: string
   currency: string
   exchangeRate: number
   invoiceSeries: string
@@ -65,13 +62,13 @@ type BulkImportExcelRow = {
   storeName: string
   quantity: number
 }
-
 type PreparedImportRow = {
   id: string
   rowNumber: number
   stt: string
   lineCode: string
   agencyCode: string
+  productCode: string
   buyerCompany: string
   buyerTaxCode: string
   invoiceSeries: string
@@ -90,6 +87,15 @@ const COLUMN_ALIASES = {
   stt: ["STT"],
   lineCode: ["Mã dòng", "Mã dòng hàng", "Mã đơn hàng"],
   agencyCode: ["Mã đại lý", "Đại lý"],
+  productCode: [
+    "Mã sản phẩm",
+    "Sản phẩm",
+    "Tên sản phẩm",
+    "Mã hàng hóa",
+    "Tên hàng hóa",
+    "Mã dịch vụ",
+    "Tên dịch vụ",
+  ],
   currency: ["Mã tiền tệ", "Tiền tệ"],
   exchangeRate: ["Tỷ giá"],
   invoiceSeries: ["Ký hiệu hóa đơn"],
@@ -116,6 +122,7 @@ const COLUMN_ALIASES = {
 
 const REQUIRED_COLUMNS: Array<keyof typeof COLUMN_ALIASES> = [
   "agencyCode",
+  "productCode",
   "invoiceSeries",
   "invoiceDate",
   "buyerCompany",
@@ -187,6 +194,23 @@ function getProductAccountingCode(product: ProductOption | null) {
       0
   )
 }
+function findProductByExcelValue(products: ProductOption[], value: string) {
+  const keyword = normalize(value)
+
+  if (!keyword) return null
+
+  return (
+    products.find((product) => {
+      const productId = normalize(product._id || "")
+      const itemCode = normalize(product.inv_itemCode || "")
+      const itemName = normalize(product.inv_itemName || "")
+
+      return (
+        productId === keyword || itemCode === keyword || itemName === keyword
+      )
+    }) || null
+  )
+}
 
 function extractErrorMessage(error: unknown, fallback: string) {
   if (error instanceof Error && error.message) {
@@ -227,7 +251,7 @@ export default function InvoiceBulkImport({
   const [catalogLoading, setCatalogLoading] = useState(false)
 
   const [selectedFileName, setSelectedFileName] = useState("")
-  const [selectedProductId, setSelectedProductId] = useState("")
+
   const [excelRows, setExcelRows] = useState<BulkImportExcelRow[]>([])
   const [parsing, setParsing] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -288,15 +312,6 @@ export default function InvoiceBulkImport({
     fetchCatalogs()
   }, [])
 
-  useEffect(() => {
-    if (selectedProductId || products.length !== 1) return
-    setSelectedProductId(products[0]._id)
-  }, [products, selectedProductId])
-
-  const selectedProduct = useMemo(() => {
-    return products.find((item) => item._id === selectedProductId) || null
-  }, [products, selectedProductId])
-
   const preparedRows = useMemo<PreparedImportRow[]>(() => {
     const currentInvoiceDate = new Date().toISOString().slice(0, 10)
 
@@ -305,6 +320,7 @@ export default function InvoiceBulkImport({
       const warnings: string[] = []
 
       const agencyCode = cleanText(row.agencyCode)
+      const productCode = cleanText(row.productCode)
       const invoiceSeries = cleanText(row.invoiceSeries)
       const invoiceDate = currentInvoiceDate
       const buyerCompany = cleanText(row.buyerCompany)
@@ -351,7 +367,7 @@ export default function InvoiceBulkImport({
             normalize(item.inv_invoiceSeries || "") === normalize(invoiceSeries)
         ) || null
 
-      const product = selectedProduct
+      const product = findProductByExcelValue(products, productCode)
       const agencyEmployee = getAgencyEmployee(agency)
       const agencyDepartment = getEmployeeDepartment(agencyEmployee)
 
@@ -370,7 +386,10 @@ export default function InvoiceBulkImport({
       if (!buyerCompany) errors.push("Thiếu tên đơn vị mua.")
       if (!buyerTaxCode) errors.push("Thiếu mã số thuế người mua.")
       if (!buyerAddress) errors.push("Thiếu địa chỉ người mua.")
-      if (!product) errors.push("Chưa chọn sản phẩm mặc định cho file import.")
+      if (!productCode) errors.push("Thiếu sản phẩm.")
+      if (productCode && !product) {
+        errors.push(`Không tìm thấy sản phẩm cho giá trị "${productCode}".`)
+      }
 
       if (totalBeforeTax <= 0)
         errors.push("Thành tiền chưa VAT phải lớn hơn 0.")
@@ -454,6 +473,7 @@ export default function InvoiceBulkImport({
         stt: row.stt,
         lineCode: row.lineCode,
         agencyCode,
+        productCode,
         buyerCompany,
         buyerTaxCode,
         invoiceSeries,
@@ -470,14 +490,7 @@ export default function InvoiceBulkImport({
         payload,
       }
     })
-  }, [
-    agencies,
-    banks,
-    excelRows,
-    receiptConfigs,
-    selectedProduct,
-    submitErrors,
-  ])
+  }, [agencies, banks, excelRows, products, receiptConfigs, submitErrors])
 
   const validRows = preparedRows.filter((item) => item.errors.length === 0)
   const invalidRows = preparedRows.length - validRows.length
@@ -542,6 +555,9 @@ export default function InvoiceBulkImport({
         ),
         agencyCode: cleanText(
           pickCellValue(row, headerIndex, COLUMN_ALIASES.agencyCode)
+        ),
+        productCode: cleanText(
+          pickCellValue(row, headerIndex, COLUMN_ALIASES.productCode)
         ),
         currency: cleanText(
           pickCellValue(row, headerIndex, COLUMN_ALIASES.currency)
@@ -800,33 +816,22 @@ export default function InvoiceBulkImport({
               Thiết lập import
             </div>
 
-            <div className="mt-4">
-              <label
-                htmlFor="bulk-import-product"
-                className="mb-2 block text-sm font-semibold text-slate-700"
-              >
-                Sản phẩm mặc định áp dụng cho các dòng import
-              </label>
-              <select
-                id="bulk-import-product"
-                value={selectedProductId}
-                disabled={catalogLoading || creating}
-                onChange={(event) => setSelectedProductId(event.target.value)}
-                className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-800 outline-none focus:border-indigo-500 disabled:bg-slate-100"
-              >
-                <option value="">Chọn sản phẩm</option>
-                {products.map((product) => (
-                  <option key={product._id} value={product._id}>
-                    {[product.inv_itemCode, product.inv_itemName]
-                      .filter(Boolean)
-                      .join(" - ")}
-                  </option>
-                ))}
-              </select>
+            <div className="mt-4 rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
+              <div className="text-sm font-semibold text-indigo-800">
+                Sản phẩm được lấy trực tiếp từ file Excel
+              </div>
 
-              <div className="mt-2 text-xs text-slate-500">
-                File import hiện chưa có cột sản phẩm, nên hệ thống sẽ dùng một
-                sản phẩm mặc định cho toàn bộ các dòng trong file.
+              <div className="mt-2 text-xs leading-5 text-indigo-700">
+                File Excel cần có cột <b>Mã sản phẩm</b> hoặc <b>Sản phẩm</b>.
+                Hệ thống sẽ tự đối chiếu với danh mục sản phẩm theo mã sản phẩm
+                hoặc tên sản phẩm trước khi tạo hóa đơn hàng loạt.
+              </div>
+
+              <div className="mt-3 text-xs text-slate-600">
+                Danh mục sản phẩm hiện có:{" "}
+                <span className="font-bold text-slate-900">
+                  {products.length}
+                </span>
               </div>
             </div>
 
@@ -936,6 +941,9 @@ export default function InvoiceBulkImport({
                       Mã đại lý
                     </th>
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-left font-semibold">
+                      Sản phẩm
+                    </th>
+                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-left font-semibold">
                       Đơn vị mua
                     </th>
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-left font-semibold">
@@ -983,6 +991,21 @@ export default function InvoiceBulkImport({
                           </div>
                         </td>
                         <td className="border-b border-slate-100 px-3 py-3 align-top text-slate-700">
+                          <div className="font-semibold">
+                            {row.productCode || "-"}
+                          </div>
+                          <div className="mt-1 text-xs text-slate-500">
+                            {row.product
+                              ? [
+                                  row.product.inv_itemCode,
+                                  row.product.inv_itemName,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" - ")
+                              : "Chưa map sản phẩm"}
+                          </div>
+                        </td>
+                        <td className="border-b border-slate-100 px-3 py-3 align-top text-slate-700">
                           {row.buyerCompany || "-"}
                         </td>
                         <td className="border-b border-slate-100 px-3 py-3 align-top text-slate-700">
@@ -1010,20 +1033,6 @@ export default function InvoiceBulkImport({
                           >
                             {isValid ? "Hợp lệ" : "Có lỗi"}
                           </div>
-
-                          {row.product && (
-                            <div className="mt-2 text-xs text-slate-500">
-                              Sản phẩm:{" "}
-                              <span className="font-medium text-slate-700">
-                                {[
-                                  row.product.inv_itemCode,
-                                  row.product.inv_itemName,
-                                ]
-                                  .filter(Boolean)
-                                  .join(" - ")}
-                              </span>
-                            </div>
-                          )}
 
                           {row.errors.length > 0 && (
                             <div className="mt-2 space-y-1 text-xs text-rose-600">

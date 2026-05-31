@@ -12,16 +12,18 @@ import CrudBulkImportModal, {
   parseImportNumber,
 } from "@/components/common/CrudBulkImportModal"
 import DataTable, { DataTableColumn } from "@/components/common/Datatable"
+import { SearchableSelect } from "@/components/select/SearchableSelect"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import { agencyActions, agencyThunks, employeeThunks } from "@/store/slices"
 import { getErrorMessage } from "@/store/utils/crud"
 import { Agency, AgencyPayload } from "@/types/agency"
 import { Employee } from "@/types/employee"
 import { normalize } from "@/utils/excel"
-import { Loader2, Plus, UploadCloud, UsersRound, X } from "lucide-react"
-import { ReactNode, useEffect, useMemo, useState } from "react"
-import { useForm } from "react-hook-form"
-import PageHeader from "../_components/PageHeader"
+import { Loader2, Plus, UploadCloud, UsersRound, } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { Controller, useForm } from "react-hook-form"
+import PageHeader from "../../../components/header/PageHeader"
+import ActionModal from "@/components/modal/ActionModal"
 
 type AgencyFormValues = {
   agencyName: string
@@ -43,6 +45,11 @@ const emptyForm: AgencyFormValues = {
   commissionPercent: 0,
   isActive: "true",
 }
+
+const STATUS_OPTIONS = [
+  { value: "true", label: "Đang hoạt động" },
+  { value: "false", label: "Ngừng hoạt động" },
+]
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -116,56 +123,6 @@ const AGENCY_IMPORT_PREVIEW_COLUMNS: readonly BulkImportPreviewColumn<
 
 type ModeType = "create" | "view" | "edit" | null
 
-interface ActionModalProps {
-  open: boolean
-  title: string
-  children: ReactNode
-  onClose: () => void
-  footer?: ReactNode
-  widthClassName?: string
-}
-
-function ActionModal({
-  open,
-  title,
-  children,
-  onClose,
-  footer,
-  widthClassName = "max-w-lg",
-}: ActionModalProps) {
-  if (!open) return null
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-      <div
-        className={[
-          "w-full rounded-2xl bg-white shadow-xl",
-          widthClassName,
-        ].join(" ")}
-      >
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <h2 className="text-base font-bold text-slate-900">{title}</h2>
-
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
-          >
-            <X size={18} />
-          </button>
-        </div>
-
-        <div className="px-5 py-4">{children}</div>
-
-        {footer && (
-          <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
-            {footer}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
 
 function buildAgencyFormValues(detail: Agency | null): AgencyFormValues {
   return {
@@ -212,6 +169,7 @@ export default function Page() {
   const [message, setMessage] = useState("")
 
   const {
+    control,
     register,
     handleSubmit,
     reset,
@@ -223,6 +181,15 @@ export default function Page() {
   const isViewMode = mode === "view"
   const isEditMode = mode === "edit"
   const isCreateMode = mode === "create"
+
+  const employeeOptions = useMemo(
+    () =>
+      employees.map((employee) => ({
+        value: employee._id,
+        label: employee.employeeName,
+      })),
+    [employees]
+  )
 
   const showSuccessMessage = (text: string) => {
     setMessage(text)
@@ -724,24 +691,25 @@ export default function Page() {
                 Nhân viên phụ trách
               </label>
 
-              <select
-                id="dealer-employee-id"
-                disabled={isViewMode || employeeLoading}
-                className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
-                {...register("employeeId", {})}
-              >
-                <option value="">
-                  {employeeLoading
-                    ? "Đang tải nhân viên..."
-                    : "Chọn nhân viên phụ trách"}
-                </option>
-
-                {employees.map((employee) => (
-                  <option key={employee._id} value={employee._id}>
-                    {employee.employeeName}
-                  </option>
-                ))}
-              </select>
+              <Controller
+                control={control}
+                name="employeeId"
+                render={({ field }) => (
+                  <SearchableSelect
+                    options={employeeOptions}
+                    value={field.value || undefined}
+                    onChange={field.onChange}
+                    placeholder={
+                      employeeLoading
+                        ? "Đang tải nhân viên..."
+                        : "Chọn nhân viên phụ trách"
+                    }
+                    searchPlaceholder="Tìm nhân viên..."
+                    emptyText="Không tìm thấy nhân viên"
+                    disabled={isViewMode || employeeLoading}
+                  />
+                )}
+              />
 
               {errors.employeeId && !isViewMode && (
                 <p className="mt-1 text-xs font-medium text-red-600">
@@ -794,17 +762,24 @@ export default function Page() {
                 Trạng thái
               </label>
 
-              <select
-                id="dealer-is-active"
-                disabled={isViewMode}
-                className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
-                {...register("isActive", {
+              <Controller
+                control={control}
+                name="isActive"
+                rules={{
                   required: "Vui lòng chọn trạng thái",
-                })}
-              >
-                <option value="true">Đang hoạt động</option>
-                <option value="false">Ngừng hoạt động</option>
-              </select>
+                }}
+                render={({ field }) => (
+                  <SearchableSelect
+                    options={STATUS_OPTIONS}
+                    value={field.value}
+                    onChange={field.onChange}
+                    placeholder="Chọn trạng thái"
+                    searchPlaceholder="Tìm trạng thái..."
+                    emptyText="Không tìm thấy trạng thái"
+                    disabled={isViewMode}
+                  />
+                )}
+              />
 
               {errors.isActive && !isViewMode && (
                 <p className="mt-1 text-xs font-medium text-red-600">
