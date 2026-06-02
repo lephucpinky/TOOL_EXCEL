@@ -15,7 +15,11 @@ export type InvoiceExportContext = {
 }
 
 export type InvoiceExportResolution = {
-  status: InvoiceStatus.ISSUED | InvoiceStatus.ISSUING | InvoiceStatus.FAILED
+  status:
+    | InvoiceStatus.ISSUED
+    | InvoiceStatus.ISSUING
+    | InvoiceStatus.FAILED
+    | InvoiceStatus.CANCELLED
   exportData: Record<string, any>
   exportInvoiceId: string
   message: string
@@ -240,6 +244,21 @@ export function resolveInvoiceExportResult(
     context,
     exportInvoiceId
   )
+
+  if (
+    derivedStatus === InvoiceStatus.FAILED ||
+    derivedStatus === InvoiceStatus.CANCELLED
+  ) {
+    return {
+      status: derivedStatus,
+      exportData: {
+        ...exportData,
+        invoiceStatus: derivedStatus,
+      },
+      exportInvoiceId: "",
+      message: getInvoiceExportFailureMessage(source, "Xuất hóa đơn thất bại."),
+    }
+  }
 
   if (exportInvoiceId || derivedStatus === InvoiceStatus.ISSUED) {
     return {
@@ -506,6 +525,8 @@ export function applyInvoiceExportResolutionToRow(
       resolution.exportData?.inv_invoiceSeries || row.inv_invoiceSeries,
     inv_invoiceCreatedId:
       resolution.exportInvoiceId || row.inv_invoiceCreatedId || "",
+    invoiceNumber: resolution.exportData?.invoiceNumber ?? row.invoiceNumber,
+    orderNumber: resolution.exportData?.orderNumber || row.orderNumber,
     exportInvoiceData: mergedExportData,
     invoiceStatus: resolution.status,
     invoiceErrorCode: isFailed

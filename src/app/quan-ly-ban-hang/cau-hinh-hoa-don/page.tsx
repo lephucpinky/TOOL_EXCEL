@@ -1,9 +1,9 @@
 "use client"
 
 import Link from "next/link"
-import {  useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
-import { Loader2, Plus, RefreshCcw, Settings2, } from "lucide-react"
+import { Loader2, Plus, RefreshCcw, Settings2 } from "lucide-react"
 
 import AlertError from "@/components/alert/AlertError"
 import AlertOption from "@/components/alert/AlertOption"
@@ -23,6 +23,8 @@ import type {
 import { getId } from "@/utils/invoice"
 import PageHeader from "../../../components/header/PageHeader"
 import ActionModal from "@/components/modal/ActionModal"
+import { useTransientAlert } from "@/hooks/useTransientAlert"
+import { fetchAllPages } from "@/utils/pagination"
 
 const emptyForm: ReceiptInvoicePayload = {
   inv_invoiceSeries: "",
@@ -31,33 +33,6 @@ const emptyForm: ReceiptInvoicePayload = {
 }
 
 type ModeType = "create" | "view" | "edit" | null
-
-
-
-function normalizeReceiptInvoiceList(response: any): ReceiptInvoiceConfig[] {
-  const raw = response?.data ?? []
-
-  const list = Array.isArray(raw)
-    ? raw
-    : Array.isArray(raw?.items)
-      ? raw.items
-      : Array.isArray(raw?.docs)
-        ? raw.docs
-        : Array.isArray(raw?.results)
-          ? raw.results
-          : Array.isArray(raw?.receiptInvoices)
-            ? raw.receiptInvoices
-            : Array.isArray(raw?.configs)
-              ? raw.configs
-              : raw
-                ? [raw]
-                : []
-
-  return list.filter(
-    (item: any) =>
-      item && (getId(item) || item.inv_invoiceSeries || item.tax_code)
-  )
-}
 
 function normalizeReceiptInvoiceDetail(
   response: any
@@ -126,9 +101,13 @@ export default function ReceiptInvoiceConfigPage() {
   const [submitLoading, setSubmitLoading] = useState(false)
   const [deleteLoading, setDeleteLoading] = useState(false)
   const [isDeleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [showSuccess, setShowSuccess] = useState(false)
-  const [showError, setShowError] = useState(false)
-  const [message, setMessage] = useState("")
+  const {
+    showSuccess,
+    showError,
+    message,
+    showSuccessMessage,
+    showErrorMessage,
+  } = useTransientAlert()
 
   const {
     register,
@@ -143,32 +122,13 @@ export default function ReceiptInvoiceConfigPage() {
   const isEditMode = mode === "edit"
   const isCreateMode = mode === "create"
 
-  const showSuccessMessage = (text: string) => {
-    setShowError(false)
-    setMessage(text)
-    setShowSuccess(true)
-    setTimeout(() => setShowSuccess(false), 3000)
-  }
-
-  const showErrorMessage = (text: string) => {
-    setShowSuccess(false)
-    setMessage(text)
-    setShowError(true)
-    setTimeout(() => setShowError(false), 3000)
-  }
-
   const loadConfigs = async () => {
     try {
       setLoading(true)
 
-      const response = await APIGetReceiptInvoices()
-
-      if (response?.status === 200 || response?.status === 201) {
-        setConfigs(normalizeReceiptInvoiceList(response))
-        return
-      }
-
-      setConfigs([])
+      setConfigs(
+        await fetchAllPages<ReceiptInvoiceConfig>(APIGetReceiptInvoices)
+      )
     } catch (error) {
       console.error("LOAD_RECEIPT_INVOICE_CONFIGS_ERROR", error)
       showErrorMessage(

@@ -204,9 +204,13 @@ function findProductByExcelValue(products: ProductOption[], value: string) {
       const productId = normalize(product._id || "")
       const itemCode = normalize(product.inv_itemCode || "")
       const itemName = normalize(product.inv_itemName || "")
+      const itemProduct = normalize(product.inv_itemProduct || "")
 
       return (
-        productId === keyword || itemCode === keyword || itemName === keyword
+        productId === keyword ||
+        itemCode === keyword ||
+        itemName === keyword ||
+        itemProduct === keyword
       )
     }) || null
   )
@@ -998,6 +1002,7 @@ export default function InvoiceBulkImport({
                             {row.product
                               ? [
                                   row.product.inv_itemCode,
+                                  row.product.inv_itemProduct,
                                   row.product.inv_itemName,
                                 ]
                                   .filter(Boolean)

@@ -9,6 +9,7 @@ import { useEffect, useState } from "react"
 import "./globals.css"
 import { metadata } from "./metadata"
 import { Loader2 } from "lucide-react"
+import { jwtDecode } from "jwt-decode"
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -21,6 +22,15 @@ const geistMono = Geist_Mono({
 })
 
 const PUBLIC_ROUTES = ["/", "/login"] as const
+const ADMIN_ROUTES = [
+  "/quan-ly-ban-hang/tai-khoan",
+  "/quan-ly-ban-hang/register",
+] as const
+
+type TokenProfile = {
+  role?: string
+  roles?: string[] | string
+}
 
 function isPublicRoute(pathname: string) {
   return PUBLIC_ROUTES.some((route) => {
@@ -30,6 +40,27 @@ function isPublicRoute(pathname: string) {
 
     return pathname === route || pathname.startsWith(`${route}/`)
   })
+}
+
+function isAdminRoute(pathname: string) {
+  return ADMIN_ROUTES.some(
+    (route) => pathname === route || pathname.startsWith(`${route}/`)
+  )
+}
+
+function getTokenRole(token: string) {
+  try {
+    const profile = jwtDecode<TokenProfile>(token)
+    const role = Array.isArray(profile.roles)
+      ? profile.roles[0]
+      : profile.roles || profile.role
+
+    return String(role || "")
+      .trim()
+      .toLowerCase()
+  } catch {
+    return ""
+  }
 }
 
 function AuthGate({
@@ -71,6 +102,15 @@ function AuthGate({
     }
 
     if (token && pathname === "/login") {
+      router.replace("/quan-ly-ban-hang")
+      return
+    }
+
+    if (
+      token &&
+      isAdminRoute(pathname) &&
+      !["admin", "manager"].includes(getTokenRole(token))
+    ) {
       router.replace("/quan-ly-ban-hang")
       return
     }

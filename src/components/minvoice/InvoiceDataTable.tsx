@@ -88,18 +88,47 @@ export default function InvoiceDataTable({
     return String(product.inv_itemName || "")
   }
 
+  const getInvoiceExportedAmount = (invoice: InvoiceApiRow) => {
+    if (getInvoiceStatus(invoice) !== InvoiceStatus.ISSUED) return 0
+
+    return invoiceHelper.toNumber(invoice.inv_TotalAmount)
+  }
+
   const getInvoicePaymentState = (invoice: InvoiceApiRow) => {
     const totalAmount = invoiceHelper.toNumber(invoice.inv_TotalAmount)
-    const amountCollected = invoiceHelper.toNumber(invoice.amountCollected ?? 0)
-    const safeAmountCollected = Math.max(amountCollected, 0)
-    const remainingAmount = Math.max(totalAmount - safeAmountCollected, 0)
+    const exportedAmount = getInvoiceExportedAmount(invoice)
 
-    const isPaid = totalAmount > 0 && safeAmountCollected >= totalAmount
+    const rawCollected = invoiceHelper.toNumber(
+      invoice.amountCollected ?? invoice.paidAmount ?? 0
+    )
+
+    const isPaidFromApi = invoice.isPaid === true
+    const actualPaidAmount =
+      isPaidFromApi && rawCollected <= 0
+        ? totalAmount
+        : Math.max(rawCollected, 0)
+    const rawSuggestedPaidAmount = invoiceHelper.toNumber(
+      invoice.suggestedAmountCollected
+    )
+    const suggestedPaidAmount =
+      rawSuggestedPaidAmount > 0
+        ? rawSuggestedPaidAmount
+        : exportedAmount
+    const isPaid =
+      totalAmount > 0 && (isPaidFromApi || actualPaidAmount >= totalAmount)
+    const paidAmount =
+      actualPaidAmount > 0 ? actualPaidAmount : suggestedPaidAmount
+    const remainingAmount = Math.max(totalAmount - paidAmount, 0)
+    const outstandingAmount = isPaid
+      ? 0
+      : Math.max(totalAmount - actualPaidAmount, 0)
 
     return {
       isPaid,
-      paidAmount: safeAmountCollected,
+      actualPaidAmount,
+      paidAmount,
       remainingAmount,
+      outstandingAmount,
     }
   }
   const moneyFormatter = useMemo(() => {
@@ -276,7 +305,7 @@ export default function InvoiceDataTable({
   const summary = useMemo(() => {
     return filteredRows.reduce(
       (acc, invoice) => {
-        const totalAmount = Number(invoice.inv_TotalAmount || 0)
+        const exportedAmount = getInvoiceExportedAmount(invoice)
         const totalBeforeTax = Number(invoice.inv_TotalAmountWithoutVAT || 0)
         const vatAmount = Number(invoice.inv_vatAmount || 0)
         const paymentState = getInvoicePaymentState(invoice)
@@ -286,11 +315,11 @@ export default function InvoiceDataTable({
             return sum + Number(item.revenue || 0)
           }, 0) || 0
 
-        acc.totalAmount += totalAmount
+        acc.totalAmount += exportedAmount
         acc.totalBeforeTax += totalBeforeTax
         acc.vatAmount += vatAmount
-        acc.paidAmount += paymentState.paidAmount
-        acc.remainingAmount += paymentState.remainingAmount
+        acc.paidAmount += paymentState.actualPaidAmount
+        acc.remainingAmount += paymentState.outstandingAmount
         acc.minvoiceRevenue += Number(
           invoice.minvoiceRevenue || itemRevenue || 0
         )
@@ -309,29 +338,6 @@ export default function InvoiceDataTable({
   }, [filteredRows])
 
   const columns: DataTableColumn<InvoiceApiRow>[] = [
-    {
-      key: "month",
-      title: "Tháng",
-      className: "whitespace-nowrap text-center",
-      headerClassName: "text-center",
-      render: (invoice) => {
-        const value = invoice.inv_invoiceIssuedDate || ""
-        const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
-
-        if (match) return `${match[2]}/${match[3]}`
-
-        const date = new Date(value)
-
-        if (!Number.isNaN(date.getTime())) {
-          return `${String(date.getMonth() + 1).padStart(
-            2,
-            "0"
-          )}/${date.getFullYear()}`
-        }
-
-        return "-"
-      },
-    },
     {
       key: "inv_invoiceIssuedDate",
       title: "Ngày HĐ",
@@ -393,12 +399,12 @@ export default function InvoiceDataTable({
         )
       },
     },
-    // {
-    //   key: "agencyId",
-    //   title: "Đại lý",
-    //   className: "min-w-[130px]",
-    //   render: (invoice) => getAgencyName(invoice.agencyId) || "-",
-    // },
+    {
+      key: "agencyId",
+      title: "Tên Đại lý",
+      className: "min-w-[130px]",
+      render: (invoice) => getAgencyName(invoice.agencyId) || "-",
+    },
     // {
     //   key: "departmentId",
     //   title: "Phòng ban",
@@ -466,7 +472,7 @@ export default function InvoiceDataTable({
       className: "whitespace-nowrap text-right min-w-[120px] ",
       headerClassName: "text-right",
       render: (invoice) =>
-        moneyFormatter.format(Number(invoice.inv_TotalAmount || 0)),
+        moneyFormatter.format(getInvoiceExportedAmount(invoice)),
     },
     // {
     //   key: "commissionRate",
@@ -740,6 +746,8 @@ export default function InvoiceDataTable({
           const status = getInvoiceStatus(invoice)
           const isExporting = exportingInvoiceId === invoice._id
           const isProcessing = status === InvoiceStatus.ISSUING || isExporting
+          const canCollectPayment =
+            status === InvoiceStatus.DRAFT || status === InvoiceStatus.ISSUED
 
           if (isProcessing) {
             return (
@@ -754,27 +762,23 @@ export default function InvoiceDataTable({
             )
           }
 
-          if (canStartInvoiceExport(status) && onExportInvoice) {
-            return (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  void onExportInvoice(invoice)
-                }}
-                title="Xuất hóa đơn"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 text-amber-700 shadow-sm transition hover:border-amber-400 hover:bg-amber-100 hover:text-amber-800"
-              >
-                <FileText size={15} />
-              </button>
-            )
-          }
-
-          if (status !== InvoiceStatus.ISSUED) return null
-
           return (
             <>
-              {onCollectPayment && (
+              {canStartInvoiceExport(status) && onExportInvoice && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    void onExportInvoice(invoice)
+                  }}
+                  title="Xuất hóa đơn"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 text-amber-700 shadow-sm transition hover:border-amber-400 hover:bg-amber-100 hover:text-amber-800"
+                >
+                  <FileText size={15} />
+                </button>
+              )}
+
+              {canCollectPayment && onCollectPayment && (
                 <button
                   type="button"
                   onClick={(e) => {
@@ -788,17 +792,19 @@ export default function InvoiceDataTable({
                 </button>
               )}
 
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onViewMInvoicePdf?.(invoice)
-                }}
-                title="Xem mẫu hóa đơn PDF"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm transition hover:border-emerald-400 hover:bg-emerald-100 hover:text-emerald-800"
-              >
-                <Printer size={15} />
-              </button>
+              {status === InvoiceStatus.ISSUED && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onViewMInvoicePdf?.(invoice)
+                  }}
+                  title="Xem mẫu hóa đơn PDF"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm transition hover:border-emerald-400 hover:bg-emerald-100 hover:text-emerald-800"
+                >
+                  <Printer size={15} />
+                </button>
+              )}
             </>
           )
         }}

@@ -19,11 +19,12 @@ import { getErrorMessage } from "@/store/utils/crud"
 import { Agency, AgencyPayload } from "@/types/agency"
 import { Employee } from "@/types/employee"
 import { normalize } from "@/utils/excel"
-import { Loader2, Plus, UploadCloud, UsersRound, } from "lucide-react"
+import { Loader2, Plus, UploadCloud, UsersRound } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { Controller, useForm } from "react-hook-form"
 import PageHeader from "../../../components/header/PageHeader"
 import ActionModal from "@/components/modal/ActionModal"
+import { useTransientAlert } from "@/hooks/useTransientAlert"
 
 type AgencyFormValues = {
   agencyName: string
@@ -33,10 +34,7 @@ type AgencyFormValues = {
   isActive: "true" | "false"
 }
 
-const LIST_PARAMS = {
-  page: 1,
-  limit: 1000,
-}
+const LIST_PARAMS = {}
 
 const emptyForm: AgencyFormValues = {
   agencyName: "",
@@ -123,7 +121,6 @@ const AGENCY_IMPORT_PREVIEW_COLUMNS: readonly BulkImportPreviewColumn<
 
 type ModeType = "create" | "view" | "edit" | null
 
-
 function buildAgencyFormValues(detail: Agency | null): AgencyFormValues {
   return {
     agencyName: detail?.agencyName || "",
@@ -164,9 +161,13 @@ export default function Page() {
   const [open, setOpen] = useState(false)
   const [isBulkImportOpen, setBulkImportOpen] = useState(false)
   const [isDeleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [showSuccess, setShowSuccess] = useState(false)
-  const [showError, setShowError] = useState(false)
-  const [message, setMessage] = useState("")
+  const {
+    showSuccess,
+    showError,
+    message,
+    showSuccessMessage,
+    showErrorMessage,
+  } = useTransientAlert()
 
   const {
     control,
@@ -190,18 +191,6 @@ export default function Page() {
       })),
     [employees]
   )
-
-  const showSuccessMessage = (text: string) => {
-    setMessage(text)
-    setShowSuccess(true)
-    setTimeout(() => setShowSuccess(false), 3000)
-  }
-
-  const showErrorMessage = (text: string) => {
-    setMessage(text)
-    setShowError(true)
-    setTimeout(() => setShowError(false), 3000)
-  }
 
   useEffect(() => {
     void dispatch(agencyThunks.fetchAll(LIST_PARAMS))
@@ -241,6 +230,7 @@ export default function Page() {
       {
         key: "agencyName",
         title: "Tên đại lý",
+        className: "min-w-[150px]",
         render: (item) => (
           <p className="font-semibold text-slate-900">{item.agencyName}</p>
         ),

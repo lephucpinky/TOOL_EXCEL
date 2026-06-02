@@ -95,6 +95,7 @@ export default function RegisterPage() {
       await APICreateUser({
         username: nextUsername,
         password: nextPassword,
+        role,
       })
 
       setSuccessMessage("Tạo tài khoản thành công")

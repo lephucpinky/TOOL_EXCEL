@@ -31,10 +31,7 @@ import {
 import PageHeader from "../../../components/header/PageHeader"
 
 const ALL_VALUE = "__ALL__"
-const LIST_PARAMS = {
-  page: 1,
-  limit: 1000,
-}
+const LIST_PARAMS = {}
 
 const INVOICE_STATUS_OPTIONS = [
   { value: "", label: "Tất cả trạng thái" },

@@ -20,6 +20,7 @@ import { useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import PageHeader from "../../../components/header/PageHeader"
 import ActionModal from "@/components/modal/ActionModal"
+import { useTransientAlert } from "@/hooks/useTransientAlert"
 
 const emptyForm: BankPayload = {
   inv_buyerBankName: "",
@@ -81,9 +82,13 @@ export default function BankPage() {
   const [open, setOpen] = useState(false)
   const [isBulkImportOpen, setBulkImportOpen] = useState(false)
   const [isDeleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [showSuccess, setShowSuccess] = useState(false)
-  const [showError, setShowError] = useState(false)
-  const [message, setMessage] = useState("")
+  const {
+    showSuccess,
+    showError,
+    message,
+    showSuccessMessage,
+    showErrorMessage,
+  } = useTransientAlert()
 
   const {
     register,
@@ -97,18 +102,6 @@ export default function BankPage() {
   const isViewMode = mode === "view"
   const isEditMode = mode === "edit"
   const isCreateMode = mode === "create"
-
-  const showSuccessMessage = (text: string) => {
-    setMessage(text)
-    setShowSuccess(true)
-    setTimeout(() => setShowSuccess(false), 3000)
-  }
-
-  const showErrorMessage = (text: string) => {
-    setMessage(text)
-    setShowError(true)
-    setTimeout(() => setShowError(false), 3000)
-  }
 
   useEffect(() => {
     void dispatch(bankThunks.fetchAll(undefined))

@@ -15,6 +15,8 @@ import {
 import AlertError from "@/components/alert/AlertError"
 import AlertSuccess from "@/components/alert/AlertSuccess"
 import { normalize, toNumber } from "@/utils/excel"
+import { mapWithConcurrency } from "@/utils/concurrency"
+import { useTransientAlert } from "@/hooks/useTransientAlert"
 
 export type BulkImportColumnDefinition<TKey extends string> = {
   key: TKey
@@ -193,6 +195,7 @@ export default function CrudBulkImportModal<
   createItem,
 }: Props<TKey, TPayload, TPreview>) {
   const inputRef = useRef<HTMLInputElement | null>(null)
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [selectedFileName, setSelectedFileName] = useState("")
   const [preparedRows, setPreparedRows] = useState<
@@ -202,43 +205,32 @@ export default function CrudBulkImportModal<
   const [createdRowIds, setCreatedRowIds] = useState<Record<string, true>>({})
   const [parsing, setParsing] = useState(false)
   const [creating, setCreating] = useState(false)
-  const [showSuccess, setShowSuccess] = useState(false)
-  const [showError, setShowError] = useState(false)
-  const [message, setMessage] = useState("")
+  const {
+    showSuccess,
+    showError,
+    message,
+    clearAlert,
+    showSuccessMessage,
+    showErrorMessage,
+  } = useTransientAlert(3500, 4500)
 
   const resetState = useCallback(() => {
     setSelectedFileName("")
     setPreparedRows([])
     setSubmitErrors({})
     setCreatedRowIds({})
-    setShowSuccess(false)
-    setShowError(false)
-    setMessage("")
+    clearAlert()
 
     if (inputRef.current) {
       inputRef.current.value = ""
     }
-  }, [])
+  }, [clearAlert])
 
   useEffect(() => {
     if (!open) {
       resetState()
     }
   }, [open, resetState])
-
-  const showSuccessMessage = (text: string) => {
-    setShowError(false)
-    setMessage(text)
-    setShowSuccess(true)
-    setTimeout(() => setShowSuccess(false), 3500)
-  }
-
-  const showErrorMessage = (text: string) => {
-    setShowSuccess(false)
-    setMessage(text)
-    setShowError(true)
-    setTimeout(() => setShowError(false), 4500)
-  }
 
   const validRows = useMemo(
     () =>
@@ -264,9 +256,21 @@ export default function CrudBulkImportModal<
 
   const handleClose = () => {
     if (parsing || creating) return
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current)
+      closeTimerRef.current = null
+    }
     resetState()
     onClose()
   }
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) {
+        clearTimeout(closeTimerRef.current)
+      }
+    }
+  }, [])
 
   const handleReadFile = async (file: File) => {
     try {
@@ -384,8 +388,8 @@ export default function CrudBulkImportModal<
       const nextCreatedRowIds = { ...createdRowIds }
       let successCount = 0
 
-      for (const row of validRows) {
-        if (!row.payload) continue
+      await mapWithConcurrency(validRows, 5, async (row) => {
+        if (!row.payload) return
 
         try {
           await createItem(row.payload)
@@ -397,7 +401,7 @@ export default function CrudBulkImportModal<
             `Không thể tạo ${entityLabel} ở dòng ${row.rowNumber}.`
           )
         }
-      }
+      })
 
       setCreatedRowIds(nextCreatedRowIds)
       setSubmitErrors(nextSubmitErrors)
@@ -419,7 +423,8 @@ export default function CrudBulkImportModal<
       if (Object.keys(nextSubmitErrors).length === 0) {
         showSuccessMessage(`Đã tạo thành công ${successCount} ${entityLabel}.`)
 
-        window.setTimeout(() => {
+        closeTimerRef.current = setTimeout(() => {
+          closeTimerRef.current = null
           handleClose()
         }, 1200)
 
@@ -560,9 +565,9 @@ export default function CrudBulkImportModal<
                       </p>
                     </div>
 
-                    <div className="border-amber-200 bg-amber-50 rounded-2xl border p-4">
-                      <p className="text-amber-700 text-sm">Cần kiểm tra lại</p>
-                      <p className="text-amber-700 mt-1 text-2xl font-bold">
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                      <p className="text-sm text-amber-700">Cần kiểm tra lại</p>
+                      <p className="mt-1 text-2xl font-bold text-amber-700">
                         {invalidRowsCount}
                       </p>
                     </div>
@@ -668,7 +673,7 @@ export default function CrudBulkImportModal<
                                     {row.warnings.map((warning) => (
                                       <p
                                         key={`${row.id}-${warning}`}
-                                        className="text-amber-600 font-medium"
+                                        className="font-medium text-amber-600"
                                       >
                                         - {warning}
                                       </p>

@@ -4,6 +4,7 @@ import {
   createAsyncThunk,
   createSlice,
 } from "@reduxjs/toolkit"
+import { fetchAllPages } from "@/utils/pagination"
 
 export type CrudStatus = "idle" | "loading" | "succeeded" | "failed"
 
@@ -123,16 +124,23 @@ function removeItem<TItem>(
   return items.filter((item) => selectId(item) !== id)
 }
 
-export function createCrudModule<TItem, TPayload>(config: CrudConfig<TItem, TPayload>) {
-  const fetchAll = createAsyncThunk(`${config.name}/fetchAll`, async (params?: any) => {
-    const response = await config.fetchAll(params)
-    return normalizeList<TItem>(response?.data)
-  })
+export function createCrudModule<TItem, TPayload>(
+  config: CrudConfig<TItem, TPayload>
+) {
+  const fetchAll = createAsyncThunk(
+    `${config.name}/fetchAll`,
+    async (params?: any) => {
+      return fetchAllPages<TItem>(config.fetchAll, params)
+    }
+  )
 
-  const fetchById = createAsyncThunk(`${config.name}/fetchById`, async (id: string) => {
-    const response = await config.fetchById(id)
-    return normalizeItem<TItem>(response?.data)
-  })
+  const fetchById = createAsyncThunk(
+    `${config.name}/fetchById`,
+    async (id: string) => {
+      const response = await config.fetchById(id)
+      return normalizeItem<TItem>(response?.data)
+    }
+  )
 
   const createItem = createAsyncThunk(
     `${config.name}/createItem`,
@@ -150,10 +158,13 @@ export function createCrudModule<TItem, TPayload>(config: CrudConfig<TItem, TPay
     }
   )
 
-  const deleteItem = createAsyncThunk(`${config.name}/deleteItem`, async (id: string) => {
-    await config.deleteItem(id)
-    return id
-  })
+  const deleteItem = createAsyncThunk(
+    `${config.name}/deleteItem`,
+    async (id: string) => {
+      await config.deleteItem(id)
+      return id
+    }
+  )
 
   const slice = createSlice({
     name: config.name,
@@ -273,8 +284,15 @@ function buildCrudReducers<TItem>(
     })
     .addCase(config.deleteItem.fulfilled, (state, action) => {
       state.deleteLoading = false
-      state.items = removeItem(state.items as any, action.payload, config.selectId) as any
-      if (state.current && config.selectId(state.current as any) === action.payload) {
+      state.items = removeItem(
+        state.items as any,
+        action.payload,
+        config.selectId
+      ) as any
+      if (
+        state.current &&
+        config.selectId(state.current as any) === action.payload
+      ) {
         state.current = null
       }
     })

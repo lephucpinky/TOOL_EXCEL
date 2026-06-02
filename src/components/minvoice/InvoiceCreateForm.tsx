@@ -15,10 +15,12 @@ import { APIGetDepartments } from "@/services/department"
 import { APIGetEmployees } from "@/services/employee"
 import { APIGetProducts } from "@/services/product"
 import { APIGetBanks } from "@/services/bank"
+import { APIGetCompanyInfo } from "@/services/companyInfo"
 import {
   APIExportMInvoiceReceiptPost,
   APIGetMInvoiceReceiptJobStatus,
 } from "@/services/mInvoiceReceipt"
+import { Loader2, Search } from "lucide-react"
 import type { ReceiptInvoiceConfig } from "@/types/receiptInvoice"
 import AlertOption from "../alert/AlertOption"
 import AlertSuccess from "../alert/AlertSuccess"
@@ -113,10 +115,11 @@ type Props = {
 }
 const today = new Date().toISOString().slice(0, 10)
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-const taxCodePattern = /^(?:\d{10}|\d{14})$/
+const taxCodePattern = /^\d{10,13}$/
 
 const taxCodeRequiredMessage = "Vui lòng nhập MST."
-const taxCodeInvalidMessage = "Mã số thuế phải là 10 hoặc 14 ký tự số."
+const taxCodeInvalidMessage =
+  "Mã số thuế hoặc CMND/CCCD phải có từ 10 đến 13 ký tự số."
 const emailRequiredMessage = "Vui lòng nhập Email."
 const emailInvalidMessage = "Email không hợp lệ."
 
@@ -265,6 +268,7 @@ export default function InvoiceCreateForm({
 
   const [exportInvoiceLoading, setExportInvoiceLoading] = useState(false)
   const [saveLoading, setSaveLoading] = useState(false)
+  const [companyInfoLoading, setCompanyInfoLoading] = useState(false)
 
   const [showSuccess, setShowSuccess] = useState(false)
   const [showError, setShowError] = useState(false)
@@ -348,6 +352,48 @@ export default function InvoiceCreateForm({
     }))
 
     return !message
+  }
+
+  const handleLookupCompanyInfo = async () => {
+    if (mainFieldsDisabled || companyInfoLoading) return
+
+    const taxCode = general.taxCode.trim()
+    const taxCodeError = getTaxCodeError(taxCode)
+
+    if (taxCodeError) {
+      setFieldErrors((prev) => ({
+        ...prev,
+        taxCode: taxCodeError,
+      }))
+      showErrorMessage(taxCodeError)
+      return
+    }
+
+    try {
+      setCompanyInfoLoading(true)
+
+      const companyInfo = await APIGetCompanyInfo(taxCode)
+
+      setGeneral((prev) => ({
+        ...prev,
+        taxCode: companyInfo.taxCode,
+        companyName: companyInfo.companyName,
+        address: companyInfo.address,
+      }))
+      setFieldErrors((prev) => ({
+        ...prev,
+        taxCode: undefined,
+      }))
+      showSuccessMessage("Tra cứu thông tin doanh nghiệp thành công.")
+    } catch (error) {
+      showErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Không thể tra cứu thông tin doanh nghiệp."
+      )
+    } finally {
+      setCompanyInfoLoading(false)
+    }
   }
   const handleCancelClick = () => {
     if (readOnly) {
@@ -712,7 +758,10 @@ export default function InvoiceCreateForm({
       { value: "", label: "Chọn mã hàng" },
       ...productOptions.map((product) => ({
         value: getId(product),
-        label: product.inv_itemCode || product.inv_itemName || getId(product),
+        label:
+          [product.inv_itemCode, product.inv_itemProduct || product.inv_itemName]
+            .filter(Boolean)
+            .join(" - ") || getId(product),
       })),
     ],
     [productOptions]
@@ -876,11 +925,18 @@ export default function InvoiceCreateForm({
     if (key === "agency") {
       const agency = value as Agency | null
       const employee = resolveAgencyEmployee(agency, employees)
+      const email = agency?.agencyEmail || ""
 
       setGeneral((prev) => ({
         ...prev,
         agency,
         employee,
+        email,
+      }))
+
+      setFieldErrors((prev) => ({
+        ...prev,
+        email: email ? getEmailError(email) || undefined : prev.email,
       }))
 
       return
@@ -1513,45 +1569,67 @@ export default function InvoiceCreateForm({
                 MST
                 <span className="ml-0.5 text-red-500">*</span>
               </label>
-              <input
-                className={`${inputClass} ${
-                  fieldErrors.taxCode
-                    ? "border-red-400 focus:border-red-500"
-                    : ""
-                }`}
-                value={general.taxCode}
-                disabled={mainFieldsDisabled}
-                onFocus={() => {
-                  if (!general.taxCode.trim()) {
+              <div className="flex gap-2">
+                <input
+                  className={`${inputClass} min-w-0 flex-1 ${
+                    fieldErrors.taxCode
+                      ? "border-red-400 focus:border-red-500"
+                      : ""
+                  }`}
+                  value={general.taxCode}
+                  disabled={mainFieldsDisabled}
+                  onFocus={() => {
+                    if (!general.taxCode.trim()) {
+                      setFieldErrors((prev) => ({
+                        ...prev,
+                        taxCode: taxCodeRequiredMessage,
+                      }))
+                    }
+                  }}
+                  onChange={(e) => {
+                    const nextTaxCode = e.target.value
+                      .replace(/\D/g, "")
+                      .slice(0, 13)
+
+                    updateGeneral("taxCode", nextTaxCode)
+
                     setFieldErrors((prev) => ({
                       ...prev,
-                      taxCode: taxCodeRequiredMessage,
+                      taxCode: getTaxCodeError(nextTaxCode) || undefined,
                     }))
+                  }}
+                  onBlur={() => validateRequiredField("taxCode")}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter") return
+
+                    e.preventDefault()
+                    void handleLookupCompanyInfo()
+                  }}
+                  placeholder="Nhập MST"
+                  inputMode="numeric"
+                  maxLength={13}
+                  required
+                  aria-required="true"
+                  aria-invalid={Boolean(fieldErrors.taxCode)}
+                  aria-describedby={
+                    fieldErrors.taxCode ? "invoice-tax-code-error" : undefined
                   }
-                }}
-                onChange={(e) => {
-                  const nextTaxCode = e.target.value
-                    .replace(/\D/g, "")
-                    .slice(0, 14)
+                />
 
-                  updateGeneral("taxCode", nextTaxCode)
-
-                  setFieldErrors((prev) => ({
-                    ...prev,
-                    taxCode: getTaxCodeError(nextTaxCode) || undefined,
-                  }))
-                }}
-                onBlur={() => validateRequiredField("taxCode")}
-                placeholder="Nhập MST"
-                inputMode="numeric"
-                maxLength={14}
-                required
-                aria-required="true"
-                aria-invalid={Boolean(fieldErrors.taxCode)}
-                aria-describedby={
-                  fieldErrors.taxCode ? "invoice-tax-code-error" : undefined
-                }
-              />
+                <button
+                  type="button"
+                  onClick={() => void handleLookupCompanyInfo()}
+                  disabled={mainFieldsDisabled || companyInfoLoading}
+                  className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded border border-blue-200 bg-blue-50 px-3 text-xs font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {companyInfoLoading ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <Search size={14} />
+                  )}
+                  Tra cứu
+                </button>
+              </div>
               {fieldErrors.taxCode && (
                 <p
                   id="invoice-tax-code-error"

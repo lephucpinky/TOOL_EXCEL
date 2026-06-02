@@ -24,6 +24,13 @@ export type InvoiceItem = {
   product?: Product | string | null
   quantity?: number
   inv_quantity?: number
+  price?: number
+  inv_unitPrice?: number
+  unitPrice?: number
+  ma_thue?: string
+  taxRate?: number
+  discount?: number
+  discountPercentage?: number
   revenue?: number
   capitalPrice?: number
   totalSalary?: number

@@ -26,11 +26,9 @@ import {
 import Link from "next/link"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import ActionModal from "@/components/modal/ActionModal"
+import { fetchAllPages } from "@/utils/pagination"
 
-const LIST_PARAMS = { 
-  page: 1,
-  limit: 1000,
-}
+const LIST_PARAMS = {}
 
 const ROLE_OPTIONS: Array<{
   value: UserRole
@@ -89,6 +87,9 @@ export default function AccountManagementPage() {
     if (successTimerRef.current) {
       clearTimeout(successTimerRef.current)
     }
+    if (errorTimerRef.current) {
+      clearTimeout(errorTimerRef.current)
+    }
 
     setMessage(text)
     setShowSuccess(true)
@@ -102,6 +103,9 @@ export default function AccountManagementPage() {
   const showErrorMessage = useCallback((text: string) => {
     if (errorTimerRef.current) {
       clearTimeout(errorTimerRef.current)
+    }
+    if (successTimerRef.current) {
+      clearTimeout(successTimerRef.current)
     }
 
     setMessage(text)
@@ -117,13 +121,7 @@ export default function AccountManagementPage() {
     setLoading(true)
 
     try {
-      const response = await APIGetUsers(LIST_PARAMS)
-
-      if (!Array.isArray(response.data)) {
-        throw new Error("Dữ liệu danh sách tài khoản không đúng định dạng")
-      }
-
-      setUsers(response.data)
+      setUsers(await fetchAllPages<UserAccount>(APIGetUsers, LIST_PARAMS))
     } catch (error) {
       showErrorMessage(
         getErrorMessage(error) || "Không thể tải danh sách tài khoản"

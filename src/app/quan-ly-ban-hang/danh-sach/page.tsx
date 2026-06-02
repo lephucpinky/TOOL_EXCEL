@@ -15,7 +15,10 @@ import AlertSuccess from "@/components/alert/AlertSuccess"
 import AlertError from "@/components/alert/AlertError"
 
 import { APIGetBanks } from "@/services/bank"
-import { APIDeleteSaleTransaction } from "@/services/saleTransaction"
+import {
+  APIDeleteSaleTransaction,
+  APIGetSaleTransactions,
+} from "@/services/saleTransaction"
 import {
   APIExportMInvoiceReceiptPost,
   APIGetMInvoiceReceiptJobStatus,
@@ -50,7 +53,6 @@ import {
   updateSaleTransactionBankThunk,
   updateSaleTransactionThunk,
 } from "@/store/slices"
-
 
 import { InvoiceApiRow, InvoiceStatus } from "@/types/invoice"
 import type { Bank } from "@/types/bank"
@@ -187,7 +189,9 @@ export default function InvoiceListPage() {
   }
 
   const canCollectPayment = (invoice?: InvoiceApiRow | null) => {
-    return invoice?.invoiceStatus === InvoiceStatus.ISSUED
+    const status = invoiceHelper.getInvoiceStatus(invoice)
+
+    return status === InvoiceStatus.DRAFT || status === InvoiceStatus.ISSUED
   }
 
   const getPaymentAmountFromInvoice = (
@@ -208,6 +212,13 @@ export default function InvoiceListPage() {
       return toSafeNumber(fallback.amountCollected)
     }
 
+    return 0
+  }
+
+  const getSuggestedPaymentAmountFromInvoice = (
+    invoice?: InvoiceApiRow | null,
+    fallback?: InvoiceApiRow | null
+  ) => {
     if (
       hasOwnField(invoice, "suggestedAmountCollected") &&
       isFilledValue(invoice.suggestedAmountCollected)
@@ -238,6 +249,17 @@ export default function InvoiceListPage() {
 
     const amountCollected = getPaymentAmountFromInvoice(invoice, fallback)
     const remainingAmount = Math.max(totalAmount - amountCollected, 0)
+    const suggestedAmountCollectedFromInvoice =
+      getSuggestedPaymentAmountFromInvoice(invoice, fallback)
+    const invoiceStatus = invoice.invoiceStatus || fallback?.invoiceStatus
+    const suggestedAmountCollected =
+      amountCollected > 0
+        ? amountCollected
+        : suggestedAmountCollectedFromInvoice > 0
+          ? suggestedAmountCollectedFromInvoice
+          : invoiceStatus === InvoiceStatus.ISSUED
+            ? totalAmount
+            : 0
 
     /**
      * Quy tắc đúng:
@@ -257,6 +279,7 @@ export default function InvoiceListPage() {
       ...invoice,
       inv_TotalAmount: totalAmount,
       amountCollected,
+      suggestedAmountCollected,
       paidAmount: amountCollected,
       isPaid,
       paidDate: amountCollected > 0 ? paidDate : undefined,
@@ -267,6 +290,18 @@ export default function InvoiceListPage() {
 
   const getInvoiceAmountCollected = (invoice?: InvoiceApiRow | null) => {
     return getPaymentAmountFromInvoice(invoice)
+  }
+
+  const getInvoiceDefaultCollectPaymentAmount = (
+    invoice?: InvoiceApiRow | null
+  ) => {
+    const amountCollected = getInvoiceAmountCollected(invoice)
+
+    if (amountCollected > 0) {
+      return amountCollected
+    }
+
+    return getSuggestedPaymentAmountFromInvoice(invoice)
   }
 
   const clearAlertTimer = () => {
@@ -488,6 +523,60 @@ export default function InvoiceListPage() {
     }
   }
 
+  const syncInvoiceListAfterExport = async (saleTransactionId: string) => {
+    let latestRows: InvoiceApiRow[] = []
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      if (attempt > 0) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 1000))
+      }
+
+      const response = await APIGetSaleTransactions(LIST_PARAMS)
+      latestRows = invoiceHelper.normalizeSaleTransactionList(response)
+
+      const latestRow =
+        latestRows.find((item) => item._id === saleTransactionId) || null
+      const latestInvoiceNumber = String(latestRow?.invoiceNumber ?? "").trim()
+
+      if (latestInvoiceNumber) {
+        break
+      }
+    }
+
+    if (!latestRows.length) return
+
+    const previousRowMap = new Map(
+      apiRowsRef.current.map((item) => [item._id, item])
+    )
+    const nextRows = latestRows.map((item) => {
+      const fallback = previousRowMap.get(item._id)
+
+      if (item._id !== saleTransactionId) {
+        return mergeInvoicePaymentState(item, fallback)
+      }
+
+      const amountCollected = Math.max(
+        getPaymentAmountFromInvoice(item),
+        getPaymentAmountFromInvoice(fallback)
+      )
+
+      return mergeInvoicePaymentState(
+        {
+          ...item,
+          invoiceStatus: InvoiceStatus.ISSUED,
+          amountCollected,
+          suggestedAmountCollected:
+            amountCollected ||
+            toSafeNumber(item.inv_TotalAmount || fallback?.inv_TotalAmount),
+        },
+        fallback
+      )
+    })
+
+    apiRowsRef.current = nextRows
+    dispatch(saleTransactionActions.setSaleTransactions(nextRows))
+  }
+
   const scheduleInvoiceRefresh = (
     saleTransactionId: string,
     fallback?: InvoiceApiRow | null,
@@ -640,6 +729,15 @@ export default function InvoiceListPage() {
         )
       })
     )
+
+    if (resolution.status === InvoiceStatus.ISSUED) {
+      void syncInvoiceListAfterExport(saleTransactionId).catch((error) => {
+        console.error("FETCH_LIST_AFTER_EXPORT_SUCCESS_ERROR", {
+          saleTransactionId,
+          error,
+        })
+      })
+    }
 
     if (resolution.status === InvoiceStatus.ISSUING) {
       scheduleInvoiceRefresh(
@@ -956,12 +1054,14 @@ export default function InvoiceListPage() {
 
   const handleOpenCollectPayment = async (row: InvoiceApiRow) => {
     if (!canCollectPayment(row)) {
-      showErrorMessage("Chỉ hóa đơn đã xuất thành công mới được thu tiền.")
+      showErrorMessage(
+        "Chỉ hóa đơn nháp hoặc đã xuất thành công mới được thu tiền."
+      )
       return
     }
 
     const safeRow = mergeInvoicePaymentState(row, row)
-    const rowCollectedAmount = getInvoiceAmountCollected(safeRow)
+    const rowCollectedAmount = getInvoiceDefaultCollectPaymentAmount(safeRow)
 
     setCollectPaymentTarget(safeRow)
     setCollectPaymentBankId(invoiceHelper.getId(safeRow.bankId))
@@ -995,11 +1095,14 @@ export default function InvoiceListPage() {
       if (!canCollectPayment(nextTarget)) {
         setCollectPaymentOpen(false)
         setCollectPaymentTarget(null)
-        showErrorMessage("Hóa đơn chưa xuất thành công, không thể thu tiền.")
+        showErrorMessage(
+          "Chỉ hóa đơn nháp hoặc đã xuất thành công mới được thu tiền."
+        )
         return
       }
 
-      const nextTargetCollectedAmount = getInvoiceAmountCollected(nextTarget)
+      const nextTargetCollectedAmount =
+        getInvoiceDefaultCollectPaymentAmount(nextTarget)
       const nextBanks = invoiceHelper.normalizeBankList(bankRes)
       const currentBank =
         nextTarget.bankId && typeof nextTarget.bankId === "object"
@@ -1030,7 +1133,6 @@ export default function InvoiceListPage() {
       setCollectPaymentLoading(false)
     }
   }
-
   const handleConfirmCollectPayment = async () => {
     if (collectPaymentSavingRef.current) return
 
@@ -1042,7 +1144,9 @@ export default function InvoiceListPage() {
     }
 
     if (!canCollectPayment(target)) {
-      showErrorMessage("Chỉ hóa đơn đã xuất thành công mới được thu tiền.")
+      showErrorMessage(
+        "Chỉ hóa đơn nháp hoặc đã xuất thành công mới được thu tiền."
+      )
       return
     }
 
@@ -1113,7 +1217,10 @@ export default function InvoiceListPage() {
           paidDate,
           paymentDate: paidDate,
 
-          invoiceStatus: detail.invoiceStatus || InvoiceStatus.ISSUED,
+          invoiceStatus:
+            detail.invoiceStatus ||
+            target.invoiceStatus ||
+            InvoiceStatus.ISSUED,
           updatedAt: new Date().toISOString(),
         },
         target
@@ -1133,11 +1240,7 @@ export default function InvoiceListPage() {
       setCollectPaymentAmount("")
       setCollectPaymentBanks([])
 
-      showSuccessMessage(
-        nextDetail.isPaid
-          ? "Thu tiền thành công. Hóa đơn đã thu đủ."
-          : "Đã cập nhật số tiền thu. Hóa đơn chưa thu đủ."
-      )
+      showSuccessMessage("Thu tiền thành công!")
     } catch (error) {
       console.error("CONFIRM_COLLECT_PAYMENT_ERROR", error)
       showErrorMessage(getErrorAlertMessage(error, "Thu tiền thất bại."))
@@ -1365,77 +1468,6 @@ export default function InvoiceListPage() {
       }
 
       if (resolution.status === InvoiceStatus.ISSUED) {
-        try {
-          setPageLoading(true)
-
-          let latestRows: InvoiceApiRow[] = []
-          let latestRow: InvoiceApiRow | null = null
-
-          /**
-           * Sau khi xuất hóa đơn thành công, orderNumber nằm ở API list.
-           * Không fetch detail ở đây nữa.
-           * Chỉ fetch lại danh sách đến khi list trả về orderNumber / invoiceNumber mới.
-           */
-          for (let attempt = 0; attempt < 10; attempt += 1) {
-            if (attempt > 0) {
-              await new Promise<void>((resolve) => setTimeout(resolve, 1000))
-            }
-
-            const rows = await dispatch(
-              fetchSaleTransactionsThunk(LIST_PARAMS)
-            ).unwrap()
-
-            latestRows = rows
-            latestRow = rows.find((item) => item._id === row._id) || null
-
-            const latestOrderNumber = String(
-              latestRow?.orderNumber || ""
-            ).trim()
-
-            if (latestOrderNumber) {
-              break
-            }
-          }
-
-          if (latestRows.length) {
-            const previousRowMap = new Map(
-              apiRowsRef.current.map((item) => [item._id, item])
-            )
-
-            const nextRows = latestRows.map((item) => {
-              const fallback = previousRowMap.get(item._id)
-
-              if (item._id !== row._id) {
-                return mergeInvoicePaymentState(item, fallback)
-              }
-
-              /**
-               * Quan trọng:
-               * - Lấy orderNumber / invoiceNumber từ API list mới nhất.
-               * - Không tự đổi trạng thái thu tiền.
-               * - Không tự set amountCollected = totalAmount.
-               */
-              return mergeInvoicePaymentState(
-                {
-                  ...item,
-                  invoiceStatus: InvoiceStatus.ISSUED,
-                },
-                fallback
-              )
-            })
-
-            apiRowsRef.current = nextRows
-            dispatch(saleTransactionActions.setSaleTransactions(nextRows))
-          }
-        } catch (syncError) {
-          console.error("FETCH_LIST_AFTER_EXPORT_SUCCESS_ERROR", {
-            saleTransactionId: row._id,
-            error: syncError,
-          })
-        } finally {
-          setPageLoading(false)
-        }
-
         showSuccessMessage(getInvoiceExportAlertMessage(resolution))
         return
       }
@@ -1525,17 +1557,23 @@ export default function InvoiceListPage() {
         inv_invoiceCreatedId: invInvoiceCreatedId,
       })
 
-      const filePath = String(
-        res?.filePath || res?.data?.filePath || res?.content?.filePath || ""
+      const fileUrl = String(
+        res?.fileUrl ||
+          res?.data?.fileUrl ||
+          res?.content?.fileUrl ||
+          res?.filePath ||
+          res?.data?.filePath ||
+          res?.content?.filePath ||
+          ""
       ).trim()
 
-      if (!filePath) {
+      if (!fileUrl) {
         closePdfViewer()
-        showErrorMessage("API không trả về đường dẫn file PDF.")
+        showErrorMessage(" không trả về đường dẫn file PDF.")
         return
       }
 
-      const nextPdfUrl = invoiceHelper.buildPdfFileUrl(filePath)
+      const nextPdfUrl = invoiceHelper.buildPdfFileUrl(fileUrl)
 
       setPdfUrl(nextPdfUrl)
     } catch (error) {

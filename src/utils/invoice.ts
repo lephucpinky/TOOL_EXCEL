@@ -309,12 +309,28 @@ export function getInvoiceStatus(
   invoice?: InvoiceApiRow | null
 ): InvoiceStatusValue {
   const exportData = getInvoiceExportData(invoice)
-  const normalizedStatus = normalizeInvoiceStatusValue(
-    (invoice as any)?.invoiceStatus ||
-      exportData?.invoiceStatus ||
-      exportData?.info ||
-      exportData?.status
-  )
+  const normalizedStatuses = [
+    (invoice as any)?.invoiceStatus,
+    exportData?.invoiceStatus,
+    exportData?.info,
+    exportData?.status,
+  ]
+    .map(normalizeInvoiceStatusValue)
+    .filter((status): status is InvoiceStatusValue => Boolean(status))
+  const normalizedStatus =
+    normalizedStatuses.find(
+      (status) =>
+        status === InvoiceStatus.CANCELLED || status === InvoiceStatus.FAILED
+    ) ||
+    normalizedStatuses[0] ||
+    null
+
+  if (
+    normalizedStatus === InvoiceStatus.CANCELLED ||
+    normalizedStatus === InvoiceStatus.FAILED
+  ) {
+    return normalizedStatus
+  }
 
   if (getExportInvoiceId(invoice)) return InvoiceStatus.ISSUED
   if (normalizedStatus) return normalizedStatus
@@ -401,7 +417,13 @@ export function isInvoiceMatchedReceiptConfig(
   const sameSeries = configSeries && invoiceSeries === configSeries
   const sameTaxCode = configTaxCode && invoiceTaxCode === configTaxCode
 
-  return Boolean(sameSeries || sameTaxCode)
+  if (configSeries && invoiceSeries) {
+    return Boolean(
+      sameSeries && (!configTaxCode || !invoiceTaxCode || sameTaxCode)
+    )
+  }
+
+  return Boolean(sameTaxCode)
 }
 
 export function findReceiptConfigByValue(
@@ -481,9 +503,7 @@ export function buildPdfFileUrl(filePath: string) {
     return filePath
   }
 
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL || ""
-
-  return `${baseUrl.replace(/\/$/, "")}/${filePath.replace(/^\//, "")}`
+  return `/api/backend/${filePath.replace(/^\//, "")}`
 }
 
 export function formatPaymentAmountInput(value: any) {
@@ -671,7 +691,7 @@ export function hydrateSaleTransactionDetail(
       detail.isPaid ??
       clientPayment.isPaid ??
       fallback?.isPaid ??
-      amountCollected > 0,
+      (totalAmount > 0 && amountCollected >= totalAmount),
 
     amountCollected,
 

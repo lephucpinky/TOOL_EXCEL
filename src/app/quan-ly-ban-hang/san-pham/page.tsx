@@ -26,14 +26,13 @@ import { useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import PageHeader from "../../../components/header/PageHeader"
 import ActionModal from "@/components/modal/ActionModal"
+import { useTransientAlert } from "@/hooks/useTransientAlert"
 
-const LIST_PARAMS = {
-  page: 1,
-  limit: 1000,
-}
+const LIST_PARAMS = {}
 
 const emptyForm: ProductPayload = {
   inv_itemName: "",
+  inv_itemProduct: "",
   inv_unitCode: "",
   inv_unitPrice: 0,
   inv_quantity: 0,
@@ -44,6 +43,7 @@ const emptyForm: ProductPayload = {
 type ProductImportKey =
   | "itemCode"
   | "itemName"
+  | "itemProduct"
   | "unitCode"
   | "unitPrice"
   | "quantity"
@@ -53,6 +53,7 @@ type ProductImportKey =
 type ProductImportPreview = {
   itemCode: string
   itemName: string
+  itemProduct: string
   unitCode: string
   unitPrice: string
   quantity: string
@@ -70,8 +71,13 @@ const PRODUCT_IMPORT_COLUMNS: readonly BulkImportColumnDefinition<ProductImportK
     {
       key: "itemName",
       label: "Tên sản phẩm",
-      aliases: ["Tên sản phẩm", "Sản phẩm", "Item Name"],
+      aliases: ["Tên sản phẩm", "Item Name"],
       required: true,
+    },
+    {
+      key: "itemProduct",
+      label: "Sản phẩm",
+      aliases: ["Sản phẩm", "Item Product", "inv_itemProduct"],
     },
     {
       key: "unitCode",
@@ -110,6 +116,7 @@ const PRODUCT_IMPORT_PREVIEW_COLUMNS: readonly BulkImportPreviewColumn<
 >[] = [
   { key: "itemCode", title: "Mã SP" },
   { key: "itemName", title: "Tên sản phẩm" },
+  { key: "itemProduct", title: "Sản phẩm" },
   { key: "unitCode", title: "Đơn vị", className: "whitespace-nowrap" },
   {
     key: "unitPrice",
@@ -138,6 +145,7 @@ function formatNumber(value: number) {
 function buildProductFormValues(detail: Product | null): ProductPayload {
   return {
     inv_itemName: detail?.inv_itemName || "",
+    inv_itemProduct: detail?.inv_itemProduct || "",
     inv_unitCode: detail?.inv_unitCode || "",
     inv_unitPrice: Number(detail?.inv_unitPrice || 0),
     inv_quantity: Number(detail?.inv_quantity || 0),
@@ -162,9 +170,13 @@ export default function ProductPage() {
   const [open, setOpen] = useState(false)
   const [isBulkImportOpen, setBulkImportOpen] = useState(false)
   const [isDeleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [showSuccess, setShowSuccess] = useState(false)
-  const [showError, setShowError] = useState(false)
-  const [message, setMessage] = useState("")
+  const {
+    showSuccess,
+    showError,
+    message,
+    showSuccessMessage,
+    showErrorMessage,
+  } = useTransientAlert()
 
   const {
     register,
@@ -178,18 +190,6 @@ export default function ProductPage() {
   const isViewMode = mode === "view"
   const isEditMode = mode === "edit"
   const isCreateMode = mode === "create"
-
-  const showSuccessMessage = (text: string) => {
-    setMessage(text)
-    setShowSuccess(true)
-    setTimeout(() => setShowSuccess(false), 3000)
-  }
-
-  const showErrorMessage = (text: string) => {
-    setMessage(text)
-    setShowError(true)
-    setTimeout(() => setShowError(false), 3000)
-  }
 
   useEffect(() => {
     void dispatch(productThunks.fetchAll(LIST_PARAMS))
@@ -209,11 +209,12 @@ export default function ProductPage() {
         className: "w-[70px] text-slate-500",
         render: (_item, index) => index + 1,
       },
+
       {
-        key: "inv_itemCode",
+        key: "inv_itemProduct",
         title: "Mã sản phẩm",
         render: (item) => (
-          <p className="font-semibold text-slate-900">{item.inv_itemCode}</p>
+          <p className="font-semibold text-slate-900">{item.inv_itemProduct}</p>
         ),
       },
       {
@@ -223,6 +224,7 @@ export default function ProductPage() {
           <p className="font-semibold text-slate-900">{item.inv_itemName}</p>
         ),
       },
+
       {
         key: "inv_unitCode",
         title: "Đơn vị",
@@ -309,6 +311,7 @@ export default function ProductPage() {
   const onSubmit = async (data: ProductPayload) => {
     const body: ProductPayload = {
       inv_itemName: data.inv_itemName.trim(),
+      inv_itemProduct: data.inv_itemProduct.trim(),
       inv_unitCode: data.inv_unitCode.trim(),
       inv_unitPrice: Number(data.inv_unitPrice),
       inv_quantity: Number(data.inv_quantity),
@@ -425,6 +428,7 @@ export default function ProductPage() {
     const errors: string[] = []
     const itemCode = cleanImportText(getValue("itemCode"))
     const itemName = cleanImportText(getValue("itemName"))
+    const itemProduct = cleanImportText(getValue("itemProduct"))
     const unitCode = cleanImportText(getValue("unitCode"))
     const unitPrice = parseImportNumber(getValue("unitPrice"))
     const quantity = parseImportNumber(getValue("quantity"))
@@ -462,6 +466,7 @@ export default function ProductPage() {
         errors.length === 0
           ? {
               inv_itemName: itemName,
+              inv_itemProduct: itemProduct,
               inv_unitCode: unitCode,
               inv_unitPrice: unitPrice,
               inv_quantity: quantity,
@@ -472,6 +477,7 @@ export default function ProductPage() {
       preview: {
         itemCode,
         itemName,
+        itemProduct,
         unitCode,
         unitPrice: formatNumber(unitPrice),
         quantity: formatNumber(quantity),
@@ -649,6 +655,23 @@ export default function ProductPage() {
                   {errors.inv_unitCode.message}
                 </p>
               )}
+            </div>
+
+            <div>
+              <label
+                htmlFor="product-item-product"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
+                Mã sản phẩm
+              </label>
+
+              <input
+                id="product-item-product"
+                disabled={isViewMode}
+                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
+                placeholder="Ví dụ: Hóa đơn điện tử"
+                {...register("inv_itemProduct")}
+              />
             </div>
 
             <div>

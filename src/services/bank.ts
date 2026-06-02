@@ -17,9 +17,9 @@ export const APICreateBank = async (data: BankPayload) => {
   }
 }
 
-export const APIGetBanks = async () => {
+export const APIGetBanks = async (params?: Record<string, unknown>) => {
   try {
-    const response = await axiosInstance.get("/banks")
+    const response = await axiosInstance.get("/banks", { params })
     if (
       (response.status === 201 || response.status === 200) &&
       response.data.code === 200

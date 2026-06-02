@@ -24,6 +24,7 @@ export type MInvoiceReceiptJobStatus = {
   inv_invoiceSeries?: string
   inv_invoiceIssuedDate?: string
   orderNumber?: string
+  invoiceNumber?: number
   invoiceErrorCode?: string
   invoiceErrorMessage?: string
   rawFailedReason?: string

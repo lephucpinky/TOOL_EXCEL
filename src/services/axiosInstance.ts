@@ -1,7 +1,7 @@
 import axios from "axios"
 
 const axiosInstance = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL,
+  baseURL: process.env.NEXT_PUBLIC_API_URL ,
   timeout: 100000,
 })
 
@@ -23,18 +23,12 @@ const processQueue = (error: any, token: string | null = null) => {
 
 axiosInstance.interceptors.request.use(
   (config) => {
-    const secretKey = process.env.NEXT_PUBLIC_SECRET_KEY
-
     if (typeof window !== "undefined") {
       const token = localStorage.getItem("access_token")
 
       if (token) {
         config.headers.Authorization = `Bearer ${token}`
       }
-    }
-
-    if (secretKey) {
-      config.headers["x-secret-key"] = secretKey
     }
 
     return config
@@ -77,15 +71,9 @@ axiosInstance.interceptors.response.use(
           throw new Error("No refresh token available")
         }
 
-        const response = await axios.post(
-          `${process.env.NEXT_PUBLIC_API_URL}/auth/refresh`,
-          { refreshToken },
-          {
-            headers: {
-              "x-secret-key": process.env.NEXT_PUBLIC_SECRET_KEY,
-            },
-          }
-        )
+        const response = await axiosInstance.post("/auth/refresh", {
+          refreshToken,
+        })
 
         const newToken =
           response.data?.content?.access_token ||
@@ -119,7 +107,6 @@ axiosInstance.interceptors.response.use(
     }
 
     if (error.response?.status === 403) {
-      console.error("Forbidden - access denied:", error.response?.data)
       if (typeof window !== "undefined") {
         localStorage.removeItem("access_token")
         localStorage.removeItem("refresh_token")

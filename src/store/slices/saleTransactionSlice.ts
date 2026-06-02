@@ -8,7 +8,7 @@ import {
   APICreateSaleTransaction,
   APIDeleteSaleTransaction,
   APIGetSaleTransactionById,
-  APIGetSaleTransactions,
+  APIGetAllSaleTransactions,
   APIUpdateSaleTransaction,
   APIUpdateSaleTransactionBank,
   type SaleTransactionListParams,
@@ -58,7 +58,7 @@ function upsertTransaction(items: InvoiceApiRow[], item: InvoiceApiRow) {
 export const fetchSaleTransactionsThunk = createAsyncThunk(
   "saleTransactions/fetchAll",
   async (params?: SaleTransactionListParams) => {
-    const response = await APIGetSaleTransactions(params)
+    const response = await APIGetAllSaleTransactions(params)
     return normalizeSaleTransactionList(response)
   }
 )

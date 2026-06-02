@@ -1,6 +1,7 @@
 import type { AxiosResponse } from "axios"
 import axiosInstance from "./axiosInstance"
 import type { InvoiceApiRow } from "@/types/invoice"
+import { fetchAllPages } from "@/utils/pagination"
 
 export type SaleTransactionListParams = {
   page?: number
@@ -76,6 +77,55 @@ const cleanParams = (params?: SaleTransactionReportExportParams) => {
   )
 }
 
+// PATCH uses a narrower DTO than create. Keep this aligned with UpdateTransactionDto.
+const SALE_TRANSACTION_UPDATE_FIELDS = [
+  "inv_invoiceIssuedDate",
+  "inv_currencyCode",
+  "inv_exchangeRate",
+  "so_benh_an",
+  "inv_buyerDisplayName",
+  "inv_buyerLegalName",
+  "inv_buyerTaxCode",
+  "inv_buyerAddressLine",
+  "inv_buyerEmail",
+  "inv_buyerBankAccount",
+  "inv_buyerBankName",
+  "inv_paymentMethodName",
+  "inv_discountAmount",
+  "inv_TotalAmountWithoutVAT",
+  "inv_vatAmount",
+  "inv_TotalAmount",
+  "key_api",
+  "cccdan",
+  "so_hchieu",
+  "mdvqhnsach_nmua",
+  "ma_ch",
+  "ten_ch",
+  "inv_quantity",
+  "inv_discountPercentage",
+  "agencyId",
+  "employeeId",
+  "amountCollected",
+] as const satisfies readonly (keyof SaleTransactionPayload)[]
+
+type SaleTransactionUpdateField =
+  (typeof SALE_TRANSACTION_UPDATE_FIELDS)[number]
+
+type UpdateSaleTransactionPayload = Pick<
+  SaleTransactionPayload,
+  SaleTransactionUpdateField
+>
+
+const buildUpdateSaleTransactionPayload = (
+  data: SaleTransactionPayload
+): UpdateSaleTransactionPayload => {
+  return Object.fromEntries(
+    SALE_TRANSACTION_UPDATE_FIELDS.filter(
+      (field) => data[field] !== undefined
+    ).map((field) => [field, data[field]])
+  ) as UpdateSaleTransactionPayload
+}
+
 const APICreateSaleTransaction = async (data: SaleTransactionPayload) => {
   const response = await axiosInstance.post("/sale-transaction/create", data)
 
@@ -94,6 +144,17 @@ const APIGetSaleTransactions = async (params?: SaleTransactionListParams) => {
   }
 
   return response
+}
+
+const APIGetAllSaleTransactions = async (
+  params?: SaleTransactionListParams
+) => {
+  const data = await fetchAllPages<InvoiceApiRow, SaleTransactionListParams>(
+    APIGetSaleTransactions,
+    params
+  )
+
+  return { data, status: 200 }
 }
 
 const APIGetSaleTransactionStats = async () => {
@@ -172,7 +233,12 @@ const APIUpdateSaleTransaction = async (
   id: string,
   data: SaleTransactionPayload
 ) => {
-  const response = await axiosInstance.patch(`/sale-transaction/${id}`, data)
+  const updatePayload = buildUpdateSaleTransactionPayload(data)
+
+  const response = await axiosInstance.patch(
+    `/sale-transaction/${id}`,
+    updatePayload
+  )
 
   if (response.status >= 200 && response.status < 300) {
     return normalizeResponse<InvoiceApiRow>(response)
@@ -235,6 +301,7 @@ const APISendSaleTransactionReceipt = async (id: string) => {
 export {
   APICreateSaleTransaction,
   APIGetSaleTransactions,
+  APIGetAllSaleTransactions,
   APIGetSaleTransactionStats,
   APISearchSaleTransactionsByDateRange,
   APIGetSaleTransactionsByEmployee,

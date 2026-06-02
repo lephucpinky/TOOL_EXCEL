@@ -1,6 +1,14 @@
 "use client"
 
-import { useEffect, useMemo, useState, type ReactNode } from "react"
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+  type WheelEvent,
+} from "react"
 import { Download, Eye, Loader2, Pencil, Plus, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -158,6 +166,72 @@ export function DataTable<T>({
       ? data.slice(startIndex, startIndex + effectivePageSize)
       : data
 
+  const tableScrollRef = useRef<HTMLDivElement | null>(null)
+  const isTableDraggingRef = useRef(false)
+  const dragStartXRef = useRef(0)
+  const dragStartScrollLeftRef = useRef(0)
+  const dragMovedRef = useRef(false)
+
+  const isInteractiveTarget = (target: EventTarget | null) => {
+    if (!(target instanceof HTMLElement)) return false
+
+    return Boolean(
+      target.closest("button,a,input,select,textarea,[role='button']")
+    )
+  }
+
+  const stopTableDrag = () => {
+    isTableDraggingRef.current = false
+
+    tableScrollRef.current?.classList.remove("cursor-grabbing", "select-none")
+  }
+
+  const handleTableMouseDown = (event: MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return
+    if (isInteractiveTarget(event.target)) return
+
+    const scrollElement = tableScrollRef.current
+    if (!scrollElement) return
+
+    isTableDraggingRef.current = true
+    dragMovedRef.current = false
+    dragStartXRef.current = event.clientX
+    dragStartScrollLeftRef.current = scrollElement.scrollLeft
+
+    scrollElement.classList.add("cursor-grabbing", "select-none")
+  }
+
+  const handleTableMouseMove = (event: MouseEvent<HTMLDivElement>) => {
+    if (!isTableDraggingRef.current) return
+
+    const scrollElement = tableScrollRef.current
+    if (!scrollElement) return
+
+    const distance = event.clientX - dragStartXRef.current
+
+    if (Math.abs(distance) > 4) {
+      dragMovedRef.current = true
+    }
+
+    scrollElement.scrollLeft = dragStartScrollLeftRef.current - distance
+    event.preventDefault()
+  }
+
+  const handleTableClickCapture = (event: MouseEvent<HTMLDivElement>) => {
+    if (!dragMovedRef.current) return
+
+    event.preventDefault()
+    event.stopPropagation()
+
+    dragMovedRef.current = false
+  }
+
+  const handleTableWheel = (event: WheelEvent<HTMLDivElement>) => {
+    if (!event.shiftKey) return
+    if (!tableScrollRef.current) return
+
+    tableScrollRef.current.scrollLeft += event.deltaY
+  }
   useEffect(() => {
     if (isExternalPagination) return
 
@@ -245,7 +319,27 @@ export function DataTable<T>({
         <SkeletonTable />
       ) : (
         <div className="rounded-md">
-          <div className="relative isolate max-h-[600px] overflow-auto">
+          <div
+            ref={tableScrollRef}
+            onMouseDown={handleTableMouseDown}
+            onMouseMove={handleTableMouseMove}
+            onMouseUp={stopTableDrag}
+            onMouseLeave={stopTableDrag}
+            onClickCapture={handleTableClickCapture}
+            onWheel={handleTableWheel}
+            className={cn(
+              "relative isolate max-h-[600px] cursor-grab overflow-auto rounded-md",
+              "overscroll-contain scroll-smooth",
+              "[scrollbar-width:thin]",
+              "[scrollbar-color:#cbd5e1_transparent]",
+              "[&::-webkit-scrollbar]:h-2",
+              "[&::-webkit-scrollbar]:w-2",
+              "[&::-webkit-scrollbar-track]:bg-transparent",
+              "[&::-webkit-scrollbar-thumb]:rounded-full",
+              "[&::-webkit-scrollbar-thumb]:bg-slate-300",
+              "[&::-webkit-scrollbar-thumb:hover]:bg-slate-400"
+            )}
+          >
             <table className="relative w-full min-w-[860px] caption-bottom border-separate border-spacing-0 text-sm shadow-2xl">
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
