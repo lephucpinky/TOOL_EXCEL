@@ -1,423 +1,202 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
-import * as XLSX from "xlsx-js-style"
-import { normalize, type ExcelRow } from "@/utils/excel"
-import { exportChiHoaHongXlsx } from "@/services/file-chi-hoa-hong/exportChiHoaHong"
+import { useAppDispatch, useAppSelector } from "@/store/hooks"
+import { loginThunk } from "@/store/slices"
+import { getErrorMessage } from "@/store/utils/crud"
+import { Eye, EyeOff, Loader2 } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { useState } from "react"
 
-import { SearchableSelect } from "@/components/select/SearchableSelect"
-import { exportXuatHoaDonXlsx } from "@/services/file-xuatHD/exportXuatHD"
+export default function LoginPage() {
+  const router = useRouter()
+  const dispatch = useAppDispatch()
+  const loading = useAppSelector((state) => state.auth.loading)
 
-const ALL_VALUE = "__ALL__"
+  const [username, setUsername] = useState("")
+  const [password, setPassword] = useState("")
+  const [errorMessage, setErrorMessage] = useState("")
+  const [successMessage, setSuccessMessage] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
 
-const TEMPLATE_CONFIG = {
-  commission: {
-    key: "commission",
-    label: "Mẫu chi hoa hồng",
-    templateUrl: "/templates/mau-chi-hoa-hong-text.xlsx",
-    exportLabel: "⬇️ Xuất Excel (Chi hoa hồng)",
-  },
-  invoice: {
-    key: "invoice",
-    label: "Mẫu hóa đơn",
-    templateUrl: "/templates/MAU_XUAT-HD.xlsx",
-    exportLabel: "⬇️ Xuất Excel (Hóa đơn)",
-  },
-} as const
-
-type TemplateKey = keyof typeof TEMPLATE_CONFIG
-
-function pickKeyFromRow(row: Record<string, any>, aliases: string[]) {
-  const keys = Object.keys(row || {})
-  const map = new Map<string, string>()
-
-  for (const k of keys) map.set(normalize(k), k)
-
-  for (const a of aliases) {
-    const found = map.get(normalize(a))
-    if (found) return found
-  }
-
-  return ""
-}
-
-function parseSalesWorkbook(wb: XLSX.WorkBook): {
-  headers: string[]
-  rows: ExcelRow[]
-  keyDealer: string
-  keyDate: string
-} {
-  const first = wb.SheetNames[0]
-  const ws = wb.Sheets[first]
-  const json = XLSX.utils.sheet_to_json<Record<string, any>>(ws, { defval: "" })
-  const headers = json.length ? Object.keys(json[0]) : []
-  const sample = json[0] || {}
-
-  const keyDealer = pickKeyFromRow(sample, ["Đại Lý"])
-  const keyDate = pickKeyFromRow(sample, ["NGÀY KÍCH HOẠT"])
-
-  return {
-    headers,
-    rows: json as unknown as ExcelRow[],
-    keyDealer,
-    keyDate,
-  }
-}
-
-function uniqueSorted(arr: string[]) {
-  return Array.from(
-    new Set(arr.map((x) => String(x ?? "").trim()).filter(Boolean))
-  ).sort((a, b) => a.localeCompare(b, "vi"))
-}
-
-export default function HomePage() {
-  const [templateType, setTemplateType] = useState<TemplateKey>("commission")
-
-  const [salesFile, setSalesFile] = useState<File | null>(null)
-  const [salesHeaders, setSalesHeaders] = useState<string[]>([])
-  const [salesRows, setSalesRows] = useState<ExcelRow[]>([])
-
-  const [keyDealer, setKeyDealer] = useState<string>("Đại Lý")
-  const [keyDate, setKeyDate] = useState<string>("NGÀY KÍCH HOẠT")
-
-  const [dealers, setDealers] = useState<string[]>([])
-  const [dealerName, setDealerName] = useState<string>(ALL_VALUE)
-
-  // tách riêng workbook cho từng mẫu để không ảnh hưởng chéo
-  const [commissionTemplateWb, setCommissionTemplateWb] =
-    useState<XLSX.WorkBook | null>(null)
-  const [invoiceTemplateWb, setInvoiceTemplateWb] =
-    useState<XLSX.WorkBook | null>(null)
-
-  const [loadingTemplates, setLoadingTemplates] = useState(false)
-  const [templateErr, setTemplateErr] = useState<string>("")
-
-  const [exporting, setExporting] = useState(false)
-  const [exportErr, setExportErr] = useState<string>("")
-
-  const dealerOptions = useMemo(
-    () => [
-      { value: ALL_VALUE, label: "Tất cả" },
-      ...dealers.map((d) => ({ value: d, label: d })),
-    ],
-    [dealers]
-  )
-
-  const templateOptions = useMemo(
-    () => [
-      {
-        value: TEMPLATE_CONFIG.commission.key,
-        label: TEMPLATE_CONFIG.commission.label,
-      },
-      {
-        value: TEMPLATE_CONFIG.invoice.key,
-        label: TEMPLATE_CONFIG.invoice.label,
-      },
-    ],
-    []
-  )
-
-  const currentTemplate = TEMPLATE_CONFIG[templateType]
-  const currentTemplateWb =
-    templateType === "commission" ? commissionTemplateWb : invoiceTemplateWb
-
-  useEffect(() => {
-    ;(async () => {
-      setLoadingTemplates(true)
-      setTemplateErr("")
-
-      try {
-        const [commissionRes, invoiceRes] = await Promise.all([
-          fetch(TEMPLATE_CONFIG.commission.templateUrl),
-          fetch(TEMPLATE_CONFIG.invoice.templateUrl),
-        ])
-
-        if (!commissionRes.ok) {
-          throw new Error(
-            `Không tải được template chi hoa hồng (${commissionRes.status})`
-          )
-        }
-
-        if (!invoiceRes.ok) {
-          throw new Error(
-            `Không tải được template hóa đơn (${invoiceRes.status})`
-          )
-        }
-
-        const [commissionBuf, invoiceBuf] = await Promise.all([
-          commissionRes.arrayBuffer(),
-          invoiceRes.arrayBuffer(),
-        ])
-
-        const commissionWb = XLSX.read(commissionBuf, { type: "array" })
-        const invoiceWb = XLSX.read(invoiceBuf, { type: "array" })
-
-        setCommissionTemplateWb(commissionWb)
-        setInvoiceTemplateWb(invoiceWb)
-      } catch (e: any) {
-        console.error("Load templates failed:", e)
-        setCommissionTemplateWb(null)
-        setInvoiceTemplateWb(null)
-        setTemplateErr(
-          e?.message ??
-            "Lỗi tải template. Hãy kiểm tra file template trong thư mục /public/templates"
-        )
-      } finally {
-        setLoadingTemplates(false)
-      }
-    })()
-  }, [])
-
-  async function onPickSalesFile(file: File | null) {
-    setSalesFile(file)
-    setSalesHeaders([])
-    setSalesRows([])
-    setDealers([])
-    setDealerName(ALL_VALUE)
-    setExportErr("")
-
-    if (!file) return
-
-    try {
-      const buf = await file.arrayBuffer()
-      const wb = XLSX.read(buf, { type: "array" })
-      const parsed = parseSalesWorkbook(wb)
-
-      setSalesHeaders(parsed.headers)
-      setSalesRows(parsed.rows)
-      setKeyDealer(parsed.keyDealer)
-      setKeyDate(parsed.keyDate)
-
-      const dls = uniqueSorted(parsed.rows.map((r: any) => r[parsed.keyDealer]))
-      setDealers(dls)
-    } catch (e: any) {
-      console.error("Parse sales file failed:", e)
-      alert(e?.message ?? "Không đọc được file doanh số")
+  const handleLogin = async () => {
+    if (!username.trim()) {
+      setSuccessMessage("")
+      setErrorMessage("Vui lòng nhập tên đăng nhập")
+      return
     }
-  }
 
-  const canExport = useMemo(() => {
-    return (
-      !!salesFile &&
-      !!currentTemplateWb &&
-      !!dealerName &&
-      salesRows.length > 0 &&
-      !loadingTemplates &&
-      !exporting
-    )
-  }, [
-    salesFile,
-    currentTemplateWb,
-    dealerName,
-    salesRows.length,
-    loadingTemplates,
-    exporting,
-  ])
-
-  async function onExport() {
-    if (!canExport || !currentTemplateWb) return
-
-    setExportErr("")
-    setExporting(true)
+    if (!password.trim()) {
+      setSuccessMessage("")
+      setErrorMessage("Vui lòng nhập mật khẩu")
+      return
+    }
 
     try {
-      if (templateType === "commission") {
-        await exportChiHoaHongXlsx({
-          templateWorkbook: commissionTemplateWb,
-          salesHeaders,
-          salesRows,
-          filter: {
-            dealerName,
-          },
-        } as any)
-      } else {
-        await exportXuatHoaDonXlsx({
-          templateWorkbook: invoiceTemplateWb,
-          salesHeaders,
-          salesRows,
-          filter: {
-            dealerName,
-          },
-        } as any)
+      setErrorMessage("")
+      setSuccessMessage("")
+
+      const response = await dispatch(
+        loginThunk({
+          username: username.trim(),
+          password: password.trim(),
+        })
+      ).unwrap()
+
+      const token = response?.accessToken
+      const refreshToken = response?.refreshToken
+
+      if (!token) {
+        setSuccessMessage("")
+        setErrorMessage("Sai tên đăng nhập hoặc mật khẩu")
+        return
       }
-    } catch (e: any) {
-      console.error("Export failed:", e)
-      const msg = e?.message ?? "Xuất file thất bại"
-      setExportErr(msg)
-      alert(msg)
-    } finally {
-      setExporting(false)
+
+      localStorage.setItem("access_token", token)
+      localStorage.setItem("auth_username", username.trim())
+
+      if (refreshToken) {
+        localStorage.setItem("refresh_token", refreshToken)
+      } else {
+        localStorage.removeItem("refresh_token")
+      }
+
+      setSuccessMessage("Đăng nhập thành công")
+
+      setTimeout(() => {
+        router.replace("/quan-ly-ban-hang")
+      }, 800)
+    } catch (error: any) {
+      setSuccessMessage("")
+
+      const status = error?.response?.status
+      const message = getErrorMessage(error) || "Đăng nhập thất bại"
+
+      if (status === 403) {
+        setErrorMessage(
+          "Tài khoản không có quyền truy cập hoặc thiếu secret key"
+        )
+        return
+      }
+
+      if (status === 401) {
+        setErrorMessage("Sai tên đăng nhập hoặc mật khẩu")
+        return
+      }
+
+      setErrorMessage(message)
     }
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 p-6">
-      <div className="mx-auto max-w-5xl space-y-6">
-        {/* chọn danh mục mẫu */}
-        <div className="rounded-xl bg-white p-5 shadow">
-          <div className="text-center text-base font-bold">
-            CHỌN DANH MỤC XUẤT FILE
-          </div>
-
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
-            {templateOptions.map((item) => {
-              const isActive = templateType === item.value
-              return (
-                <button
-                  key={item.value}
-                  type="button"
-                  onClick={() => {
-                    setTemplateType(item.value as TemplateKey)
-                    setExportErr("")
-                  }}
-                  className={`rounded-xl border p-4 text-left transition ${
-                    isActive
-                      ? "border-slate-400 bg-slate-100 text-slate-500 shadow"
-                      : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
-                  }`}
-                >
-                  <div className="flex flex-col justify-center text-center">
-                    {" "}
-                    <div className="text-sm font-semibold">Danh mục</div>
-                    <div className="mt-1 text-base font-bold">{item.label}</div>
-                  </div>
-                </button>
-              )
-            })}
-          </div>
-
-          {loadingTemplates && (
-            <div className="mt-3 text-center text-xs text-slate-500">
-              Đang tải template...
-            </div>
-          )}
-
-          {templateErr && (
-            <div className="mt-3 text-center text-xs text-red-600">
-              {templateErr}
-            </div>
-          )}
+    <div className="min-h-screen bg-slate-100">
+      {successMessage && (
+        <div className="fixed right-5 top-5 z-50 w-[320px] rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 shadow-lg">
+          {successMessage}
         </div>
+      )}
 
-        {/* thông tin mẫu đang chọn */}
-        <div className="rounded-xl bg-white p-5 shadow">
-          <div className="text-center text-base font-bold uppercase">
-            {currentTemplate.label}
-          </div>
+      {errorMessage && (
+        <div className="fixed right-5 top-5 z-50 w-[320px] rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 shadow-lg">
+          {errorMessage}
+        </div>
+      )}
+      <div className="grid min-h-screen lg:grid-cols-[1.1fr_0.9fr]">
+        <div className="bg-Charcoal p-10 text-white lg:flex lg:flex-col lg:justify-between">
+          <div>
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/15 text-lg font-bold">
+                KT
+              </div>
 
-          <div className="mt-2 text-center text-sm text-slate-600">
-            {templateType === "commission"
-              ? "Xuất file theo mẫu chi hoa hồng"
-              : "Xuất file theo mẫu hóa đơn"}
+              <div>
+                <h1 className="text-xl font-bold">Phần mềm kế toán</h1>
+                <p className="text-sm text-blue-100">
+                  Hệ thống quản lý bán hàng
+                </p>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* upload sales */}
-        <div className="rounded-xl bg-white p-5 shadow">
-          <div className="flex items-start gap-3">
-            <div className="text-lg">📊</div>
-            <div className="flex-1">
-              <div className="text-base font-bold">File theo dõi doanh số</div>
+        <div className="flex items-center justify-center p-5">
+          <div className="w-full max-w-md rounded-2xl bg-white p-7 shadow-sm">
+            <div className="mb-7">
+              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-blue-600 text-lg font-bold text-white lg:hidden">
+                KT
+              </div>
 
-              <input
-                id="sales-file"
-                type="file"
-                accept=".xlsx,.xls"
-                className="hidden"
-                onChange={(e) => onPickSalesFile(e.target.files?.[0] ?? null)}
-              />
+              <h1 className="text-2xl font-bold text-slate-900">Đăng nhập</h1>
 
-              <div className="mt-3 flex flex-wrap items-center gap-3">
-                <label
-                  htmlFor="sales-file"
-                  className="cursor-pointer rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold hover:bg-slate-50"
-                >
-                  Choose File
+              <p className="mt-1 text-sm text-slate-500">
+                Vui lòng đăng nhập tài khoản quản trị.
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+                  Tên đăng nhập
                 </label>
 
-                <div className="text-sm text-slate-700">
-                  {salesFile ? (
-                    <span className="font-semibold">{salesFile.name}</span>
-                  ) : (
-                    <span className="text-slate-500">No file chosen</span>
-                  )}
-                </div>
-
-                {salesFile && (
-                  <button
-                    type="button"
-                    onClick={() => onPickSalesFile(null)}
-                    className="text-sm text-slate-500 underline hover:text-slate-700"
-                  >
-                    Xoá
-                  </button>
-                )}
-              </div>
-
-              <div className="mt-2 text-sm text-slate-600">
-                {salesFile ? (
-                  <>
-                    Đã chọn: <b>{salesFile.name}</b>
-                  </>
-                ) : (
-                  "Chưa chọn file"
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* filter + export */}
-        <div className="rounded-xl bg-white p-5 shadow">
-          <div className="grid gap-3 md:grid-cols-2">
-            <div>
-              <div className="text-sm font-semibold text-slate-700">
-                Tên đại lý
-              </div>
-              <div className="mt-1">
-                <SearchableSelect
-                  options={dealerOptions}
-                  value={dealerName || undefined}
-                  onChange={(v) => setDealerName(v)}
-                  placeholder="Chọn đại lý..."
-                  searchPlaceholder="Tìm đại lý..."
-                  emptyText="Không tìm thấy đại lý"
-                  disabled={!dealers.length}
+                <input
+                  value={username}
+                  onChange={(e) => {
+                    setUsername(e.target.value)
+                    setErrorMessage("")
+                    setSuccessMessage("")
+                  }}
+                  placeholder="Nhập tên đăng nhập"
+                  className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                 />
               </div>
 
-              {!dealers.length && (
-                <div className="mt-1 text-xs text-slate-500">
-                  Upload file doanh số để lấy danh sách đại lý
-                </div>
-              )}
-            </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+                  Mật khẩu
+                </label>
 
-            <div>
-              <div className="text-sm font-semibold text-slate-700">
-                Mẫu đang xuất
+                <div className="relative">
+                  <input
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value)
+                      setErrorMessage("")
+                      setSuccessMessage("")
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        void handleLogin()
+                      }
+                    }}
+                    placeholder="Nhập mật khẩu"
+                    type={showPassword ? "text" : "password"}
+                    className="h-11 w-full rounded-lg border border-slate-300 px-3 pr-11 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    className="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                    aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
               </div>
-              <div className="mt-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                {currentTemplate.label}
-              </div>
+
+              <button
+                onClick={() => void handleLogin()}
+                disabled={loading}
+                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {loading ? (
+                  <Loader2 size={20} className="animate-spin" />
+                ) : (
+                  "Đăng nhập"
+                )}
+              </button>
             </div>
           </div>
-
-          <button
-            onClick={onExport}
-            disabled={!canExport}
-            className={`mt-4 rounded-lg border-LightSilver px-5 py-3 text-sm font-semibold shadow-sm transition ${
-              canExport
-                ? "bg-slate-500 text-white hover:bg-slate-800"
-                : "bg-slate-200 text-slate-500"
-            }`}
-          >
-            {exporting ? "⏳ Đang xuất..." : currentTemplate.exportLabel}
-          </button>
-
-          {exportErr && (
-            <div className="mt-2 text-xs text-red-600">{exportErr}</div>
-          )}
         </div>
       </div>
     </div>

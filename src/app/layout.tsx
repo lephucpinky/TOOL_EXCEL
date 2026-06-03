@@ -97,11 +97,11 @@ function AuthGate({
     const publicRoute = isPublicRoute(pathname)
 
     if (!token && !publicRoute) {
-      router.replace("/login")
+      router.replace("/")
       return
     }
 
-    if (token && pathname === "/login") {
+    if (token && pathname === "/") {
       router.replace("/quan-ly-ban-hang")
       return
     }
