@@ -17,7 +17,12 @@ import type { Employee } from "@/types/employee"
 import type { Product } from "@/types/product"
 import type { ReceiptInvoiceConfig } from "@/types/receiptInvoice"
 import { normalize, toNumber as toExcelNumber } from "@/utils/excel"
-import { formatMoney, getId, roundInvoiceMoney } from "@/utils/invoice"
+import {
+  FIXED_RECEIPT_INVOICE_CONFIG,
+  formatMoney,
+  getId,
+  roundInvoiceMoney,
+} from "@/utils/invoice"
 import { buildCreateInvoiceApiBody } from "@/utils/invoicePayload"
 
 type Props = {
@@ -123,7 +128,6 @@ const COLUMN_ALIASES = {
 const REQUIRED_COLUMNS: Array<keyof typeof COLUMN_ALIASES> = [
   "agencyCode",
   "productCode",
-  "invoiceSeries",
   "invoiceDate",
   "buyerCompany",
   "buyerTaxCode",
@@ -325,7 +329,9 @@ export default function InvoiceBulkImport({
 
       const agencyCode = cleanText(row.agencyCode)
       const productCode = cleanText(row.productCode)
-      const invoiceSeries = cleanText(row.invoiceSeries)
+      const fixedReceiptConfig =
+        receiptConfigs[0] || FIXED_RECEIPT_INVOICE_CONFIG
+      const invoiceSeries = cleanText(fixedReceiptConfig.inv_invoiceSeries)
       const invoiceDate = currentInvoiceDate
       const buyerCompany = cleanText(row.buyerCompany)
       const buyerName = cleanText(row.buyerName)
@@ -365,12 +371,6 @@ export default function InvoiceBulkImport({
             normalize(item.inv_buyerBankName || "") === normalize(buyerBankName)
         ) || null
 
-      const matchedReceiptConfig =
-        receiptConfigs.find(
-          (item) =>
-            normalize(item.inv_invoiceSeries || "") === normalize(invoiceSeries)
-        ) || null
-
       const product = findProductByExcelValue(products, productCode)
       const agencyEmployee = getAgencyEmployee(agency)
       const agencyDepartment = getEmployeeDepartment(agencyEmployee)
@@ -381,11 +381,6 @@ export default function InvoiceBulkImport({
       }
 
       if (!invoiceSeries) errors.push("Thiếu ký hiệu hóa đơn.")
-      if (invoiceSeries && !matchedReceiptConfig) {
-        errors.push(
-          `Ký hiệu hóa đơn "${invoiceSeries}" chưa có trong cấu hình.`
-        )
-      }
 
       if (!buyerCompany) errors.push("Thiếu tên đơn vị mua.")
       if (!buyerTaxCode) errors.push("Thiếu mã số thuế người mua.")

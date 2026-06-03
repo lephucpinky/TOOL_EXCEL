@@ -1,6 +1,25 @@
 import { Bank } from "@/types/bank"
-import { InvoiceApiRow, InvoiceStatus } from "@/types/invoice"
+import {
+  InvoiceApiRow,
+  InvoicePaymentStatus,
+  InvoiceStatus,
+} from "@/types/invoice"
 import { ReceiptInvoiceConfig } from "@/types/receiptInvoice"
+
+export const FIXED_RECEIPT_INVOICE_CONFIG: ReceiptInvoiceConfig = {
+  _id: "fixed-receipt-config-1c26mzz",
+  inv_invoiceSeries: "1C26MZZ",
+  tax_code: "0106026495-999",
+  description: "MST: 0106026495-999",
+}
+
+export function getFixedReceiptInvoiceConfig(): ReceiptInvoiceConfig {
+  return { ...FIXED_RECEIPT_INVOICE_CONFIG }
+}
+
+export function getFixedReceiptInvoiceConfigs(): ReceiptInvoiceConfig[] {
+  return [getFixedReceiptInvoiceConfig()]
+}
 
 export const inputClass =
   "h-8 w-full rounded border border-slate-300 bg-white px-2 text-[13px] text-slate-800 outline-none focus:border-indigo-500 disabled:bg-slate-100"
@@ -440,30 +459,9 @@ export function findReceiptConfigByValue(
 }
 
 export function normalizeReceiptInvoiceList(
-  response: any
+  _response: any
 ): ReceiptInvoiceConfig[] {
-  const raw = response?.data ?? []
-
-  const list = Array.isArray(raw)
-    ? raw
-    : Array.isArray(raw?.items)
-      ? raw.items
-      : Array.isArray(raw?.docs)
-        ? raw.docs
-        : Array.isArray(raw?.results)
-          ? raw.results
-          : Array.isArray(raw?.receiptInvoices)
-            ? raw.receiptInvoices
-            : Array.isArray(raw?.configs)
-              ? raw.configs
-              : raw
-                ? [raw]
-                : []
-
-  return list.filter(
-    (item: any) =>
-      item && (getId(item) || item.inv_invoiceSeries || item.tax_code)
-  )
+  return getFixedReceiptInvoiceConfigs()
 }
 
 export function normalizeBankList(response: any): Bank[] {
@@ -496,6 +494,10 @@ export function getReceiptConfigOptionValue(
     `receipt-config-${index}`
   )
 }
+
+export function getFixedReceiptConfigOptionValue() {
+  return getReceiptConfigOptionValue(FIXED_RECEIPT_INVOICE_CONFIG, 0)
+}
 export function buildPdfFileUrl(filePath: string) {
   if (!filePath) return ""
 
@@ -503,7 +505,7 @@ export function buildPdfFileUrl(filePath: string) {
     return filePath
   }
 
-  return `/api/backend/${filePath.replace(/^\//, "")}`
+  return `/${filePath.replace(/^\//, "")}`
 }
 
 export function formatPaymentAmountInput(value: any) {
@@ -523,7 +525,22 @@ export function parsePaymentAmountInput(value: string) {
 export function getInvoiceAmountCollected(invoice?: InvoiceApiRow | null) {
   if (!invoice) return 0
 
-  return toNumber((invoice as any).amountCollected ?? 0)
+  const amountCollected = toNumber((invoice as any).amountCollected)
+  if (amountCollected > 0) return amountCollected
+
+  const paidAmount = toNumber((invoice as any).paidAmount)
+  if (paidAmount > 0) return paidAmount
+
+  const totalAmount = toNumber(invoice.inv_TotalAmount)
+  if (
+    totalAmount > 0 &&
+    (invoice.isPaid === true ||
+      invoice.paymentStatus === InvoicePaymentStatus.PAID)
+  ) {
+    return totalAmount
+  }
+
+  return 0
 }
 
 export function getInvoiceRemainingAmount(invoice?: InvoiceApiRow | null) {
@@ -551,6 +568,17 @@ function preferDisplayValue(
   if (serverValue && typeof serverValue === "object") return serverValue
   if (clientValue && typeof clientValue === "object") return clientValue
   return serverValue ?? clientValue ?? fallbackValue
+}
+
+function preferClientDisplayValue(
+  serverValue: any,
+  clientValue: any,
+  fallbackValue?: any
+) {
+  if (clientValue && typeof clientValue === "object") return clientValue
+  if (fallbackValue && typeof fallbackValue === "object") return fallbackValue
+  if (serverValue && typeof serverValue === "object") return serverValue
+  return clientValue ?? fallbackValue ?? serverValue
 }
 
 function buildClientItems(payload: any) {
@@ -630,22 +658,47 @@ export function hydrateSaleTransactionDetail(
         : fallbackTotalAmount
 
   const detailAmountCollected = toNumber(detail.amountCollected)
+  const detailPaidAmount = toNumber(detail.paidAmount)
   const clientAmountCollected = toNumber(clientPayment.amountCollected)
+  const clientPaidAmount = toNumber(clientPayment.paidAmount)
   const payloadAmountCollected = toNumber(payload?.amountCollected)
+  const payloadPaidAmount = toNumber(payload?.paidAmount)
   const fallbackAmountCollected = toNumber(fallback?.amountCollected)
+  const fallbackPaidAmount = toNumber(fallback?.paidAmount)
 
   const amountCollected =
     detailAmountCollected > 0
       ? detailAmountCollected
-      : clientAmountCollected > 0
-        ? clientAmountCollected
-        : payloadAmountCollected > 0
-          ? payloadAmountCollected
-          : fallbackAmountCollected > 0
-            ? fallbackAmountCollected
-            : 0
+      : detailPaidAmount > 0
+        ? detailPaidAmount
+        : clientAmountCollected > 0
+          ? clientAmountCollected
+          : clientPaidAmount > 0
+            ? clientPaidAmount
+            : payloadAmountCollected > 0
+              ? payloadAmountCollected
+              : payloadPaidAmount > 0
+                ? payloadPaidAmount
+                : fallbackAmountCollected > 0
+                  ? fallbackAmountCollected
+                  : fallbackPaidAmount > 0
+                    ? fallbackPaidAmount
+                    : totalAmount > 0 &&
+                        (detail.isPaid === true ||
+                          detail.paymentStatus === InvoicePaymentStatus.PAID ||
+                          fallback?.isPaid === true ||
+                          fallback?.paymentStatus ===
+                            InvoicePaymentStatus.PAID)
+                      ? totalAmount
+                      : 0
 
   const remainingAmount = Math.max(totalAmount - amountCollected, 0)
+  const paymentStatus =
+    totalAmount > 0 && amountCollected >= totalAmount
+      ? InvoicePaymentStatus.PAID
+      : amountCollected > 0
+        ? InvoicePaymentStatus.PARTIAL
+        : InvoicePaymentStatus.UNPAID
 
   return {
     ...(fallback || {}),
@@ -659,7 +712,7 @@ export function hydrateSaleTransactionDetail(
       clientSnapshot.agency,
       fallback?.agencyId
     ),
-    departmentId: preferDisplayValue(
+    departmentId: preferClientDisplayValue(
       detail.departmentId,
       clientSnapshot.department,
       fallback?.departmentId
@@ -692,6 +745,7 @@ export function hydrateSaleTransactionDetail(
       clientPayment.isPaid ??
       fallback?.isPaid ??
       (totalAmount > 0 && amountCollected >= totalAmount),
+    paymentStatus,
 
     amountCollected,
 

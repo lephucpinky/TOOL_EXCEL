@@ -19,7 +19,13 @@ import { getErrorMessage } from "@/store/utils/crud"
 import { Agency, AgencyPayload } from "@/types/agency"
 import { Employee } from "@/types/employee"
 import { normalize } from "@/utils/excel"
-import { Loader2, Plus, UploadCloud, UsersRound } from "lucide-react"
+import {
+  Loader2,
+  Plus,
+  RefreshCcw,
+  UploadCloud,
+  UsersRound,
+} from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { Controller, useForm } from "react-hook-form"
 import PageHeader from "../../../components/header/PageHeader"
@@ -333,6 +339,19 @@ export default function Page() {
     await dispatch(agencyThunks.fetchAll(LIST_PARAMS)).unwrap()
   }
 
+  const onRefreshAgencies = async () => {
+    try {
+      await Promise.all([
+        handleRefreshAgencies(),
+        dispatch(employeeThunks.fetchAll(LIST_PARAMS)).unwrap(),
+      ])
+    } catch (error) {
+      showErrorMessage(
+        getErrorMessage(error) || "Không thể tải lại danh sách đại lý"
+      )
+    }
+  }
+
   const createBulkAgency = async (payload: AgencyPayload) => {
     await dispatch(agencyThunks.createItem(payload)).unwrap()
   }
@@ -540,6 +559,21 @@ export default function Page() {
               >
                 <Plus size={18} />
                 Thêm đại lý
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void onRefreshAgencies()}
+                disabled={loading || employeeLoading}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <RefreshCcw
+                  size={18}
+                  className={
+                    loading || employeeLoading ? "animate-spin" : undefined
+                  }
+                />
+                Tải dữ liệu
               </button>
             </>
           }

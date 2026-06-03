@@ -1,6 +1,17 @@
 import axiosInstance from "./axiosInstance"
 import { BankPayload } from "@/types/bank"
 
+const normalizeBankResponse = (response: any) => {
+  return {
+    data:
+      response.data?.content ??
+      response.data?.data ??
+      response.data?.result ??
+      response.data,
+    status: response.status,
+  }
+}
+
 export const APICreateBank = async (data: BankPayload) => {
   try {
     const response = await axiosInstance.post("/banks/create", data)
@@ -8,7 +19,7 @@ export const APICreateBank = async (data: BankPayload) => {
       (response.status === 201 || response.status === 200) &&
       response.data.code === 200
     ) {
-      return { data: response.data.data, status: response.status }
+      return normalizeBankResponse(response)
     }
     return response
   } catch (err) {
@@ -24,7 +35,7 @@ export const APIGetBanks = async (params?: Record<string, unknown>) => {
       (response.status === 201 || response.status === 200) &&
       response.data.code === 200
     ) {
-      return { data: response.data.data, status: response.status }
+      return normalizeBankResponse(response)
     }
     return response
   } catch (err) {
@@ -35,12 +46,20 @@ export const APIGetBanks = async (params?: Record<string, unknown>) => {
 
 export const APIGetBankById = async (id: string) => {
   try {
-    const response = await axiosInstance.get(`/banks/${id}`)
+    const response = await axiosInstance.get(`/banks/${id}`, {
+      headers: {
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
+      },
+      params: {
+        _t: Date.now(),
+      },
+    })
     if (
       (response.status === 201 || response.status === 200) &&
       response.data.code === 200
     ) {
-      return { data: response.data.data, status: response.status }
+      return normalizeBankResponse(response)
     }
     return response
   } catch (err) {
@@ -56,7 +75,7 @@ export const APIUpdateBank = async (id: string, data: BankPayload) => {
       (response.status === 201 || response.status === 200) &&
       response.data.code === 200
     ) {
-      return { data: response.data.data, status: response.status }
+      return normalizeBankResponse(response)
     }
     return response
   } catch (err) {
@@ -72,7 +91,7 @@ export const APIDeleteBank = async (id: string) => {
       (response.status === 201 || response.status === 200) &&
       response.data.code === 200
     ) {
-      return { data: response.data.data, status: response.status }
+      return normalizeBankResponse(response)
     }
     return response
   } catch (err) {

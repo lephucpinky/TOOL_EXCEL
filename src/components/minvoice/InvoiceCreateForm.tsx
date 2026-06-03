@@ -29,6 +29,7 @@ import { SearchableSelect } from "../select/SearchableSelect"
 import {
   canStartInvoiceExport,
   createItemId,
+  FIXED_RECEIPT_INVOICE_CONFIG,
   formatMoney,
   getId,
   getInvoiceStatus,
@@ -124,6 +125,9 @@ const emailRequiredMessage = "Vui lòng nhập Email."
 const emailInvalidMessage = "Email không hợp lệ."
 
 const invoiceSelectClass = `${inputClass} justify-between font-normal shadow-none hover:bg-white hover:text-slate-800`
+const productCodeSelectClass = `${invoiceSelectClass} min-w-[260px]`
+const productCodeSelectContentClass =
+  "w-[380px] max-w-[calc(100vw-32px)]"
 
 const receiptConfigSelectClass =
   "h-8 w-[280px] justify-between rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700 shadow-none hover:bg-white hover:text-slate-700 focus:border-indigo-500 disabled:bg-slate-100"
@@ -165,6 +169,11 @@ function getReceiptConfigOptionValue(
 
 function formatReceiptConfigLabel(config: ReceiptInvoiceConfig) {
   const invoiceSeries = String(config.inv_invoiceSeries || "").trim()
+  const taxCode = String(config.tax_code || "").trim()
+
+  if (invoiceSeries && taxCode) {
+    return `${invoiceSeries} - MST: ${taxCode}`
+  }
 
   if (invoiceSeries) {
     return `${invoiceSeries}`
@@ -209,6 +218,14 @@ export default function InvoiceCreateForm({
 
   const mainFieldsDisabled = readOnly || issuedLimitedEdit
   const paymentFieldsDisabled = !issuedLimitedEdit
+  const effectiveReceiptConfig = useMemo(
+    () => receiptConfig || receiptConfigs[0] || FIXED_RECEIPT_INVOICE_CONFIG,
+    [receiptConfig, receiptConfigs]
+  )
+  const effectiveReceiptConfigs = useMemo(
+    () => (receiptConfigs.length ? receiptConfigs : [effectiveReceiptConfig]),
+    [effectiveReceiptConfig, receiptConfigs]
+  )
 
   const [agencies, setAgencies] = useState<Agency[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
@@ -218,9 +235,11 @@ export default function InvoiceCreateForm({
   const [catalogLoading, setCatalogLoading] = useState(false)
   const bankFieldDisabled = catalogLoading || !canEditBank
   const activeReceiptSeries = String(
-    receiptConfig?.inv_invoiceSeries || ""
+    effectiveReceiptConfig.inv_invoiceSeries || ""
   ).trim()
-  const activeReceiptTaxCode = String(receiptConfig?.tax_code || "").trim()
+  const activeReceiptTaxCode = String(
+    effectiveReceiptConfig.tax_code || ""
+  ).trim()
 
   const [general, setGeneral] = useState<InvoiceGeneralForm>({
     symbol: activeReceiptSeries,
@@ -279,7 +298,7 @@ export default function InvoiceCreateForm({
   const receiptConfigSelectValue = useMemo(() => {
     if (selectedReceiptConfigValue) return selectedReceiptConfigValue
 
-    const matchedIndex = receiptConfigs.findIndex((item) => {
+    const matchedIndex = effectiveReceiptConfigs.findIndex((item) => {
       return (
         String(item.inv_invoiceSeries || "").trim() === general.symbol.trim() ||
         String(item.tax_code || "").trim() === activeReceiptTaxCode
@@ -289,23 +308,23 @@ export default function InvoiceCreateForm({
     if (matchedIndex < 0) return ""
 
     return getReceiptConfigOptionValue(
-      receiptConfigs[matchedIndex],
+      effectiveReceiptConfigs[matchedIndex],
       matchedIndex
     )
   }, [
     selectedReceiptConfigValue,
-    receiptConfigs,
+    effectiveReceiptConfigs,
     general.symbol,
     activeReceiptTaxCode,
   ])
 
   const receiptConfigSelectOptions = useMemo(
     () =>
-      receiptConfigs.map((config, index) => ({
+      effectiveReceiptConfigs.map((config, index) => ({
         value: getReceiptConfigOptionValue(config, index),
         label: formatReceiptConfigLabel(config),
       })),
-    [receiptConfigs]
+    [effectiveReceiptConfigs]
   )
 
   const showSuccessMessage = (text: string) => {
@@ -409,7 +428,7 @@ export default function InvoiceCreateForm({
 
     onReceiptConfigChange?.(value)
 
-    const nextConfig = receiptConfigs.find(
+    const nextConfig = effectiveReceiptConfigs.find(
       (item, index) => getReceiptConfigOptionValue(item, index) === value
     )
 
@@ -522,7 +541,7 @@ export default function InvoiceCreateForm({
 
     setGeneral((prev) => ({
       ...prev,
-      symbol: initialInvoice.inv_invoiceSeries || activeReceiptSeries,
+      symbol: activeReceiptSeries,
       activatedDate:
         normalizeDateInput(initialInvoice.activationDate || undefined) || today,
       invoiceDate:
@@ -714,26 +733,16 @@ export default function InvoiceCreateForm({
     return resolveAgencyEmployee(general.agency, employees)
   }, [general.agency, employees])
 
-  const filteredEmployees = employees.filter((item: any) => {
-    if (!general.department?._id) return true
-
-    const employeeDepartmentId = getId(item.departmentId)
-
-    if (!employeeDepartmentId) return true
-
-    return employeeDepartmentId === general.department._id
-  })
-
   const employeeOptions = useMemo(() => {
     if (selectedAgencyEmployee) {
-      return mergeOptions(filteredEmployees, [
+      return mergeOptions(employees, [
         selectedAgencyEmployee,
         general.employee,
       ])
     }
 
-    return mergeOptions(filteredEmployees, [general.employee])
-  }, [selectedAgencyEmployee, filteredEmployees, general.employee])
+    return mergeOptions(employees, [general.employee])
+  }, [selectedAgencyEmployee, employees, general.employee])
 
   const employeeSelectOptions = useMemo(
     () => [
@@ -1157,14 +1166,13 @@ export default function InvoiceCreateForm({
 
     return {
       activationDate: general.activatedDate || null,
-      inv_invoiceSeries: general.symbol,
+      inv_invoiceSeries: activeReceiptSeries,
       inv_invoiceIssuedDate: general.invoiceDate,
       inv_currencyCode: general.currency,
       inv_exchangeRate: Number(general.exchangeRate || 1),
       inv_paymentMethodName: general.paymentMethod,
 
       agencyId,
-      // departmentId: departmentId || undefined,
       employeeId: employeeId || undefined,
       bankId: bankId || undefined,
 
@@ -1198,6 +1206,7 @@ export default function InvoiceCreateForm({
         product: item.product,
         quantity: Number(item.quantity || 1),
         inv_quantity: Number(item.quantity || 1),
+        price: roundInvoiceMoney(item.price || 0),
         // Khớp schema BE hiện tại của TransactionItem.
         revenue: roundInvoiceMoney(item.revenue || 0),
         capitalPrice: Number(item.capitalPrice || 0),
@@ -1320,7 +1329,7 @@ export default function InvoiceCreateForm({
       return
     }
 
-    const invoiceSeries = String(general.symbol || activeReceiptSeries).trim()
+    const invoiceSeries = String(activeReceiptSeries || general.symbol).trim()
 
     if (!invoiceSeries) {
       showErrorMessage("Chưa có ký hiệu hóa đơn từ cấu hình.")
@@ -1461,9 +1470,10 @@ export default function InvoiceCreateForm({
           <div className="mb-3 flex flex-wrap items-center gap-3 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
             <div className="flex items-center gap-2">
               <span>Ký hiệu:</span>
-              {receiptConfigLocked && receiptConfig ? (
+              {(receiptConfigLocked || effectiveReceiptConfigs.length === 1) &&
+              effectiveReceiptConfig ? (
                 <span className="inline-flex min-h-8 min-w-[280px] items-center rounded-md border border-indigo-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">
-                  {formatReceiptConfigLabel(receiptConfig)}
+                  {formatReceiptConfigLabel(effectiveReceiptConfig)}
                 </span>
               ) : (
                 <SearchableSelect
@@ -1475,7 +1485,9 @@ export default function InvoiceCreateForm({
                   }
                   searchPlaceholder="Tìm ký hiệu..."
                   emptyText="Không tìm thấy ký hiệu"
-                  disabled={mainFieldsDisabled || !receiptConfigs.length}
+                  disabled={
+                    mainFieldsDisabled || !effectiveReceiptConfigs.length
+                  }
                   className={receiptConfigSelectClass}
                 />
               )}
@@ -1831,7 +1843,7 @@ export default function InvoiceCreateForm({
                 <th className="w-[60px] min-w-[60px] border-b border-r border-slate-300 px-2 py-2 text-center">
                   STT
                 </th>
-                <th className="min-w-[150px] border-b border-r border-slate-300 px-2 py-2 text-left">
+                <th className="min-w-[280px] border-b border-r border-slate-300 px-2 py-2 text-left">
                   Mã hàng
                 </th>
                 <th className="min-w-[260px] border-b border-r border-slate-300 px-2 py-2 text-left">
@@ -1893,7 +1905,7 @@ export default function InvoiceCreateForm({
                     {index + 1}
                   </td>
 
-                  <td className="border-b border-r border-slate-200 px-2 py-2">
+                  <td className="min-w-[280px] border-b border-r border-slate-200 px-2 py-2">
                     <SearchableSelect
                       options={productCodeSelectOptions}
                       value={item.product?._id || ""}
@@ -1909,7 +1921,8 @@ export default function InvoiceCreateForm({
                       searchPlaceholder="Tìm mã hàng..."
                       emptyText="Không tìm thấy mã hàng"
                       disabled={catalogLoading || mainFieldsDisabled}
-                      className={invoiceSelectClass}
+                      className={productCodeSelectClass}
+                      contentClassName={productCodeSelectContentClass}
                     />
                   </td>
 

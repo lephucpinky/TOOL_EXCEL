@@ -50,7 +50,6 @@ const DEPARTMENT_IMPORT_COLUMNS: readonly BulkImportColumnDefinition<DepartmentI
       key: "departmentDescription",
       label: "Mô tả",
       aliases: ["Mô tả", "Diễn giải", "Description"],
-      required: true,
     },
     {
       key: "status",
@@ -330,10 +329,6 @@ export default function DepartmentPage() {
       errors.push("Thiếu tên phòng ban.")
     }
 
-    if (!departmentDescription) {
-      errors.push("Thiếu mô tả phòng ban.")
-    }
-
     return {
       id: `department-${rowNumber}-${departmentName}`,
       rowNumber,
@@ -509,18 +504,8 @@ export default function DepartmentPage() {
                 rows={4}
                 className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
                 placeholder="Ví dụ: kinh doanh là..."
-                {...register("departmentDescription", {
-                  required: "Vui lòng nhập mô tả phòng ban",
-                  validate: (value) =>
-                    value.trim().length > 0 || "Vui lòng nhập mô tả phòng ban",
-                })}
+                {...register("departmentDescription")}
               />
-
-              {errors.departmentDescription && !isViewMode && (
-                <p className="mt-1 text-xs font-medium text-red-600">
-                  {errors.departmentDescription.message}
-                </p>
-              )}
             </div>
 
             <div>

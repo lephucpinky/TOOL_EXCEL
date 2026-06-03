@@ -19,23 +19,6 @@ import { getErrorMessage } from "@/store/utils/crud"
 import type { UserRole } from "@/types/user"
 import PageHeader from "../../../components/header/PageHeader"
 
-const ROLE_OPTIONS: Array<{
-  value: UserRole
-  label: string
-  description: string
-}> = [
-  {
-    value: "ADMIN",
-    label: "Admin",
-    description: "Quản trị hệ thống",
-  },
-  {
-    value: "USER",
-    label: "User",
-    description: "Người dùng thường",
-  },
-]
-
 export default function RegisterPage() {
   const router = useRouter()
 
@@ -95,7 +78,6 @@ export default function RegisterPage() {
       await APICreateUser({
         username: nextUsername,
         password: nextPassword,
-        role,
       })
 
       setSuccessMessage("Tạo tài khoản thành công")
@@ -144,7 +126,7 @@ export default function RegisterPage() {
           }
         />
 
-        <div className="grid gap-5 lg:grid-cols-[1fr_0.75fr]">
+        <div className="">
           <form
             className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm"
             onSubmit={handleRegister}
@@ -261,45 +243,6 @@ export default function RegisterPage() {
                 </div>
               </div>
 
-              <div>
-                <div className="mb-2 block text-sm font-semibold text-slate-700">
-                  Vai trò
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  {ROLE_OPTIONS.map((item) => {
-                    const active = role === item.value
-                    const Icon =
-                      item.value === "ADMIN" ? ShieldCheck : UserRound
-
-                    return (
-                      <button
-                        key={item.value}
-                        type="button"
-                        onClick={() => {
-                          setRole(item.value)
-                          clearMessages()
-                        }}
-                        className={`rounded-lg border px-3 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                          active
-                            ? "border-blue-600 bg-blue-50 text-blue-700"
-                            : "border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-slate-50"
-                        }`}
-                        disabled={loading}
-                      >
-                        <div className="flex items-center gap-2 text-sm font-bold">
-                          <Icon size={17} />
-                          {item.label}
-                        </div>
-                        <div className="mt-1 text-xs text-slate-500">
-                          {item.description}
-                        </div>
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-
               <div className="flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:justify-end">
                 <button
                   type="button"
@@ -324,35 +267,6 @@ export default function RegisterPage() {
               </div>
             </div>
           </form>
-
-          <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
-                <ShieldCheck size={20} />
-              </div>
-              <div>
-                <div className="text-base font-bold text-slate-900">
-                  Phân quyền
-                </div>
-                <div className="text-sm text-slate-500">
-                  Role gửi lên API dạng ADMIN hoặc USER
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-2 divide-y divide-slate-100">
-              {ROLE_OPTIONS.map((item) => (
-                <div key={item.value} className="py-3">
-                  <div className="text-sm font-bold text-slate-900">
-                    {item.label}
-                  </div>
-                  <div className="mt-1 text-sm text-slate-500">
-                    {item.description}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
       </div>
     </div>

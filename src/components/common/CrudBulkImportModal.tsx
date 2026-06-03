@@ -592,9 +592,6 @@ export default function CrudBulkImportModal<
                                 {column.title}
                               </th>
                             ))}
-                            <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-                              Ghi chú
-                            </th>
                           </tr>
                         </thead>
 

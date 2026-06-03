@@ -2,7 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { createPortal } from "react-dom"
-import { InvoiceApiRow, InvoiceStatus } from "@/types/invoice"
+import {
+  InvoiceApiRow,
+  InvoicePaymentStatus,
+  InvoiceStatus,
+} from "@/types/invoice"
 import DataTable, { DataTableColumn } from "../common/Datatable"
 import {
   FileText,
@@ -57,7 +61,7 @@ export default function InvoiceDataTable({
   const [orderCreateFilter, setOrderCreateFilter] = useState("")
   const [agencyFilter, setAgencyFilter] = useState("")
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(50)
+  const [pageSize, setPageSize] = useState(10)
 
   const invoiceStatusLabel = invoiceHelper.invoiceStatusLabel
   const invoiceStatusClass = invoiceHelper.invoiceStatusClass
@@ -98,11 +102,16 @@ export default function InvoiceDataTable({
     const totalAmount = invoiceHelper.toNumber(invoice.inv_TotalAmount)
     const exportedAmount = getInvoiceExportedAmount(invoice)
 
-    const rawCollected = invoiceHelper.toNumber(
-      invoice.amountCollected ?? invoice.paidAmount ?? 0
+    const rawCollected = Math.max(
+      invoiceHelper.toNumber(invoice.amountCollected),
+      invoiceHelper.toNumber(invoice.paidAmount)
     )
 
-    const isPaidFromApi = invoice.isPaid === true
+    const isPaidFromApi =
+      invoice.isPaid === true ||
+      invoice.paymentStatus === InvoicePaymentStatus.PAID
+    const isCollectedFromApi =
+      isPaidFromApi || invoice.paymentStatus === InvoicePaymentStatus.PARTIAL
     const actualPaidAmount =
       isPaidFromApi && rawCollected <= 0
         ? totalAmount
@@ -111,11 +120,10 @@ export default function InvoiceDataTable({
       invoice.suggestedAmountCollected
     )
     const suggestedPaidAmount =
-      rawSuggestedPaidAmount > 0
-        ? rawSuggestedPaidAmount
-        : exportedAmount
+      rawSuggestedPaidAmount > 0 ? rawSuggestedPaidAmount : exportedAmount
     const isPaid =
       totalAmount > 0 && (isPaidFromApi || actualPaidAmount >= totalAmount)
+    const isCollected = isCollectedFromApi || actualPaidAmount > 0
     const paidAmount =
       actualPaidAmount > 0 ? actualPaidAmount : suggestedPaidAmount
     const remainingAmount = Math.max(totalAmount - paidAmount, 0)
@@ -125,6 +133,7 @@ export default function InvoiceDataTable({
 
     return {
       isPaid,
+      isCollected,
       actualPaidAmount,
       paidAmount,
       remainingAmount,
@@ -426,7 +435,7 @@ export default function InvoiceDataTable({
     {
       key: "companyName",
       title: "Tên công ty",
-      className: "min-w-[150px]",
+      className: "min-w-[220px]",
       render: (invoice) =>
         invoice.inv_buyerLegalName || invoice.inv_buyerDisplayName || "-",
     },
@@ -447,7 +456,7 @@ export default function InvoiceDataTable({
     {
       key: "productName",
       title: "Tên SP",
-      className: "min-w-[150px]",
+      className: "min-w-[200px]",
       render: (invoice) => getProductName(invoice.items?.[0]?.productId) || "-",
     },
     {
@@ -517,17 +526,17 @@ export default function InvoiceDataTable({
       className: "text-center",
       headerClassName: "text-center",
       render: (invoice) => {
-        const { isPaid } = getInvoicePaymentState(invoice)
+        const { isCollected } = getInvoicePaymentState(invoice)
 
         return (
           <span
             className={`inline-flex min-w-[82px] justify-center rounded-xl px-2 py-1 text-xs font-semibold ${
-              isPaid
+              isCollected
                 ? "bg-emerald-100 text-emerald-700"
                 : "bg-amber-100 text-amber-700"
             }`}
           >
-            {isPaid ? "Đã thu" : "Chưa thu"}
+            {isCollected ? "Đã thu" : "Chưa thu"}
           </span>
         )
       },

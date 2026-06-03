@@ -14,11 +14,7 @@ function normalizeResponse<T>(response: any): ApiResponse<T> {
   }
 }
 
-const APICreateUser = async (data: {
-  username: string
-  password: string
-  role: UserRole
-}) => {
+const APICreateUser = async (data: { username: string; password: string }) => {
   try {
     const response = await axiosInstance.post("/users/create", data)
 

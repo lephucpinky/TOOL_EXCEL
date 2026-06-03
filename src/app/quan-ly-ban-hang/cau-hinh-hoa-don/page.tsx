@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
-import { Loader2, Plus, RefreshCcw, Settings2 } from "lucide-react"
+import { Loader2, RefreshCcw, Settings2 } from "lucide-react"
 
 import AlertError from "@/components/alert/AlertError"
 import AlertOption from "@/components/alert/AlertOption"
@@ -344,14 +344,6 @@ export default function ReceiptInvoiceConfigPage() {
                 Tải dữ liệu
               </button>
 
-              <button
-                type="button"
-                onClick={openCreateDialog}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700"
-              >
-                <Plus size={18} />
-                Thêm cấu hình
-              </button>
             </>
           }
         />
@@ -363,8 +355,6 @@ export default function ReceiptInvoiceConfigPage() {
           emptyText="Chưa có cấu hình hóa đơn nào."
           getRowKey={(item, index) => getId(item) || `receipt-config-${index}`}
           onView={(row) => void handleViewOrEdit(row, "view")}
-          onEdit={(row) => void handleViewOrEdit(row, "edit")}
-          onDelete={handleDeleteClick}
         />
       </div>
 

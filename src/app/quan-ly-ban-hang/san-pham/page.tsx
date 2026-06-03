@@ -41,7 +41,6 @@ const emptyForm: ProductPayload = {
 }
 
 type ProductImportKey =
-  | "itemCode"
   | "itemName"
   | "itemProduct"
   | "unitCode"
@@ -51,7 +50,6 @@ type ProductImportKey =
   | "tax"
 
 type ProductImportPreview = {
-  itemCode: string
   itemName: string
   itemProduct: string
   unitCode: string
@@ -64,11 +62,6 @@ type ProductImportPreview = {
 const PRODUCT_IMPORT_COLUMNS: readonly BulkImportColumnDefinition<ProductImportKey>[] =
   [
     {
-      key: "itemCode",
-      label: "Mã sản phẩm",
-      aliases: ["Mã sản phẩm", "Mã SP", "Item Code"],
-    },
-    {
       key: "itemName",
       label: "Tên sản phẩm",
       aliases: ["Tên sản phẩm", "Item Name"],
@@ -76,8 +69,15 @@ const PRODUCT_IMPORT_COLUMNS: readonly BulkImportColumnDefinition<ProductImportK
     },
     {
       key: "itemProduct",
-      label: "Sản phẩm",
-      aliases: ["Sản phẩm", "Item Product", "inv_itemProduct"],
+      label: "Mã sản phẩm",
+      aliases: [
+        "Mã sản phẩm",
+        "Mã SP",
+        "Sản phẩm",
+        "Item Product",
+        "inv_itemProduct",
+      ],
+      required: true,
     },
     {
       key: "unitCode",
@@ -114,9 +114,8 @@ const PRODUCT_IMPORT_PREVIEW_COLUMNS: readonly BulkImportPreviewColumn<
   ProductPayload,
   ProductImportPreview
 >[] = [
-  { key: "itemCode", title: "Mã SP" },
   { key: "itemName", title: "Tên sản phẩm" },
-  { key: "itemProduct", title: "Sản phẩm" },
+  { key: "itemProduct", title: "Mã SP" },
   { key: "unitCode", title: "Đơn vị", className: "whitespace-nowrap" },
   {
     key: "unitPrice",
@@ -426,7 +425,6 @@ export default function ProductPage() {
     getValue: (key: ProductImportKey) => unknown
   }): BulkImportPreparedRow<ProductPayload, ProductImportPreview> => {
     const errors: string[] = []
-    const itemCode = cleanImportText(getValue("itemCode"))
     const itemName = cleanImportText(getValue("itemName"))
     const itemProduct = cleanImportText(getValue("itemProduct"))
     const unitCode = cleanImportText(getValue("unitCode"))
@@ -437,6 +435,10 @@ export default function ProductPage() {
 
     if (!itemName) {
       errors.push("Thiếu tên sản phẩm.")
+    }
+
+    if (!itemProduct) {
+      errors.push("Thiếu mã sản phẩm.")
     }
 
     if (!unitCode) {
@@ -460,7 +462,7 @@ export default function ProductPage() {
     }
 
     return {
-      id: `product-${rowNumber}-${itemCode || itemName}`,
+      id: `product-${rowNumber}-${itemProduct || itemName}`,
       rowNumber,
       payload:
         errors.length === 0
@@ -475,7 +477,6 @@ export default function ProductPage() {
             }
           : null,
       preview: {
-        itemCode,
         itemName,
         itemProduct,
         unitCode,
@@ -669,9 +670,19 @@ export default function ProductPage() {
                 id="product-item-product"
                 disabled={isViewMode}
                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
-                placeholder="Ví dụ: Hóa đơn điện tử"
-                {...register("inv_itemProduct")}
+                placeholder="Ví dụ: cks12"
+                {...register("inv_itemProduct", {
+                  required: "Vui lòng nhập mã sản phẩm",
+                  validate: (value) =>
+                    value.trim().length > 0 || "Vui lòng nhập mã sản phẩm",
+                })}
               />
+
+              {errors.inv_itemProduct && !isViewMode && (
+                <p className="mt-1 text-xs font-medium text-red-600">
+                  {errors.inv_itemProduct.message}
+                </p>
+              )}
             </div>
 
             <div>
@@ -831,7 +842,7 @@ export default function ProductPage() {
         columns={PRODUCT_IMPORT_COLUMNS}
         previewColumns={PRODUCT_IMPORT_PREVIEW_COLUMNS}
         notes={[
-          'Cột "Mã sản phẩm" là tùy chọn và hiện chỉ dùng để đối chiếu khi xem trước.',
+          'Cột "Mã sản phẩm" sẽ được gửi lên hệ thống dưới field inv_itemProduct.',
           'Nếu để trống "Tiền chiết khấu", hệ thống sẽ mặc định là 0.',
         ]}
         onClose={() => setBulkImportOpen(false)}

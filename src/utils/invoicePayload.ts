@@ -9,6 +9,11 @@ type InvoiceSaveApiBody = Omit<InvoiceApiRow, "_id"> & {
 type InvoicePayloadItem = {
   productId?: unknown
   product?: unknown
+  quantity?: unknown
+  inv_quantity?: unknown
+  price?: unknown
+  unitPrice?: unknown
+  inv_unitPrice?: unknown
   revenue?: unknown
   capitalPrice?: unknown
   totalSalary?: unknown
@@ -71,11 +76,16 @@ export function toInvoiceApiDate(value?: string) {
 
 export function buildCreateInvoiceApiBody(
   payload: InvoicePayloadInput,
-  options?: { includePayment?: boolean; includeId?: boolean }
+  options?: {
+    includePayment?: boolean
+    includeId?: boolean
+    itemMode?: "create" | "update"
+  }
 ): InvoiceSaveApiBody {
   const items = Array.isArray(payload.items) ? payload.items : []
   const includePayment = Boolean(options?.includePayment)
   const includeId = Boolean(options?.includeId && payload._id)
+  const itemMode = options?.itemMode || "create"
   const clientPayment = payload?.__clientPayment || {}
   const isPaid = Boolean(clientPayment.isPaid ?? payload.isPaid)
   const paidAmount = toNumber(clientPayment.paidAmount ?? payload.paidAmount)
@@ -127,12 +137,22 @@ export function buildCreateInvoiceApiBody(
           remainingAmount,
         }
       : {}),
-    items: items.map((item) => ({
-      productId: getId(item.productId) || getId(item.product),
-      revenue: toNumber(item.revenue),
-      capitalPrice: toNumber(item.capitalPrice),
-      totalSalary: toNumber(item.totalSalary),
-      accountingAccountCode: Number(item.accountingAccountCode || 0),
-    })),
+    items: items.map((item) => {
+      const productId = getId(item.productId) || getId(item.product)
+
+      if (itemMode === "update") {
+        return {
+          productId,
+        }
+      }
+
+      return {
+        productId,
+        revenue: toNumber(item.revenue),
+        capitalPrice: toNumber(item.capitalPrice),
+        totalSalary: toNumber(item.totalSalary),
+        accountingAccountCode: Number(item.accountingAccountCode || 0),
+      }
+    }),
   }
 }

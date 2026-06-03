@@ -106,6 +106,7 @@ const SALE_TRANSACTION_UPDATE_FIELDS = [
   "agencyId",
   "employeeId",
   "amountCollected",
+  "items",
 ] as const satisfies readonly (keyof SaleTransactionPayload)[]
 
 type SaleTransactionUpdateField =

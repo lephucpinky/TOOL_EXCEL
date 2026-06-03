@@ -54,7 +54,11 @@ import {
   updateSaleTransactionThunk,
 } from "@/store/slices"
 
-import { InvoiceApiRow, InvoiceStatus } from "@/types/invoice"
+import {
+  InvoiceApiRow,
+  InvoicePaymentStatus,
+  InvoiceStatus,
+} from "@/types/invoice"
 import type { Bank } from "@/types/bank"
 import type { ReceiptInvoiceConfig } from "@/types/receiptInvoice"
 
@@ -66,6 +70,9 @@ type InvoiceFormPayload = Partial<InvoiceApiRow> & {
   bankOnlyEdit?: boolean
   bankId?: Bank | string | null
   inv_buyerBankName?: string
+  __clientSnapshot?: {
+    department?: InvoiceApiRow["departmentId"]
+  }
 }
 
 type ApiErrorLike = {
@@ -78,7 +85,8 @@ type ApiErrorLike = {
   message?: string
 }
 
-const LIST_ALL_RECEIPT_CONFIG_VALUE = "__ALL_RECEIPT_CONFIG__"
+const DEPARTMENT_OVERRIDE_STORAGE_KEY =
+  "minvoice.saleTransaction.departmentOverrides"
 
 const LIST_PARAMS = {
   page: 1,
@@ -113,13 +121,10 @@ export default function InvoiceListPage() {
   const [message, setMessage] = useState("")
 
   const [receiptConfigs, setReceiptConfigs] = useState<ReceiptInvoiceConfig[]>(
-    []
+    invoiceHelper.getFixedReceiptInvoiceConfigs()
   )
-  const [configLoading, setConfigLoading] = useState(false)
-  const [selectedReceiptConfigValue, setSelectedReceiptConfigValue] =
-    useState("")
-  const [listReceiptConfigValue, setListReceiptConfigValue] = useState(
-    LIST_ALL_RECEIPT_CONFIG_VALUE
+  const [selectedReceiptConfigValue, setSelectedReceiptConfigValue] = useState(
+    invoiceHelper.getFixedReceiptConfigOptionValue()
   )
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
@@ -173,6 +178,71 @@ export default function InvoiceListPage() {
     return Number.isFinite(numberValue) ? numberValue : 0
   }
 
+  const readDepartmentOverrides = () => {
+    if (typeof window === "undefined") return {}
+
+    try {
+      const rawValue = window.localStorage.getItem(
+        DEPARTMENT_OVERRIDE_STORAGE_KEY
+      )
+      const parsedValue = rawValue ? JSON.parse(rawValue) : {}
+
+      return parsedValue && typeof parsedValue === "object"
+        ? (parsedValue as Record<string, InvoiceApiRow["departmentId"]>)
+        : {}
+    } catch {
+      return {}
+    }
+  }
+
+  const persistDepartmentOverride = (
+    invoiceId: string,
+    department: InvoiceApiRow["departmentId"] | undefined
+  ) => {
+    if (!invoiceId || typeof window === "undefined") return
+
+    const overrides = readDepartmentOverrides()
+
+    if (department && typeof department === "object") {
+      overrides[invoiceId] = department
+    } else {
+      delete overrides[invoiceId]
+    }
+
+    window.localStorage.setItem(
+      DEPARTMENT_OVERRIDE_STORAGE_KEY,
+      JSON.stringify(overrides)
+    )
+  }
+
+  const applyDepartmentOverride = (invoice: InvoiceApiRow): InvoiceApiRow => {
+    if (!invoice?._id) return invoice
+
+    const override = readDepartmentOverrides()[invoice._id]
+
+    if (!override || typeof override !== "object") return invoice
+
+    return {
+      ...invoice,
+      departmentId: override,
+    }
+  }
+
+  const getPaymentStatus = (
+    totalAmount: number,
+    amountCollected: number
+  ): InvoicePaymentStatus => {
+    if (totalAmount > 0 && amountCollected >= totalAmount) {
+      return InvoicePaymentStatus.PAID
+    }
+
+    if (amountCollected > 0) {
+      return InvoicePaymentStatus.PARTIAL
+    }
+
+    return InvoicePaymentStatus.UNPAID
+  }
+
   const getErrorAlertMessage = (error: unknown, fallbackMessage: string) => {
     if (error && typeof error === "object") {
       const err = error as ApiErrorLike
@@ -198,18 +268,66 @@ export default function InvoiceListPage() {
     invoice?: InvoiceApiRow | null,
     fallback?: InvoiceApiRow | null
   ) => {
+    const invoiceTotalAmount = toSafeNumber(invoice?.inv_TotalAmount)
+    const fallbackTotalAmount = toSafeNumber(fallback?.inv_TotalAmount)
+    const totalAmount =
+      invoiceTotalAmount > 0 ? invoiceTotalAmount : fallbackTotalAmount
+
     if (
       hasOwnField(invoice, "amountCollected") &&
       isFilledValue(invoice.amountCollected)
     ) {
-      return toSafeNumber(invoice.amountCollected)
+      const amountCollected = toSafeNumber(invoice.amountCollected)
+
+      if (amountCollected > 0) {
+        return amountCollected
+      }
+    }
+
+    if (hasOwnField(invoice, "paidAmount") && isFilledValue(invoice.paidAmount)) {
+      const paidAmount = toSafeNumber(invoice.paidAmount)
+
+      if (paidAmount > 0) {
+        return paidAmount
+      }
+    }
+
+    if (
+      totalAmount > 0 &&
+      (invoice?.isPaid === true ||
+        invoice?.paymentStatus === InvoicePaymentStatus.PAID)
+    ) {
+      return totalAmount
     }
 
     if (
       hasOwnField(fallback, "amountCollected") &&
       isFilledValue(fallback.amountCollected)
     ) {
-      return toSafeNumber(fallback.amountCollected)
+      const amountCollected = toSafeNumber(fallback.amountCollected)
+
+      if (amountCollected > 0) {
+        return amountCollected
+      }
+    }
+
+    if (
+      hasOwnField(fallback, "paidAmount") &&
+      isFilledValue(fallback.paidAmount)
+    ) {
+      const paidAmount = toSafeNumber(fallback.paidAmount)
+
+      if (paidAmount > 0) {
+        return paidAmount
+      }
+    }
+
+    if (
+      totalAmount > 0 &&
+      (fallback?.isPaid === true ||
+        fallback?.paymentStatus === InvoicePaymentStatus.PAID)
+    ) {
+      return totalAmount
     }
 
     return 0
@@ -282,6 +400,7 @@ export default function InvoiceListPage() {
       suggestedAmountCollected,
       paidAmount: amountCollected,
       isPaid,
+      paymentStatus: getPaymentStatus(totalAmount, amountCollected),
       paidDate: amountCollected > 0 ? paidDate : undefined,
       paymentDate: amountCollected > 0 ? paidDate : undefined,
       remainingAmount,
@@ -366,40 +485,30 @@ export default function InvoiceListPage() {
   }, [apiRows, selectedInvoiceId])
 
   const activeReceiptConfig = useMemo(() => {
-    return invoiceHelper.findReceiptConfigByValue(
-      receiptConfigs,
-      selectedReceiptConfigValue
+    return (
+      invoiceHelper.findReceiptConfigByValue(
+        receiptConfigs,
+        selectedReceiptConfigValue
+      ) ||
+      receiptConfigs[0] ||
+      invoiceHelper.getFixedReceiptInvoiceConfig()
     )
   }, [receiptConfigs, selectedReceiptConfigValue])
 
   const listReceiptConfig = useMemo(() => {
-    if (
-      listReceiptConfigValue === LIST_ALL_RECEIPT_CONFIG_VALUE ||
-      !receiptConfigs.length
-    ) {
-      return null
-    }
-
-    return (
-      receiptConfigs.find(
-        (config, index) =>
-          invoiceHelper.getReceiptConfigOptionValue(config, index) ===
-          listReceiptConfigValue
-      ) || null
-    )
-  }, [receiptConfigs, listReceiptConfigValue])
+    return receiptConfigs[0] || invoiceHelper.getFixedReceiptInvoiceConfig()
+  }, [receiptConfigs])
 
   const listRows = useMemo(() => {
-    if (!listReceiptConfig) return apiRows
-
-    return apiRows.filter((invoice) =>
-      invoiceHelper.isInvoiceMatchedReceiptConfig(invoice, listReceiptConfig)
-    )
-  }, [apiRows, listReceiptConfig])
+    return apiRows
+  }, [apiRows])
 
   const upsertInvoiceRow = (nextRow: InvoiceApiRow) => {
     const fallback = apiRowsRef.current.find((item) => item._id === nextRow._id)
-    const normalizedRow = mergeInvoicePaymentState(nextRow, fallback)
+    const normalizedRow = mergeInvoicePaymentState(
+      applyDepartmentOverride(nextRow),
+      fallback ? applyDepartmentOverride(fallback) : fallback
+    )
     const existed = Boolean(fallback)
 
     apiRowsRef.current = existed
@@ -417,8 +526,10 @@ export default function InvoiceListPage() {
     fallback?: InvoiceApiRow | null
   ) => {
     const nextDetail = mergeInvoicePaymentState(
-      invoiceHelper.hydrateSaleTransactionDetail(detail, payload, fallback),
-      fallback
+      applyDepartmentOverride(
+        invoiceHelper.hydrateSaleTransactionDetail(detail, payload, fallback)
+      ),
+      fallback ? applyDepartmentOverride(fallback) : fallback
     )
 
     upsertInvoiceRow(nextDetail)
@@ -458,15 +569,17 @@ export default function InvoiceListPage() {
     const matchedReceiptConfig = fallback
       ? receiptConfigs.find((config) =>
           invoiceHelper.isInvoiceMatchedReceiptConfig(fallback, config)
-        ) || null
+        ) ||
+        activeReceiptConfig ||
+        invoiceHelper.getFixedReceiptInvoiceConfig()
       : null
 
     return {
       saleTransactionId,
       invoiceSeries: String(
         resolution?.exportData?.inv_invoiceSeries ||
-          fallback?.inv_invoiceSeries ||
           matchedReceiptConfig?.inv_invoiceSeries ||
+          fallback?.inv_invoiceSeries ||
           ""
       ).trim(),
       invoiceIssuedDate:
@@ -477,6 +590,7 @@ export default function InvoiceListPage() {
         ) || undefined,
       taxCode: String(
         resolution?.exportData?.tax_code ||
+          matchedReceiptConfig?.tax_code ||
           (fallback
             ? invoiceHelper.getInvoiceSellerTaxCode(
                 fallback,
@@ -552,7 +666,10 @@ export default function InvoiceListPage() {
       const fallback = previousRowMap.get(item._id)
 
       if (item._id !== saleTransactionId) {
-        return mergeInvoicePaymentState(item, fallback)
+        return mergeInvoicePaymentState(
+          applyDepartmentOverride(item),
+          fallback ? applyDepartmentOverride(fallback) : fallback
+        )
       }
 
       const amountCollected = Math.max(
@@ -561,15 +678,15 @@ export default function InvoiceListPage() {
       )
 
       return mergeInvoicePaymentState(
-        {
+        applyDepartmentOverride({
           ...item,
           invoiceStatus: InvoiceStatus.ISSUED,
           amountCollected,
           suggestedAmountCollected:
             amountCollected ||
             toSafeNumber(item.inv_TotalAmount || fallback?.inv_TotalAmount),
-        },
-        fallback
+        }),
+        fallback ? applyDepartmentOverride(fallback) : fallback
       )
     })
 
@@ -724,8 +841,10 @@ export default function InvoiceListPage() {
         if (row._id !== saleTransactionId) return row
 
         return mergeInvoicePaymentState(
-          applyInvoiceExportResolutionToRow(row, resolution),
-          row
+          applyDepartmentOverride(
+            applyInvoiceExportResolutionToRow(row, resolution)
+          ),
+          applyDepartmentOverride(row)
         )
       })
     )
@@ -770,7 +889,10 @@ export default function InvoiceListPage() {
 
       const nextRows = rows.map((row) => {
         const fallback = previousRowMap.get(row._id)
-        return mergeInvoicePaymentState(row, fallback)
+        return mergeInvoicePaymentState(
+          applyDepartmentOverride(row),
+          fallback ? applyDepartmentOverride(fallback) : fallback
+        )
       })
 
       apiRowsRef.current = nextRows
@@ -786,8 +908,6 @@ export default function InvoiceListPage() {
 
   const handleGetReceiptConfigs = async () => {
     try {
-      setConfigLoading(true)
-
       const res = await APIGetReceiptInvoices()
 
       if (res?.status === 200 || res?.status === 201) {
@@ -795,15 +915,13 @@ export default function InvoiceListPage() {
         return
       }
 
-      setReceiptConfigs([])
+      setReceiptConfigs(invoiceHelper.getFixedReceiptInvoiceConfigs())
     } catch (error) {
       console.error("APIGetReceiptInvoices error:", error)
-      setReceiptConfigs([])
+      setReceiptConfigs(invoiceHelper.getFixedReceiptInvoiceConfigs())
       showErrorMessage(
         getErrorAlertMessage(error, "Không thể tải cấu hình hóa đơn")
       )
-    } finally {
-      setConfigLoading(false)
     }
   }
 
@@ -814,31 +932,27 @@ export default function InvoiceListPage() {
 
   useEffect(() => {
     if (!receiptConfigs.length) {
-      setSelectedReceiptConfigValue("")
-      setListReceiptConfigValue(LIST_ALL_RECEIPT_CONFIG_VALUE)
+      setReceiptConfigs(invoiceHelper.getFixedReceiptInvoiceConfigs())
+      setSelectedReceiptConfigValue(
+        invoiceHelper.getFixedReceiptConfigOptionValue()
+      )
       return
     }
 
-    setSelectedReceiptConfigValue((prev) => {
-      if (!prev) return ""
+    const fixedValue = invoiceHelper.getReceiptConfigOptionValue(
+      receiptConfigs[0],
+      0
+    )
+
+    setSelectedReceiptConfigValue((prev:any) => {
+      if (!prev) return fixedValue
 
       const existed = receiptConfigs.some(
         (config, index) =>
           invoiceHelper.getReceiptConfigOptionValue(config, index) === prev
       )
 
-      return existed ? prev : ""
-    })
-
-    setListReceiptConfigValue((prev) => {
-      if (prev === LIST_ALL_RECEIPT_CONFIG_VALUE) return prev
-
-      const existed = receiptConfigs.some(
-        (config, index) =>
-          invoiceHelper.getReceiptConfigOptionValue(config, index) === prev
-      )
-
-      return existed ? prev : LIST_ALL_RECEIPT_CONFIG_VALUE
+      return existed ? prev : fixedValue
     })
   }, [receiptConfigs])
 
@@ -866,7 +980,7 @@ export default function InvoiceListPage() {
       matchedIndex
     )
 
-    setSelectedReceiptConfigValue((prev) =>
+    setSelectedReceiptConfigValue((prev:any) =>
       prev === nextValue ? prev : nextValue
     )
   }, [selectedInvoice, receiptConfigs])
@@ -894,11 +1008,9 @@ export default function InvoiceListPage() {
   }
 
   const handleAdd = () => {
-    if (listReceiptConfigValue !== LIST_ALL_RECEIPT_CONFIG_VALUE) {
-      setSelectedReceiptConfigValue(listReceiptConfigValue)
-    } else {
-      setSelectedReceiptConfigValue("")
-    }
+    setSelectedReceiptConfigValue(
+      invoiceHelper.getFixedReceiptConfigOptionValue()
+    )
 
     setSelectedInvoiceId(null)
     setMode("create")
@@ -1196,11 +1308,13 @@ export default function InvoiceListPage() {
         throw new Error("Thu tiền thất bại.")
       }
 
-      const nextAmountCollected =
+      const detailAmountCollected =
         hasOwnField(detail, "amountCollected") &&
         isFilledValue(detail.amountCollected)
           ? toSafeNumber(detail.amountCollected)
-          : paidAmount
+          : 0
+      const nextAmountCollected =
+        detailAmountCollected > 0 ? detailAmountCollected : paidAmount
 
       const nextDetail = mergeInvoicePaymentState(
         {
@@ -1213,6 +1327,8 @@ export default function InvoiceListPage() {
           inv_TotalAmount: totalAmount,
           amountCollected: nextAmountCollected,
           paidAmount: nextAmountCollected,
+          isPaid: totalAmount > 0 && nextAmountCollected >= totalAmount,
+          paymentStatus: getPaymentStatus(totalAmount, nextAmountCollected),
 
           paidDate,
           paymentDate: paidDate,
@@ -1271,6 +1387,7 @@ export default function InvoiceListPage() {
         }
 
         const currentAmountCollected = getInvoiceAmountCollected(editingInvoice)
+        const editingTotalAmount = toSafeNumber(editingInvoice.inv_TotalAmount)
 
         const detail = await dispatch(
           updateSaleTransactionBankThunk({
@@ -1281,10 +1398,14 @@ export default function InvoiceListPage() {
         ).unwrap()
 
         if (detail?._id) {
-          const nextAmountCollected =
+          const detailAmountCollected =
             hasOwnField(detail, "amountCollected") &&
             isFilledValue(detail.amountCollected)
               ? toSafeNumber(detail.amountCollected)
+              : 0
+          const nextAmountCollected =
+            detailAmountCollected > 0
+              ? detailAmountCollected
               : currentAmountCollected
 
           const nextDetail = mergeInvoicePaymentState(
@@ -1295,6 +1416,13 @@ export default function InvoiceListPage() {
               inv_buyerBankName: payload.inv_buyerBankName || "",
               amountCollected: nextAmountCollected,
               paidAmount: nextAmountCollected,
+              isPaid:
+                editingTotalAmount > 0 &&
+                nextAmountCollected >= editingTotalAmount,
+              paymentStatus: getPaymentStatus(
+                editingTotalAmount,
+                nextAmountCollected
+              ),
               invoiceStatus: InvoiceStatus.ISSUED,
               updatedAt: new Date().toISOString(),
             },
@@ -1323,6 +1451,7 @@ export default function InvoiceListPage() {
       const body = buildCreateInvoiceApiBody(payload, {
         includePayment: allowPaymentUpdate,
         includeId: Boolean(editingInvoice?._id),
+        itemMode: editingInvoice?._id ? "update" : "create",
       })
 
       const detail = editingInvoice?._id
@@ -1335,6 +1464,11 @@ export default function InvoiceListPage() {
         : await dispatch(createSaleTransactionThunk(body)).unwrap()
 
       if (detail?._id) {
+        persistDepartmentOverride(
+          detail._id,
+          payload.__clientSnapshot?.department
+        )
+
         const nextDetail = mergeInvoicePaymentState(
           {
             ...invoiceHelper.hydrateSaleTransactionDetail(
@@ -1404,10 +1538,10 @@ export default function InvoiceListPage() {
       ) ||
       activeReceiptConfig ||
       listReceiptConfig ||
-      null
+      invoiceHelper.getFixedReceiptInvoiceConfig()
 
     const invoiceSeries = String(
-      row.inv_invoiceSeries || matchedReceiptConfig?.inv_invoiceSeries || ""
+      matchedReceiptConfig?.inv_invoiceSeries || row.inv_invoiceSeries || ""
     ).trim()
 
     const taxCode = String(
@@ -1529,12 +1663,13 @@ export default function InvoiceListPage() {
     const matchedReceiptConfig =
       receiptConfigs.find((config) =>
         invoiceHelper.isInvoiceMatchedReceiptConfig(row, config)
-      ) || null
+      ) ||
+      activeReceiptConfig ||
+      invoiceHelper.getFixedReceiptInvoiceConfig()
 
-    const taxCode = invoiceHelper.getInvoiceSellerTaxCode(
-      row,
-      matchedReceiptConfig?.tax_code || ""
-    )
+    const taxCode =
+      matchedReceiptConfig?.tax_code ||
+      invoiceHelper.getInvoiceSellerTaxCode(row)
 
     if (!taxCode) {
       showErrorMessage("Chưa có mã số thuế từ cấu hình hóa đơn.")
@@ -1612,41 +1747,11 @@ export default function InvoiceListPage() {
                 }
               />
 
-              <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm lg:flex-row lg:items-center">
-                <select
-                  className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-100 lg:max-w-[560px]"
-                  value={listReceiptConfigValue}
-                  disabled={configLoading}
-                  onChange={(e) => {
-                    const nextValue = e.target.value
-
-                    setListReceiptConfigValue(nextValue)
-
-                    if (nextValue !== LIST_ALL_RECEIPT_CONFIG_VALUE) {
-                      setSelectedReceiptConfigValue(nextValue)
-                    } else {
-                      setSelectedReceiptConfigValue("")
-                    }
-                  }}
-                >
-                  <option value={LIST_ALL_RECEIPT_CONFIG_VALUE}>
-                    Tất cả ký hiệu hóa đơn
-                  </option>
-                  {receiptConfigs.map((config, index) => (
-                    <option
-                      key={invoiceHelper.getReceiptConfigOptionValue(
-                        config,
-                        index
-                      )}
-                      value={invoiceHelper.getReceiptConfigOptionValue(
-                        config,
-                        index
-                      )}
-                    >
-                      {invoiceHelper.formatReceiptConfigLabel(config)}
-                    </option>
-                  ))}
-                </select>
+              <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm shadow-sm sm:flex-row sm:items-center">
+                <span className="inline-flex h-9 items-center rounded-md border border-blue-100 bg-blue-50 px-3 font-bold text-blue-700">
+                  {activeReceiptConfig.inv_invoiceSeries} - MST:{" "}
+                  {activeReceiptConfig.tax_code}
+                </span>
               </div>
             </div>
 
@@ -1720,9 +1825,7 @@ export default function InvoiceListPage() {
             receiptConfigs={receiptConfigs}
             selectedReceiptConfigValue={selectedReceiptConfigValue}
             onReceiptConfigChange={setSelectedReceiptConfigValue}
-            receiptConfigLocked={
-              listReceiptConfigValue !== LIST_ALL_RECEIPT_CONFIG_VALUE
-            }
+            receiptConfigLocked
             onBack={() => {
               setSelectedInvoiceId(null)
               setMode("list")
