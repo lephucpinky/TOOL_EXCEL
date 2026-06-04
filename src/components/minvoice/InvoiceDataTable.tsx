@@ -24,7 +24,6 @@ type Props = {
   loading?: boolean
   onEdit?: (row: InvoiceApiRow) => void
   onView?: (row: InvoiceApiRow) => void
-  onDelete?: (row: InvoiceApiRow) => void
   onExportInvoice?: (row: InvoiceApiRow) => void | Promise<void>
   exportingInvoiceId?: string | null
   onViewMInvoicePdf?: (row: InvoiceApiRow) => void
@@ -80,6 +79,83 @@ export default function InvoiceDataTable({
   const getEmployeeName = (value: InvoiceApiRow["employeeId"]) => {
     if (!value || typeof value === "string") return ""
     return String(value.employeeName || "")
+  }
+
+  const hasDisplayValue = (value: unknown) => {
+    return value !== undefined && value !== null && String(value).trim() !== ""
+  }
+
+  const getPositivePercent = (value: unknown) => {
+    if (!hasDisplayValue(value)) return null
+
+    const numericValue = invoiceHelper.toNumber(value)
+
+    return numericValue > 0 ? numericValue : null
+  }
+
+  const formatPercent = (value: unknown) => {
+    const numericValue = invoiceHelper.toNumber(value)
+
+    return Number.isInteger(numericValue)
+      ? String(numericValue)
+      : numericValue.toFixed(2).replace(/\.?0+$/, "")
+  }
+
+  const getInvoiceDiscountPercentage = (invoice: InvoiceApiRow) => {
+    const itemWithDiscount = invoice.items?.find((item) =>
+      getPositivePercent(item.discountPercentage)
+    )
+
+    if (itemWithDiscount) {
+      return getPositivePercent(itemWithDiscount.discountPercentage) || 0
+    }
+
+    const invoiceDiscountPercentage = getPositivePercent(
+      invoice.inv_discountPercentage
+    )
+
+    if (invoiceDiscountPercentage !== null) {
+      return invoiceDiscountPercentage
+    }
+
+    if (invoice.agencyId && typeof invoice.agencyId === "object") {
+      const agencyDiscountPercentage = getPositivePercent(
+        (invoice.agencyId as any).commissionPercent
+      )
+
+      if (agencyDiscountPercentage !== null) return agencyDiscountPercentage
+    }
+
+    const firstItemDiscountPercentage = invoice.items?.find((item) =>
+      hasDisplayValue(item.discountPercentage)
+    )?.discountPercentage
+
+    if (hasDisplayValue(firstItemDiscountPercentage)) {
+      return invoiceHelper.toNumber(firstItemDiscountPercentage)
+    }
+
+    if (hasDisplayValue(invoice.inv_discountPercentage)) {
+      return invoiceHelper.toNumber(invoice.inv_discountPercentage)
+    }
+
+    return 0
+  }
+
+  const getInvoiceMinvoiceRevenue = (invoice: InvoiceApiRow) => {
+    const discountPercentage = getInvoiceDiscountPercentage(invoice)
+    const totalAmount = invoiceHelper.toNumber(invoice.inv_TotalAmount)
+
+    if (totalAmount > 0) {
+      return invoiceHelper.roundInvoiceMoney(
+        (totalAmount * discountPercentage) / 100
+      )
+    }
+
+    return (
+      invoice.items?.reduce((sum, item) => {
+        return sum + invoiceHelper.toNumber(item.revenue)
+      }, 0) || 0
+    )
   }
 
   const getProductCode = (product: InvoiceProductValue) => {
@@ -319,19 +395,12 @@ export default function InvoiceDataTable({
         const vatAmount = Number(invoice.inv_vatAmount || 0)
         const paymentState = getInvoicePaymentState(invoice)
 
-        const itemRevenue =
-          invoice.items?.reduce((sum, item) => {
-            return sum + Number(item.revenue || 0)
-          }, 0) || 0
-
         acc.totalAmount += exportedAmount
         acc.totalBeforeTax += totalBeforeTax
         acc.vatAmount += vatAmount
         acc.paidAmount += paymentState.actualPaidAmount
         acc.remainingAmount += paymentState.outstandingAmount
-        acc.minvoiceRevenue += Number(
-          invoice.minvoiceRevenue || itemRevenue || 0
-        )
+        acc.minvoiceRevenue += getInvoiceMinvoiceRevenue(invoice)
 
         return acc
       },
@@ -375,13 +444,6 @@ export default function InvoiceDataTable({
         return textValue
       },
     },
-    // {
-    //   key: "inv_invoiceSeries",
-    //   title: "Ký hiệu HĐ",
-    //   className: "whitespace-nowrap text-center min-w-[100px] ",
-    //   headerClassName: "text-center",
-    //   render: (invoice) => invoice.inv_invoiceSeries || "-",
-    // },
     {
       key: "invoiceNumber",
       title: "Số hoá đơn",
@@ -414,18 +476,14 @@ export default function InvoiceDataTable({
       className: "min-w-[130px]",
       render: (invoice) => getAgencyName(invoice.agencyId) || "-",
     },
-    // {
-    //   key: "departmentId",
-    //   title: "Phòng ban",
-    //   className: "min-w-[150px]",
-    //   render: (invoice) => getDepartmentName(invoice.departmentId) || "-",
-    // },
-    // {
-    //   key: "employeeId",
-    //   title: "NVKD",
-    //   className: "min-w-[160px]",
-    //   render: (invoice) => getEmployeeName(invoice.employeeId) || "-",
-    // },
+    {
+      key: "discountPercentage",
+      title: "% chiết khấu",
+      className: "whitespace-nowrap text-right min-w-[120px]",
+      headerClassName: "text-right",
+      render: (invoice) =>
+        `${formatPercent(getInvoiceDiscountPercentage(invoice))}%`,
+    },
     {
       key: "inv_buyerTaxCode",
       title: "MST",
@@ -467,14 +525,6 @@ export default function InvoiceDataTable({
       render: (invoice) =>
         moneyFormatter.format(Number(invoice.inv_TotalAmount || 0)),
     },
-    // {
-    //   key: "inv_vatAmount",
-    //   title: "Tiền thuế",
-    //   className: "whitespace-nowrap text-right ",
-    //   headerClassName: "text-right",
-    //   render: (invoice) =>
-    //     moneyFormatter.format(Number(invoice.inv_vatAmount || 0)),
-    // },
     {
       key: "inv_TotalAmount",
       title: "Tổng xuất HĐ",
@@ -483,43 +533,7 @@ export default function InvoiceDataTable({
       render: (invoice) =>
         moneyFormatter.format(getInvoiceExportedAmount(invoice)),
     },
-    // {
-    //   key: "commissionRate",
-    //   title: "%HH",
-    //   className: "text-center font-semibold",
-    //   headerClassName: "text-center",
-    //   render: (invoice) => `${getAgencyCommissionPercent(invoice.agencyId)}%`,
-    // },
-    // {
-    //   key: "commissionAmount",
-    //   title: "HH",
-    //   className: "whitespace-nowrap text-right font-semibold",
-    //   headerClassName: "text-right",
-    //   render: (invoice) => {
-    //     const amount =
-    //       (Number(invoice.inv_TotalAmountWithoutVAT || 0) *
-    //         getAgencyCommissionPercent(invoice.agencyId)) /
-    //       100
 
-    //     return moneyFormatter.format(amount)
-    //   },
-    // },
-    // {
-    //   key: "minvoiceRevenue",
-    //   title: "DT MINVOICE",
-    //   className: "whitespace-nowrap text-right font-semibold",
-    //   headerClassName: "text-right",
-    //   render: (invoice) => {
-    //     const itemRevenue =
-    //       invoice.items?.reduce((sum, item) => {
-    //         return sum + Number(item.revenue || 0)
-    //       }, 0) || 0
-
-    //     return moneyFormatter.format(
-    //       Number(invoice.minvoiceRevenue || itemRevenue || 0)
-    //     )
-    //   },
-    // },
     {
       key: "paid",
       title: "Thu tiền",
@@ -557,20 +571,6 @@ export default function InvoiceDataTable({
       render: (invoice) =>
         moneyFormatter.format(getInvoicePaymentState(invoice).remainingAmount),
     },
-    // {
-    //   key: "remainingAmount",
-    //   title: "Còn lại",
-    //   className: "whitespace-nowrap text-right ",
-    //   headerClassName: "text-right",
-    //   render: (invoice) =>
-    //     moneyFormatter.format(getInvoicePaymentState(invoice).remainingAmount),
-    // },
-    // {
-    //   key: "note",
-    //   title: "Ghi chú",
-    //   className: "min-w-[220px]",
-    //   render: (invoice) => invoice.note || "-",
-    // },
   ]
 
   return (

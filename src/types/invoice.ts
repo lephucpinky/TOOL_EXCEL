@@ -28,7 +28,7 @@ export type InvoiceItem = {
   inv_unitPrice?: number
   unitPrice?: number
   ma_thue?: string
-  taxRate?: number
+  taxRate?: number | string
   discount?: number
   discountPercentage?: number
   revenue?: number

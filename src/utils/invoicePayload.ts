@@ -14,6 +14,10 @@ type InvoicePayloadItem = {
   price?: unknown
   unitPrice?: unknown
   inv_unitPrice?: unknown
+  ma_thue?: unknown
+  taxRate?: unknown
+  discountPercentage?: unknown
+  discountAmount?: unknown
   revenue?: unknown
   capitalPrice?: unknown
   totalSalary?: unknown
@@ -141,9 +145,7 @@ export function buildCreateInvoiceApiBody(
       const productId = getId(item.productId) || getId(item.product)
 
       if (itemMode === "update") {
-        return {
-          productId,
-        }
+        return { productId }
       }
 
       return {

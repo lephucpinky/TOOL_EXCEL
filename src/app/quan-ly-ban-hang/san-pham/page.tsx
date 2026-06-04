@@ -15,6 +15,7 @@ import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import { productActions, productThunks } from "@/store/slices"
 import { getErrorMessage } from "@/store/utils/crud"
 import { Product, ProductPayload } from "@/types/product"
+import { normalizeInvoiceTaxCode } from "@/utils/invoice"
 import {
   Loader2,
   PackageSearch,
@@ -141,6 +142,19 @@ function formatNumber(value: number) {
   return new Intl.NumberFormat("vi-VN").format(Number(value || 0))
 }
 
+function formatTaxRate(value: unknown) {
+  const textValue = String(value ?? "").trim()
+
+  if (!textValue) return "-"
+
+  const taxCode = normalizeInvoiceTaxCode(textValue)
+
+  if (taxCode === "KCT" || taxCode === "KKKNT") return taxCode
+  if (/^\d+(\.\d+)?$/.test(taxCode)) return `${taxCode}`
+
+  return taxCode
+}
+
 function buildProductFormValues(detail: Product | null): ProductPayload {
   return {
     inv_itemName: detail?.inv_itemName || "",
@@ -149,7 +163,7 @@ function buildProductFormValues(detail: Product | null): ProductPayload {
     inv_unitPrice: Number(detail?.inv_unitPrice || 0),
     inv_quantity: Number(detail?.inv_quantity || 0),
     inv_discountAmount: Number(detail?.inv_discountAmount || 0),
-    ma_thue: String(detail?.ma_thue || ""),
+    ma_thue: normalizeInvoiceTaxCode(detail?.ma_thue || ""),
   }
 }
 
@@ -265,7 +279,7 @@ export default function ProductPage() {
         className: "text-right",
         render: (item) => (
           <span className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
-            {item.ma_thue}%
+            {formatTaxRate(item.ma_thue)}
           </span>
         ),
       },
@@ -315,7 +329,7 @@ export default function ProductPage() {
       inv_unitPrice: Number(data.inv_unitPrice),
       inv_quantity: Number(data.inv_quantity),
       inv_discountAmount: Number(data.inv_discountAmount),
-      ma_thue: String(data.ma_thue).trim(),
+      ma_thue: normalizeInvoiceTaxCode(data.ma_thue),
     }
 
     try {
@@ -473,7 +487,7 @@ export default function ProductPage() {
               inv_unitPrice: unitPrice,
               inv_quantity: quantity,
               inv_discountAmount: discountAmount,
-              ma_thue: tax,
+              ma_thue: normalizeInvoiceTaxCode(tax),
             }
           : null,
       preview: {

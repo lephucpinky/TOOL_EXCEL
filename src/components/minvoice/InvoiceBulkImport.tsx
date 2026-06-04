@@ -21,6 +21,7 @@ import {
   FIXED_RECEIPT_INVOICE_CONFIG,
   formatMoney,
   getId,
+  normalizeInvoiceTaxCode,
   roundInvoiceMoney,
 } from "@/utils/invoice"
 import { buildCreateInvoiceApiBody } from "@/utils/invoicePayload"
@@ -446,6 +447,7 @@ export default function InvoiceBulkImport({
                   product,
                   quantity,
                   inv_quantity: quantity,
+                  ma_thue: normalizeInvoiceTaxCode(product.ma_thue),
                   revenue: totalBeforeTax,
                   capitalPrice: 0,
                   totalSalary: totalBeforeTax,

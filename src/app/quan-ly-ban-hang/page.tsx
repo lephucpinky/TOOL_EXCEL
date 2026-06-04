@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useMemo, type ReactNode } from "react"
+import { useMemo, type ReactNode } from "react"
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -184,12 +184,6 @@ export default function Page() {
     initialized,
     error,
   } = useAppSelector((state) => state.saleTransactions)
-
-  useEffect(() => {
-    if (!isAuthenticated || initialized || loading) return
-
-    void dispatch(fetchSaleTransactionsThunk(LIST_PARAMS))
-  }, [dispatch, initialized, isAuthenticated, loading])
 
   const dashboard = useMemo(() => {
     const summary = invoices.reduce(

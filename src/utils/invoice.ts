@@ -40,6 +40,52 @@ export function roundInvoiceMoney(value: unknown) {
   return Math.round(numberValue * 100) / 100
 }
 
+export function normalizeInvoiceTaxCode(value: unknown) {
+  const textValue = String(value ?? "")
+    .trim()
+    .toUpperCase()
+
+  if (!textValue) return "0"
+  if (textValue === "-1") return "KCT"
+  if (textValue === "-2") return "KKKNT"
+  if (textValue === "KCT" || textValue === "KKKNT") return textValue
+
+  const numericValue = Number(textValue.replace(/%$/, "").replace(",", "."))
+
+  return Number.isFinite(numericValue) ? String(numericValue) : textValue
+}
+
+export function getInvoiceTaxRateNumber(value: unknown) {
+  const taxCode = normalizeInvoiceTaxCode(value)
+
+  if (taxCode === "KCT" || taxCode === "KKKNT") return 0
+
+  const numericValue = Number(taxCode)
+
+  return Number.isFinite(numericValue) ? numericValue : 0
+}
+
+export function resolveInvoiceTaxCodeAndRate(value: unknown) {
+  const taxCode = normalizeInvoiceTaxCode(value)
+
+  if (taxCode === "KCT") {
+    return { displayTaxCode: taxCode, invoiceTaxCode: -1, taxRate: 0 }
+  }
+
+  if (taxCode === "KKKNT") {
+    return { displayTaxCode: taxCode, invoiceTaxCode: -2, taxRate: 0 }
+  }
+
+  const taxPercent = Number(taxCode)
+  const normalizedTaxPercent = Number.isFinite(taxPercent) ? taxPercent : 0
+
+  return {
+    displayTaxCode: String(normalizedTaxPercent),
+    invoiceTaxCode: normalizedTaxPercent,
+    taxRate: normalizedTaxPercent / 100,
+  }
+}
+
 export function getId(value: any) {
   if (!value) return ""
   if (typeof value === "string") return value
@@ -318,8 +364,6 @@ export function isInvoiceExportIssuing(value?: any) {
   )
 }
 
-export const isInvoiceExportProcessing = isInvoiceExportIssuing
-
 export function canStartInvoiceExport(status?: InvoiceStatusValue | null) {
   return status === InvoiceStatus.DRAFT || status === InvoiceStatus.FAILED
 }
@@ -498,14 +542,53 @@ export function getReceiptConfigOptionValue(
 export function getFixedReceiptConfigOptionValue() {
   return getReceiptConfigOptionValue(FIXED_RECEIPT_INVOICE_CONFIG, 0)
 }
-export function buildPdfFileUrl(filePath: string) {
-  if (!filePath) return ""
+const LOCAL_PDF_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"])
 
-  if (/^https?:\/\//i.test(filePath)) {
-    return filePath
+function getPdfFileBaseUrl() {
+  const apiUrl = String(process.env.NEXT_PUBLIC_API_URL || "").trim()
+
+  if (!apiUrl) return ""
+
+  try {
+    return new URL(apiUrl).origin
+  } catch {
+    return apiUrl.replace(/\/api\/?$/i, "").replace(/\/+$/, "")
+  }
+}
+
+function buildPdfFileUrlFromApiBase(filePath: string) {
+  const normalizedPath = `/${filePath.replace(/^\/+/, "")}`
+  const baseUrl = getPdfFileBaseUrl()
+
+  return baseUrl ? `${baseUrl}${normalizedPath}` : normalizedPath
+}
+
+export function buildPdfFileUrl(filePath: string) {
+  const rawFilePath = String(filePath || "").trim()
+
+  if (!rawFilePath) return ""
+
+  if (/^https?:\/\//i.test(rawFilePath)) {
+    try {
+      const parsedFileUrl = new URL(rawFilePath)
+
+      if (LOCAL_PDF_HOSTS.has(parsedFileUrl.hostname.toLowerCase())) {
+        return buildPdfFileUrlFromApiBase(
+          `${parsedFileUrl.pathname}${parsedFileUrl.search}${parsedFileUrl.hash}`
+        )
+      }
+
+      return rawFilePath
+    } catch {
+      return rawFilePath
+    }
   }
 
-  return `/${filePath.replace(/^\//, "")}`
+  if (/^\/?files\//i.test(rawFilePath)) {
+    return buildPdfFileUrlFromApiBase(rawFilePath)
+  }
+
+  return `/${rawFilePath.replace(/^\//, "")}`
 }
 
 export function formatPaymentAmountInput(value: any) {
@@ -541,15 +624,6 @@ export function getInvoiceAmountCollected(invoice?: InvoiceApiRow | null) {
   }
 
   return 0
-}
-
-export function getInvoiceRemainingAmount(invoice?: InvoiceApiRow | null) {
-  if (!invoice) return 0
-
-  const totalAmount = toNumber(invoice.inv_TotalAmount)
-  const amountCollected = getInvoiceAmountCollected(invoice)
-
-  return Math.max(totalAmount - amountCollected, 0)
 }
 
 export function normalizeSaleTransactionDetail(
@@ -589,6 +663,9 @@ function buildClientItems(payload: any) {
     product: item.product || item.productId || null,
     quantity: toNumber(item.quantity ?? item.inv_quantity ?? 0),
     inv_quantity: toNumber(item.inv_quantity ?? item.quantity ?? 0),
+    ma_thue: normalizeInvoiceTaxCode(item.ma_thue ?? item.taxRate),
+    taxRate: normalizeInvoiceTaxCode(item.taxRate ?? item.ma_thue),
+    discountPercentage: toNumber(item.discountPercentage),
     revenue: toNumber(item.revenue),
     capitalPrice: toNumber(item.capitalPrice),
     totalSalary: toNumber(item.totalSalary),
@@ -634,6 +711,40 @@ export function hydrateSaleTransactionDetail(
               item?.quantity ??
               clientItem?.inv_quantity ??
               fallbackItem?.inv_quantity,
+            ma_thue: normalizeInvoiceTaxCode(
+              item?.ma_thue ??
+                item?.taxRate ??
+                clientItem?.ma_thue ??
+                clientItem?.taxRate ??
+                fallbackItem?.ma_thue ??
+                fallbackItem?.taxRate
+            ),
+            taxRate: normalizeInvoiceTaxCode(
+              item?.taxRate ??
+                item?.ma_thue ??
+                clientItem?.taxRate ??
+                clientItem?.ma_thue ??
+                fallbackItem?.taxRate ??
+                fallbackItem?.ma_thue
+            ),
+            discountPercentage:
+              item?.discountPercentage ??
+              clientItem?.discountPercentage ??
+              fallbackItem?.discountPercentage,
+            revenue:
+              item?.revenue ?? clientItem?.revenue ?? fallbackItem?.revenue,
+            capitalPrice:
+              item?.capitalPrice ??
+              clientItem?.capitalPrice ??
+              fallbackItem?.capitalPrice,
+            totalSalary:
+              item?.totalSalary ??
+              clientItem?.totalSalary ??
+              fallbackItem?.totalSalary,
+            accountingAccountCode:
+              item?.accountingAccountCode ??
+              clientItem?.accountingAccountCode ??
+              fallbackItem?.accountingAccountCode,
           }
         })
       : clientItems.length
@@ -687,8 +798,7 @@ export function hydrateSaleTransactionDetail(
                         (detail.isPaid === true ||
                           detail.paymentStatus === InvoicePaymentStatus.PAID ||
                           fallback?.isPaid === true ||
-                          fallback?.paymentStatus ===
-                            InvoicePaymentStatus.PAID)
+                          fallback?.paymentStatus === InvoicePaymentStatus.PAID)
                       ? totalAmount
                       : 0
 
@@ -739,6 +849,13 @@ export function hydrateSaleTransactionDetail(
         fallback?.inv_quantity ??
         totalItemQuantity
     ),
+    minvoiceRevenue:
+      detail.minvoiceRevenue ??
+      payload?.minvoiceRevenue ??
+      fallback?.minvoiceRevenue ??
+      mergedItems.reduce((sum: number, item: any) => {
+        return sum + toNumber(item?.revenue)
+      }, 0),
     items: mergedItems,
     isPaid:
       detail.isPaid ??

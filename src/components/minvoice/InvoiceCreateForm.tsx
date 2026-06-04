@@ -33,12 +33,15 @@ import {
   formatMoney,
   getId,
   getInvoiceStatus,
+  getInvoiceTaxRateNumber,
   inputClass,
   invoiceStatusClass,
   invoiceStatusLabel,
   mergeOptions,
   normalizeDateInput,
+  normalizeInvoiceTaxCode,
   numberToVietnamese,
+  resolveInvoiceTaxCodeAndRate,
   resolveOption,
   roundInvoiceMoney,
 } from "@/utils/invoice"
@@ -90,7 +93,8 @@ type InvoiceItemForm = {
   type: string
   unitPrice: number
   discountAmount: number
-  taxRate: number
+  discountPercentage: number
+  taxRate: string
   capitalPrice: number
   totalSalary: number
   accountingAccountCode: string
@@ -126,8 +130,7 @@ const emailInvalidMessage = "Email không hợp lệ."
 
 const invoiceSelectClass = `${inputClass} justify-between font-normal shadow-none hover:bg-white hover:text-slate-800`
 const productCodeSelectClass = `${invoiceSelectClass} min-w-[260px]`
-const productCodeSelectContentClass =
-  "w-[380px] max-w-[calc(100vw-32px)]"
+const productCodeSelectContentClass = "w-[380px] max-w-[calc(100vw-32px)]"
 
 const receiptConfigSelectClass =
   "h-8 w-[280px] justify-between rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700 shadow-none hover:bg-white hover:text-slate-700 focus:border-indigo-500 disabled:bg-slate-100"
@@ -188,6 +191,29 @@ const issuedEditableGeneralKeys: Array<keyof InvoiceGeneralForm> = [
   "paidAmount",
   "paidDate",
 ]
+
+function normalizePercent(value: unknown) {
+  const numericValue = Number(value)
+
+  if (!Number.isFinite(numericValue)) return 0
+
+  return Math.min(Math.max(numericValue, 0), 100)
+}
+
+function getAgencyDiscountPercentage(agency?: Agency | null) {
+  return normalizePercent(agency?.commissionPercent || 0)
+}
+
+function resolveAgencyDiscountPercentage(
+  value: unknown,
+  agency?: Agency | null
+) {
+  const discountPercentage = normalizePercent(value)
+
+  return discountPercentage > 0
+    ? discountPercentage
+    : getAgencyDiscountPercentage(agency)
+}
 
 export default function InvoiceCreateForm({
   onBack,
@@ -278,7 +304,8 @@ export default function InvoiceCreateForm({
       type: "Mới",
       unitPrice: 0,
       discountAmount: 0,
-      taxRate: 0,
+      discountPercentage: 0,
+      taxRate: "0",
       capitalPrice: 0,
       totalSalary: 0,
       accountingAccountCode: "",
@@ -594,7 +621,12 @@ export default function InvoiceCreateForm({
             discountAmount: Number(
               (initialInvoice as any).inv_discountAmount || 0
             ),
-            taxRate: Number(resolvedProduct.ma_thue || 0),
+            discountPercentage: resolveAgencyDiscountPercentage(
+              (initialInvoice as any).inv_discountPercentage ??
+                resolvedAgency?.commissionPercent,
+              resolvedAgency
+            ),
+            taxRate: normalizeInvoiceTaxCode(resolvedProduct.ma_thue),
             capitalPrice: 0,
             totalSalary: 0,
             accountingAccountCode: String(
@@ -627,9 +659,10 @@ export default function InvoiceCreateForm({
             1
         )
 
-        const taxRate = toNumber(
-          apiItem.taxRate ?? apiItem.ma_thue ?? product?.ma_thue ?? 0
+        const taxRate = normalizeInvoiceTaxCode(
+          product?.ma_thue ?? apiItem.ma_thue ?? apiItem.taxRate ?? "0"
         )
+        const taxRateNumber = getInvoiceTaxRateNumber(taxRate)
 
         // BE dùng `price` là đơn giá đã gồm VAT, sau đó tự tách tiền chưa VAT.
         const grossTotalAmount = toNumber(
@@ -649,7 +682,7 @@ export default function InvoiceCreateForm({
           (quantity > 0 && grossTotalAmount > 0
             ? grossTotalAmount / quantity
             : 0) ||
-          (netUnitPrice > 0 ? netUnitPrice * (1 + taxRate / 100) : 0) ||
+          (netUnitPrice > 0 ? netUnitPrice * (1 + taxRateNumber / 100) : 0) ||
           Number(product?.inv_unitPrice || 0)
 
         return {
@@ -674,6 +707,12 @@ export default function InvoiceCreateForm({
           type: apiItem.type || apiItem.itemType || "Mới",
           unitPrice,
           discountAmount: 0,
+          discountPercentage: resolveAgencyDiscountPercentage(
+            apiItem.discountPercentage ??
+              apiItem.commissionRate ??
+              (initialInvoice as any).inv_discountPercentage,
+            resolvedAgency
+          ),
           taxRate,
           capitalPrice: Number(apiItem.capitalPrice || 0),
           totalSalary: Number(apiItem.totalSalary || 0),
@@ -735,10 +774,7 @@ export default function InvoiceCreateForm({
 
   const employeeOptions = useMemo(() => {
     if (selectedAgencyEmployee) {
-      return mergeOptions(employees, [
-        selectedAgencyEmployee,
-        general.employee,
-      ])
+      return mergeOptions(employees, [selectedAgencyEmployee, general.employee])
     }
 
     return mergeOptions(employees, [general.employee])
@@ -768,7 +804,7 @@ export default function InvoiceCreateForm({
       ...productOptions.map((product) => ({
         value: getId(product),
         label:
-          [product.inv_itemCode, product.inv_itemProduct || product.inv_itemName]
+          [product.inv_itemProduct, product.inv_itemName]
             .filter(Boolean)
             .join(" - ") || getId(product),
       })),
@@ -791,8 +827,6 @@ export default function InvoiceCreateForm({
     [bankOptions]
   )
   const computedItems = useMemo(() => {
-    const commissionRate = Number(selectedAgency?.commissionPercent || 0)
-
     return items.map((item) => {
       // Khớp BE: quantity = item.inv_quantity ?? 1
       const quantityValue = Number(item.quantity)
@@ -802,29 +836,30 @@ export default function InvoiceCreateForm({
       // FE đang dùng ô Đơn giá làm `price` gửi xuống BE, tức giá đã gồm VAT.
       const price = Number(item.unitPrice || 0)
 
-      // Khớp BE: discount và discountPercentage đang hard-code = 0
+      // BE invoice discount stays 0; item discountPercentage is agency commission for revenue.
       const discount = 0
-      const discountPercentage = 0
+      const discountPercentage = normalizePercent(item.discountPercentage)
 
-      // Khớp BE: tax = item.ma_thue / 100
-      const taxRate = Number(item.taxRate || 0)
-      const tax = taxRate / 100
+      // Keep special tax codes for M-Invoice; use numeric value only for VAT math.
+      const { displayTaxCode, taxRate } = resolveInvoiceTaxCodeAndRate(
+        item.taxRate
+      )
 
       // Khớp BE: totalPrice = price * quantity - discount
       const totalPrice = price * quantity - discount
 
       // Khớp BE: totalAmountWithVat = totalPrice / (1 + tax)
-      const totalAmountWithoutVat = totalPrice / (1 + tax)
+      const totalAmountWithoutVat = totalPrice / (1 + taxRate)
 
       // Khớp BE: vatAmount = totalPrice - totalAmountWithVat
       const vatAmount = totalPrice - totalAmountWithoutVat
 
-      // Khớp BE: totalBeforeDiscount = totalAmountWithVat / (1 - discountPercentage)
-      const totalBeforeDiscount =
-        totalAmountWithoutVat / (1 - discountPercentage)
+      // No invoice discount is applied when calculating BE unit price.
+      const totalBeforeDiscount = totalAmountWithoutVat
 
       // Khớp BE: unitPrice = totalBeforeDiscount / quantity
       const invUnitPrice = quantity > 0 ? totalBeforeDiscount / quantity : 0
+      const revenue = roundInvoiceMoney((totalPrice * discountPercentage) / 100)
 
       return {
         ...item,
@@ -832,25 +867,21 @@ export default function InvoiceCreateForm({
 
         // Giữ lại để build payload gửi BE đúng tên field input.
         price: roundInvoiceMoney(price),
-        ma_thue: taxRate,
+        ma_thue: displayTaxCode,
 
         // Cột Tổng tiền hàng trên UI đang hiển thị tổng tiền thanh toán đã gồm VAT.
         amount: roundInvoiceMoney(totalPrice),
 
         // Hoa hồng đại lý không tham gia công thức BE, chỉ giữ lại nếu UI cần dùng.
-        commissionRate,
-        commissionAmount: roundInvoiceMoney(
-          (totalPrice * commissionRate) / 100
-        ),
-
         discountAmount: roundInvoiceMoney(discount),
         discountPercentage: roundInvoiceMoney(discountPercentage),
 
-        taxRate,
+        taxRate: displayTaxCode,
         taxAmount: roundInvoiceMoney(vatAmount),
 
-        // Doanh thu = tiền chưa VAT theo BE.
-        revenue: roundInvoiceMoney(totalAmountWithoutVat),
+        // netAmount keeps invoice total-before-tax; revenue is M-Invoice commission amount.
+        netAmount: roundInvoiceMoney(totalAmountWithoutVat),
+        revenue,
 
         // Tổng thanh toán = inv_TotalAmount theo BE.
         totalAmount: roundInvoiceMoney(totalPrice),
@@ -861,12 +892,12 @@ export default function InvoiceCreateForm({
         capitalPrice: Number(item.capitalPrice || 0),
 
         // Tính lương = Doanh thu.
-        totalSalary: roundInvoiceMoney(totalAmountWithoutVat),
+        totalSalary: revenue,
 
         accountingAccountCode: item.accountingAccountCode,
       }
     })
-  }, [items, selectedAgency?.commissionPercent])
+  }, [items])
 
   const totalDiscountAmount = computedItems.reduce(
     (sum, item) => sum + Number(item.discountAmount || 0),
@@ -874,7 +905,7 @@ export default function InvoiceCreateForm({
   )
 
   const totalBeforeTax = computedItems.reduce(
-    (sum, item) => sum + Number(item.revenue || 0),
+    (sum, item) => sum + Number(item.netAmount || 0),
     0
   )
 
@@ -885,6 +916,10 @@ export default function InvoiceCreateForm({
 
   const totalPayment = computedItems.reduce(
     (sum, item) => sum + Number(item.totalAmount || 0),
+    0
+  )
+  const totalRevenue = computedItems.reduce(
+    (sum, item) => sum + Number(item.revenue || 0),
     0
   )
   const effectivePaidAmount = general.isPaid
@@ -935,6 +970,10 @@ export default function InvoiceCreateForm({
       const agency = value as Agency | null
       const employee = resolveAgencyEmployee(agency, employees)
       const email = agency?.agencyEmail || ""
+      const previousCommissionPercent = getAgencyDiscountPercentage(
+        general.agency
+      )
+      const nextCommissionPercent = getAgencyDiscountPercentage(agency)
 
       setGeneral((prev) => ({
         ...prev,
@@ -942,6 +981,23 @@ export default function InvoiceCreateForm({
         employee,
         email,
       }))
+
+      setItems((prev) =>
+        prev.map((item) => {
+          const currentDiscountPercentage = normalizePercent(
+            item.discountPercentage
+          )
+
+          if (currentDiscountPercentage !== previousCommissionPercent) {
+            return item
+          }
+
+          return {
+            ...item,
+            discountPercentage: nextCommissionPercent,
+          }
+        })
+      )
 
       setFieldErrors((prev) => ({
         ...prev,
@@ -985,7 +1041,8 @@ export default function InvoiceCreateForm({
             unitPrice:
               item.type === "Tặng" ? 0 : Number(product?.inv_unitPrice || 0),
             discountAmount: item.discountAmount || 0,
-            taxRate: Number(product?.ma_thue || 0),
+            discountPercentage: normalizePercent(item.discountPercentage),
+            taxRate: normalizeInvoiceTaxCode(product?.ma_thue),
             accountingAccountCode: String(
               (product as any)?.accountingAccountCode ||
                 (product as any)?.accountCode ||
@@ -1025,8 +1082,9 @@ export default function InvoiceCreateForm({
             quantity: Number(product?.inv_quantity || item.quantity || 1),
             unitPrice:
               item.type === "Tặng" ? 0 : Number(product?.inv_unitPrice || 0),
-            taxRate: Number(product?.ma_thue || 0),
+            taxRate: normalizeInvoiceTaxCode(product?.ma_thue),
             discountAmount: item.discountAmount || 0,
+            discountPercentage: normalizePercent(item.discountPercentage),
             accountingAccountCode: String(
               (product as any)?.accountingAccountCode ||
                 (product as any)?.accountCode ||
@@ -1065,7 +1123,8 @@ export default function InvoiceCreateForm({
         type: "Mới",
         unitPrice: 0,
         discountAmount: 0,
-        taxRate: 0,
+        discountPercentage: getAgencyDiscountPercentage(selectedAgency),
+        taxRate: "0",
         capitalPrice: 0,
         totalSalary: 0,
         accountingAccountCode: "",
@@ -1164,6 +1223,10 @@ export default function InvoiceCreateForm({
       return null
     }
 
+    const invoiceDiscountPercentage = normalizePercent(
+      validItems[0]?.discountPercentage || 0
+    )
+
     return {
       activationDate: general.activatedDate || null,
       inv_invoiceSeries: activeReceiptSeries,
@@ -1200,13 +1263,15 @@ export default function InvoiceCreateForm({
         (sum, item) => sum + Number(item.quantity || 0),
         0
       ),
-      inv_discountPercentage: 0,
+      inv_discountPercentage: roundInvoiceMoney(invoiceDiscountPercentage),
       items: validItems.map((item) => ({
         productId: getId(item.product),
         product: item.product,
         quantity: Number(item.quantity || 1),
         inv_quantity: Number(item.quantity || 1),
         price: roundInvoiceMoney(item.price || 0),
+        discountPercentage: roundInvoiceMoney(item.discountPercentage || 0),
+        ma_thue: normalizeInvoiceTaxCode(item.ma_thue || item.taxRate || "0"),
         // Khớp schema BE hiện tại của TransactionItem.
         revenue: roundInvoiceMoney(item.revenue || 0),
         capitalPrice: Number(item.capitalPrice || 0),
@@ -1228,56 +1293,11 @@ export default function InvoiceCreateForm({
       return
     }
 
-    if (false) {
-      const bankId = getId(general.bank)
-
-      if (!bankId) {
-        showErrorMessage("Vui lòng chọn ngân hàng cần cập nhật.")
-        return
-      }
-
-      try {
-        setSaveLoading(true)
-
-        await onSaved?.({
-          bankOnlyEdit: true,
-          bankId,
-          inv_buyerBankName: selectedBank?.inv_buyerBankName || "",
-        })
-
-        showSuccessMessage("Cập nhật ngân hàng thành công.")
-
-        setTimeout(() => {
-          onBack()
-        }, 700)
-      } catch (err: any) {
-        console.error("SAVE_BANK_INVOICE_ERROR", err)
-
-        const message =
-          err?.response?.data?.message ||
-          err?.response?.data?.error ||
-          err?.message ||
-          "Cập nhật ngân hàng thất bại."
-
-        showErrorMessage(message)
-      } finally {
-        setSaveLoading(false)
-      }
-
-      return
-    }
-
     const payload = buildPayload()
     if (!payload) return
 
     try {
       setSaveLoading(true)
-
-      console.log("INVOICE_FORM_SUBMIT_PAYLOAD", {
-        mode,
-        initialInvoiceId: initialInvoice?._id || null,
-        payload,
-      })
 
       await onSaved?.({
         ...payload,
@@ -1357,13 +1377,6 @@ export default function InvoiceCreateForm({
     try {
       setExportInvoiceLoading(true)
 
-      console.log("EXPORT_M_INVOICE_REQUEST", {
-        mode,
-        saleTransactionId: initialInvoice._id,
-        payload,
-        taxCode: activeReceiptTaxCode,
-      })
-
       const response = await APIExportMInvoiceReceiptPost(
         payload,
         activeReceiptTaxCode
@@ -1373,11 +1386,6 @@ export default function InvoiceCreateForm({
         exportContext,
         APIGetMInvoiceReceiptJobStatus
       )
-
-      console.log("EXPORT_M_INVOICE_RESOLUTION", {
-        saleTransactionId: initialInvoice._id,
-        resolution,
-      })
 
       await onExported?.(initialInvoice._id, resolution)
 
@@ -1864,24 +1872,12 @@ export default function InvoiceCreateForm({
                 <th className="min-w-[110px] border-b border-r border-slate-300 px-2 py-2 text-right">
                   Thuế suất
                 </th>
-                {/* <th className="min-w-[110px] border-b border-r border-slate-300 px-2 py-2 text-right">
-                  % CK
-                </th> */}
-                {/* <th className="min-w-[150px] border-b border-r border-slate-300 px-2 py-2 text-right">
-                  Tiền chiết khấu
-                </th> */}
+                <th className="min-w-[130px] border-b border-r border-slate-300 px-2 py-2 text-right">
+                  % chiết khấu
+                </th>
                 <th className="min-w-[150px] border-b border-r border-slate-300 px-2 py-2 text-right">
                   Doanh thu
                 </th>
-                {/* <th className="min-w-[140px] border-b border-r border-slate-300 px-2 py-2 text-right">
-                  Giá vốn
-                </th> */}
-                {/* <th className="min-w-[140px] border-b border-r border-slate-300 px-2 py-2 text-right">
-                  Tính lương
-                </th> */}
-                {/* <th className="min-w-[170px] border-b border-r border-slate-300 px-2 py-2 text-left">
-                  Mã tài khoản hạch toán
-                </th> */}
                 {!mainFieldsDisabled && (
                   <th className="min-w-[90px] border-b border-slate-300 px-2 py-2 text-center">
                     Thao tác
@@ -1993,62 +1989,24 @@ export default function InvoiceCreateForm({
                     />
                   </td>
 
-                  <td className="border-b border-r border-slate-200 px-2 py-2 text-right font-semibold">
-                    {item.discountPercentage}%
-                  </td>
-                  {/* <td className="border-b border-r border-slate-200 px-2 py-2">
+                  <td className="border-b border-r border-slate-200 px-2 py-2">
                     <input
                       className={`${inputClass} text-right`}
-                      value={item.discountAmount}
+                      value={item.discountPercentage}
                       disabled={mainFieldsDisabled}
                       onChange={(e) =>
                         updateItem(
                           item.id,
-                          "discountAmount",
-                          toNumber(e.target.value)
+                          "discountPercentage",
+                          normalizePercent(toNumber(e.target.value))
                         )
                       }
-                      placeholder="Tiền CK"
+                      placeholder="%"
                     />
-                  </td> */}
-
-                  {/* <td className="border-b border-r border-slate-200 px-2 py-2 text-right font-semibold text-blue-700">
+                  </td>
+                  <td className="border-b border-r border-slate-200 px-2 py-2 text-right font-semibold text-blue-700">
                     {formatMoney(item.revenue)}
-                  </td> */}
-
-                  {/* <td className="border-b border-r border-slate-200 px-2 py-2">
-                    <input
-                      className={`${inputClass} text-right`}
-                      value={item.capitalPrice}
-                      disabled={mainFieldsDisabled}
-                      onChange={(e) =>
-                        updateItem(
-                          item.id,
-                          "capitalPrice",
-                          toNumber(e.target.value)
-                        )
-                      }
-                      placeholder="Giá vốn"
-                    />
                   </td>
-
-                  <td className="border-b border-r border-slate-200 px-2 py-2">
-                    <input
-                      className={`${inputClass} bg-slate-50 text-right font-semibold text-blue-700`}
-                      value={formatMoney(item.totalSalary)}
-                      disabled
-                      readOnly
-                    />
-                  </td>
-
-                  <td className="border-b border-r border-slate-200 px-2 py-2">
-                    <input
-                      className={`${inputClass} bg-slate-50`}
-                      value={item.accountingAccountCode}
-                      disabled
-                      readOnly
-                    />
-                  </td> */}
 
                   {!mainFieldsDisabled && (
                     <td className="border-b border-slate-200 px-2 py-2 text-center">
@@ -2070,14 +2028,6 @@ export default function InvoiceCreateForm({
           <div className="mb-2 text-sm font-bold text-slate-700">Tổng cộng</div>
 
           <div className="grid gap-3 lg:grid-cols-5">
-            {/* <div>
-              <label className="mb-1 block text-[13px] text-slate-500">
-                Tổng tiền chiết khấu
-              </label>
-              <div className="rounded border border-slate-300 bg-slate-50 px-3 py-2 text-right font-semibold">
-                {formatMoney(totalDiscountAmount)}
-              </div>
-            </div> */}
             <div>
               <label className="mb-1 block text-[13px] text-slate-500">
                 Tổng tiền hàng
@@ -2102,6 +2052,15 @@ export default function InvoiceCreateForm({
               </label>
               <div className="rounded border border-slate-300 bg-slate-50 px-3 py-2 text-right font-bold text-indigo-700">
                 {formatMoney(totalPayment)}
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-[13px] text-slate-500">
+                Tổng doanh thu
+              </label>
+              <div className="rounded border border-slate-300 bg-slate-50 px-3 py-2 text-right font-bold text-blue-700">
+                {formatMoney(totalRevenue)}
               </div>
             </div>
 
