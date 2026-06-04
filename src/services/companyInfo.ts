@@ -1,7 +1,9 @@
+import { APIGetMInvoiceReceiptPostCompanyInfo } from "./mInvoiceReceipt"
+
 export type CompanyInfo = {
-  taxCode: string
-  companyName: string
-  address: string
+  ma_so_thue: string
+  ten_cty: string
+  dia_chi: string
 }
 
 type ApiErrorBody = {
@@ -9,68 +11,140 @@ type ApiErrorBody = {
   error?: string
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object"
+}
+
 function getErrorMessage(body: unknown, fallback: string) {
-  if (!body || typeof body !== "object") return fallback
+  if (!isRecord(body)) return fallback
 
   const errorBody = body as ApiErrorBody
   return errorBody.message || errorBody.error || fallback
 }
 
-export function normalizeCompanyInfoResponse(response: any): CompanyInfo | null {
-  const content =
-    response?.content ?? response?.data?.content ?? response?.data ?? response
+function hasCompanyInfoFields(content: Record<string, unknown>) {
+  return [
+    "ma_so_thue",
+    "ten_cty",
+    "dia_chi",
+    "taxCode",
+    "tax_code",
+    "company_name",
+    "companyName",
+    "address",
+  ].some((key) => content[key] !== undefined && content[key] !== null)
+}
 
-  if (!content || typeof content !== "object") return null
+function getResponseContent(response: unknown) {
+  let content = response
 
-  const taxCode = String(
-    content.taxCode || content.tax_code || content.inv_buyerTaxCode || ""
-  ).trim()
-  const companyName = String(
-    content.company_name ||
-      content.companyName ||
-      content.inv_buyerLegalName ||
-      content.inv_buyerDisplayName ||
-      ""
-  ).trim()
-  const address = String(
-    content.address || content.inv_buyerAddressLine || ""
-  ).trim()
+  for (let index = 0; index < 5; index += 1) {
+    if (!isRecord(content)) return content
 
-  if (!taxCode || !companyName || !address) return null
+    if (hasCompanyInfoFields(content)) return content
+
+    const nextContent = content.content ?? content.data ?? content.result
+
+    if (nextContent === undefined || nextContent === content) {
+      return content
+    }
+
+    content = nextContent
+  }
+
+  return content
+}
+
+function getTrimmedString(
+  content: Record<string, unknown>,
+  keys: string[]
+): string {
+  for (const key of keys) {
+    const value = content[key]
+
+    if (value !== undefined && value !== null) {
+      const text = String(value).trim()
+
+      if (text) return text
+    }
+  }
+
+  return ""
+}
+
+function getAxiosErrorBody(error: unknown) {
+  if (!isRecord(error)) return null
+
+  const response = error.response
+
+  if (!isRecord(response)) return null
+
+  return response.data
+}
+
+export function normalizeCompanyInfoResponse(
+  response: unknown
+): CompanyInfo | null {
+  const content = getResponseContent(response)
+
+  if (!isRecord(content)) return null
+
+  const ma_so_thue = getTrimmedString(content, [
+    "ma_so_thue",
+    "taxCode",
+    "tax_code",
+    "inv_buyerTaxCode",
+  ])
+  const ten_cty = getTrimmedString(content, [
+    "ten_cty",
+    "company_name",
+    "companyName",
+    "inv_buyerLegalName",
+    "inv_buyerDisplayName",
+  ])
+  const dia_chi = getTrimmedString(content, [
+    "dia_chi",
+    "address",
+    "inv_buyerAddressLine",
+  ])
+
+  if (!ma_so_thue || !ten_cty || !dia_chi) return null
 
   return {
-    taxCode,
-    companyName,
-    address,
+    ma_so_thue,
+    ten_cty,
+    dia_chi,
   }
 }
 
 export async function APIGetCompanyInfo(taxCode: string) {
-  const response = await fetch(
-    `/api/company-info?taxCode=${encodeURIComponent(taxCode)}`,
-    {
-      headers: {
-        Accept: "application/json",
-      },
-      cache: "no-store",
+  try {
+    const body = await APIGetMInvoiceReceiptPostCompanyInfo(taxCode)
+    const companyInfo = normalizeCompanyInfoResponse(body)
+
+    if (!companyInfo) {
+      throw new Error(
+        getErrorMessage(body, "Không tìm thấy thông tin doanh nghiệp.")
+      )
     }
-  )
 
-  const body = await response.json().catch(() => null)
+    return companyInfo
+  } catch (error) {
+    const errorBody = getAxiosErrorBody(error)
 
-  if (!response.ok) {
-    throw new Error(
-      getErrorMessage(body, "Không thể tra cứu thông tin doanh nghiệp.")
-    )
+    if (errorBody) {
+      throw new Error(
+        getErrorMessage(
+          errorBody,
+          "Không thể tra cứu thông tin doanh nghiệp."
+        )
+      )
+    }
+
+    if (error instanceof Error) {
+      throw error
+    }
+
+    throw new Error("Không thể tra cứu thông tin doanh nghiệp.")
   }
-
-  const companyInfo = normalizeCompanyInfoResponse(body)
-
-  if (!companyInfo) {
-    throw new Error(
-      getErrorMessage(body, "Không tìm thấy thông tin doanh nghiệp.")
-    )
-  }
-
-  return companyInfo
 }

@@ -395,9 +395,9 @@ export default function InvoiceCreateForm({
 
       setGeneral((prev) => ({
         ...prev,
-        taxCode: companyInfo.taxCode,
-        companyName: companyInfo.companyName,
-        address: companyInfo.address,
+        taxCode: companyInfo.ma_so_thue,
+        companyName: companyInfo.ten_cty,
+        address: companyInfo.dia_chi,
       }))
       setFieldErrors((prev) => ({
         ...prev,
