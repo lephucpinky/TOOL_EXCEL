@@ -28,6 +28,15 @@ type Props = {
   exportingInvoiceId?: string | null
   onViewMInvoicePdf?: (row: InvoiceApiRow) => void
   onCollectPayment?: (row: InvoiceApiRow) => void
+  pagination?: {
+    currentPage: number
+    pageSize: number
+    totalItems: number
+    onPageChange: (page: number) => void
+    onPageSizeChange: (pageSize: number) => void
+    pageSizeOptions?: number[]
+    syncUrl?: boolean
+  }
 }
 
 type InvoiceProductValue =
@@ -43,6 +52,7 @@ export default function InvoiceDataTable({
   exportingInvoiceId = null,
   onViewMInvoicePdf,
   onCollectPayment,
+  pagination,
 }: Props) {
   const [keyword, setKeyword] = useState("")
   const [filterOpen, setFilterOpen] = useState(false)
@@ -61,6 +71,9 @@ export default function InvoiceDataTable({
   const [agencyFilter, setAgencyFilter] = useState("")
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
+  const isExternalPagination = Boolean(pagination)
+  const effectivePage = pagination?.currentPage ?? page
+  const effectivePageSize = pagination?.pageSize ?? pageSize
 
   const invoiceStatusLabel = invoiceHelper.invoiceStatusLabel
   const invoiceStatusClass = invoiceHelper.invoiceStatusClass
@@ -372,8 +385,11 @@ export default function InvoiceDataTable({
   ])
 
   useEffect(() => {
+    if (isExternalPagination) return
+
     setPage(1)
   }, [
+    isExternalPagination,
     rows,
     keyword,
     fromDate,
@@ -382,10 +398,13 @@ export default function InvoiceDataTable({
     orderCreateFilter,
     agencyFilter,
   ])
-  const totalPages = Math.max(Math.ceil(filteredRows.length / pageSize), 1)
-  const safePage = Math.min(page, totalPages)
-  const startIndex = (safePage - 1) * pageSize
-  const pageRows = filteredRows.slice(startIndex, startIndex + pageSize)
+  const totalItems = pagination?.totalItems ?? filteredRows.length
+  const totalPages = Math.max(Math.ceil(totalItems / effectivePageSize), 1)
+  const safePage = Math.min(effectivePage, totalPages)
+  const startIndex = (safePage - 1) * effectivePageSize
+  const pageRows = isExternalPagination
+    ? filteredRows
+    : filteredRows.slice(startIndex, startIndex + effectivePageSize)
 
   const summary = useMemo(() => {
     return filteredRows.reduce(
@@ -865,14 +884,18 @@ export default function InvoiceDataTable({
 
       <Pagination
         currentPage={safePage}
-        setCurrentPage={setPage}
-        totalItem={filteredRows.length}
-        itemPerPage={pageSize}
-        setItemPerPage={(nextPageSize) => {
-          setPage(1)
-          setPageSize(nextPageSize)
-        }}
-        pageSizeOptions={[10, 20, 50, 100]}
+        setCurrentPage={pagination?.onPageChange ?? setPage}
+        totalItem={totalItems}
+        itemPerPage={effectivePageSize}
+        setItemPerPage={
+          pagination?.onPageSizeChange ??
+          ((nextPageSize) => {
+            setPage(1)
+            setPageSize(nextPageSize)
+          })
+        }
+        pageSizeOptions={pagination?.pageSizeOptions ?? [10, 20, 50, 100]}
+        syncUrl={pagination?.syncUrl}
       />
     </div>
   )

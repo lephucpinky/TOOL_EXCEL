@@ -38,6 +38,7 @@ type DataTablePagination =
       initialPageSize?: number
       pageSizeOptions?: number[]
       itemLabel?: string
+      syncUrl?: boolean
     }
 
 export interface DataTableProps<T> {
@@ -533,6 +534,11 @@ export function DataTable<T>({
           itemPerPage={effectivePageSize}
           setItemPerPage={handleItemsPerPageChange}
           pageSizeOptions={pageSizeOptions}
+          syncUrl={
+            pagination && pagination !== true
+              ? Boolean(pagination.syncUrl)
+              : false
+          }
         />
       )}
     </div>

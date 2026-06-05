@@ -5,12 +5,23 @@ import type { UserAccount, UserRole } from "@/types/user"
 type ApiResponse<T> = {
   data: T
   status: number
+  total?: number
+  page?: number
+  limit?: number
+  totalPages?: number
 }
 
 function normalizeResponse<T>(response: any): ApiResponse<T> {
+  const body = response.data
+
   return {
-    data: response.data?.content ?? response.data?.data ?? response.data,
+    data: body?.content ?? body?.data ?? body,
     status: response.status,
+    total: body?.total ?? body?.content?.total ?? body?.data?.total,
+    page: body?.page ?? body?.content?.page ?? body?.data?.page,
+    limit: body?.limit ?? body?.content?.limit ?? body?.data?.limit,
+    totalPages:
+      body?.totalPages ?? body?.content?.totalPages ?? body?.data?.totalPages,
   }
 }
 

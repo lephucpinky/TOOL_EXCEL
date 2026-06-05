@@ -48,13 +48,11 @@ import {
 import {
   createAlreadyIssuingResolution,
   createInvoiceExportFailureResolution,
-  createRateLimitedResolution,
   getInvoiceExportAlertMessage,
   getInvoiceExportErrorAlertMessage,
   type InvoiceExportContext,
   type InvoiceExportResolution,
   isInvoiceAlreadyBeingIssuedError,
-  isInvoiceExportRateLimitedError,
   resolveInvoiceExportResultWithJobStatus,
 } from "@/utils/invoiceExport"
 import { toNumber } from "@/utils/excel"
@@ -1415,15 +1413,6 @@ export default function InvoiceCreateForm({
         const resolution = createAlreadyIssuingResolution(err, exportContext)
         await onExported?.(initialInvoice._id, resolution)
         showSuccessMessage(getInvoiceExportAlertMessage(resolution))
-        return
-      }
-
-      if (isInvoiceExportRateLimitedError(err)) {
-        const resolution = createRateLimitedResolution(err, exportContext)
-        await onExported?.(initialInvoice._id, resolution)
-        showErrorMessage(
-          getInvoiceExportErrorAlertMessage(resolution, initialInvoice)
-        )
         return
       }
 

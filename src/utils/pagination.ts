@@ -10,6 +10,32 @@ type FetchAllPagesOptions<T> = {
   getKey?: (item: T) => string
 }
 
+export const DEFAULT_URL_PAGE = 1
+export const DEFAULT_URL_LIMIT = 10
+export const URL_PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
+
+export function getPositiveInteger(
+  value: string | number | null | undefined,
+  fallback: number
+) {
+  const numberValue = Number(value)
+
+  if (Number.isFinite(numberValue) && numberValue > 0) {
+    return Math.floor(numberValue)
+  }
+
+  return fallback
+}
+
+export function getUrlPaginationParams(
+  searchParams: Pick<URLSearchParams, "get">
+) {
+  return {
+    page: getPositiveInteger(searchParams.get("page"), DEFAULT_URL_PAGE),
+    limit: getPositiveInteger(searchParams.get("limit"), DEFAULT_URL_LIMIT),
+  }
+}
+
 function normalizePageItems<T>(value: unknown): T[] {
   if (Array.isArray(value)) return value as T[]
   if (!value || typeof value !== "object") return []
@@ -46,7 +72,7 @@ export async function fetchAllPages<
   options?: FetchAllPagesOptions<T>
 ) {
   const pageSize = options?.pageSize ?? 250
-  const maxPages = options?.maxPages ?? 1000
+  const maxPages = options?.maxPages ?? 10000000
   const getKey = options?.getKey ?? getDefaultItemKey
   const seenKeys = new Set<string>()
   const items: T[] = []

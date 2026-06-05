@@ -24,11 +24,13 @@ import {
   UsersRound,
 } from "lucide-react"
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import ActionModal from "@/components/modal/ActionModal"
-import { fetchAllPages } from "@/utils/pagination"
-
-const LIST_PARAMS = {}
+import {
+  getUrlPaginationParams,
+  URL_PAGE_SIZE_OPTIONS,
+} from "@/utils/pagination"
 
 const ROLE_OPTIONS: Array<{
   value: UserRole
@@ -47,8 +49,29 @@ type UserFormValues = {
   isActive: boolean
 }
 
+function normalizeUserList(value: unknown): UserAccount[] {
+  if (Array.isArray(value)) return value
+  if (!value || typeof value !== "object") return []
+
+  const candidate = value as Record<string, unknown>
+
+  if (Array.isArray(candidate.items)) return candidate.items as UserAccount[]
+  if (Array.isArray(candidate.docs)) return candidate.docs as UserAccount[]
+  if (Array.isArray(candidate.results)) return candidate.results as UserAccount[]
+  if (Array.isArray(candidate.data)) return candidate.data as UserAccount[]
+
+  return []
+}
+
 export default function AccountManagementPage() {
+  const searchParams = useSearchParams()
   const [users, setUsers] = useState<UserAccount[]>([])
+  const [userPagination, setUserPagination] = useState({
+    total: 0,
+    page: 1,
+    limit: 10,
+    totalPages: 1,
+  })
   const [selectedUser, setSelectedUser] = useState<UserAccount | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<UserAccount | null>(null)
 
@@ -82,6 +105,17 @@ export default function AccountManagementPage() {
 
   const isViewMode = mode === "view"
   const isEditMode = mode === "edit"
+  const { page: listPage, limit: listLimit } =
+    getUrlPaginationParams(searchParams)
+  const listParams = useMemo(
+    () => ({
+      page: listPage,
+      limit: listLimit,
+      keyword: keyword.trim() || undefined,
+      role: roleFilter === "ALL" ? undefined : roleFilter,
+    }),
+    [keyword, listLimit, listPage, roleFilter]
+  )
 
   const showSuccessMessage = useCallback((text: string) => {
     if (successTimerRef.current) {
@@ -121,7 +155,25 @@ export default function AccountManagementPage() {
     setLoading(true)
 
     try {
-      setUsers(await fetchAllPages<UserAccount>(APIGetUsers, LIST_PARAMS))
+      const response = await APIGetUsers(listParams)
+      const nextUsers = normalizeUserList(response.data)
+
+      setUsers(nextUsers)
+      setUserPagination({
+        total: Math.max(Number(response.total ?? nextUsers.length), 0),
+        page: Math.max(Number(response.page ?? listPage), 1),
+        limit: Math.max(Number(response.limit ?? listLimit), 1),
+        totalPages: Math.max(
+          Number(
+            response.totalPages ??
+              Math.ceil(
+                Number(response.total ?? nextUsers.length) /
+                  Math.max(Number(response.limit ?? listLimit), 1)
+              )
+          ),
+          1
+        ),
+      })
     } catch (error) {
       showErrorMessage(
         getErrorMessage(error) || "Không thể tải danh sách tài khoản"
@@ -129,7 +181,7 @@ export default function AccountManagementPage() {
     } finally {
       setLoading(false)
     }
-  }, [showErrorMessage])
+  }, [listLimit, listPage, listParams, showErrorMessage])
 
   useEffect(() => {
     void fetchUsers()
@@ -429,7 +481,16 @@ export default function AccountManagementPage() {
           loading={loading}
           emptyText="Chưa có dữ liệu tài khoản"
           getRowKey={(item) => item._id || ""}
-          pagination={{ itemLabel: "tài khoản" }}
+          pagination={{
+            itemLabel: "tài khoản",
+            pageSizeOptions: URL_PAGE_SIZE_OPTIONS,
+            syncUrl: true,
+          }}
+          totalItems={userPagination.total}
+          currentPage={listPage}
+          setCurrentPage={() => undefined}
+          itemsPerPage={listLimit}
+          setItemsPerPage={() => undefined}
           onView={(user) => void openUserDialog(user, "view")}
           onEdit={(user) => void openUserDialog(user, "edit")}
           onDelete={onDeleteClick}

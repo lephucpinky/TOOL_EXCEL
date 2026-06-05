@@ -26,11 +26,16 @@ import {
   UploadCloud,
   UsersRound,
 } from "lucide-react"
+import { useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
 import { Controller, useForm } from "react-hook-form"
 import PageHeader from "../../../components/header/PageHeader"
 import ActionModal from "@/components/modal/ActionModal"
 import { useTransientAlert } from "@/hooks/useTransientAlert"
+import {
+  getUrlPaginationParams,
+  URL_PAGE_SIZE_OPTIONS,
+} from "@/utils/pagination"
 
 type AgencyFormValues = {
   agencyName: string
@@ -149,6 +154,7 @@ function getAgencyEmployeeId(value: Agency["employeeId"] | string | undefined) {
 }
 
 export default function Page() {
+  const searchParams = useSearchParams()
   const dispatch = useAppDispatch()
   const {
     items: agencies,
@@ -157,6 +163,7 @@ export default function Page() {
     detailLoading,
     submitLoading,
     deleteLoading,
+    pagination: agencyPagination,
   } = useAppSelector((state) => state.agencies)
   const { items: employees, loading: employeeLoading } = useAppSelector(
     (state) => state.employees
@@ -188,6 +195,12 @@ export default function Page() {
   const isViewMode = mode === "view"
   const isEditMode = mode === "edit"
   const isCreateMode = mode === "create"
+  const { page: listPage, limit: listLimit } =
+    getUrlPaginationParams(searchParams)
+  const listParams = useMemo(
+    () => ({ page: listPage, limit: listLimit }),
+    [listPage, listLimit]
+  )
 
   const employeeOptions = useMemo(
     () =>
@@ -199,7 +212,7 @@ export default function Page() {
   )
 
   useEffect(() => {
-    void dispatch(agencyThunks.fetchAll(LIST_PARAMS))
+    void dispatch(agencyThunks.fetchPage(listParams))
       .unwrap()
       .catch((error) => {
         showErrorMessage(
@@ -214,7 +227,7 @@ export default function Page() {
           getErrorMessage(error) || "Không thể tải danh sách nhân viên"
         )
       })
-  }, [dispatch])
+  }, [dispatch, listParams])
 
   const columns = useMemo<DataTableColumn<Agency>[]>(
     () => [
@@ -336,7 +349,7 @@ export default function Page() {
   }
 
   const handleRefreshAgencies = async () => {
-    await dispatch(agencyThunks.fetchAll(LIST_PARAMS)).unwrap()
+    await dispatch(agencyThunks.fetchPage(listParams)).unwrap()
   }
 
   const onRefreshAgencies = async () => {
@@ -585,7 +598,16 @@ export default function Page() {
           loading={loading}
           emptyText="Chưa có dữ liệu đại lý"
           getRowKey={(item) => item._id}
-          pagination={{ itemLabel: "đại lý" }}
+          pagination={{
+            itemLabel: "đại lý",
+            pageSizeOptions: URL_PAGE_SIZE_OPTIONS,
+            syncUrl: true,
+          }}
+          totalItems={agencyPagination.total}
+          currentPage={listPage}
+          setCurrentPage={() => undefined}
+          itemsPerPage={listLimit}
+          setItemsPerPage={() => undefined}
           onView={onView}
           onEdit={onEdit}
           onDelete={onDeleteClick}

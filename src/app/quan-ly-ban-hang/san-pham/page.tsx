@@ -23,13 +23,16 @@ import {
   RefreshCcw,
   UploadCloud,
 } from "lucide-react"
+import { useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import PageHeader from "../../../components/header/PageHeader"
 import ActionModal from "@/components/modal/ActionModal"
 import { useTransientAlert } from "@/hooks/useTransientAlert"
-
-const LIST_PARAMS = {}
+import {
+  getUrlPaginationParams,
+  URL_PAGE_SIZE_OPTIONS,
+} from "@/utils/pagination"
 
 const emptyForm: ProductPayload = {
   inv_itemName: "",
@@ -168,6 +171,7 @@ function buildProductFormValues(detail: Product | null): ProductPayload {
 }
 
 export default function ProductPage() {
+  const searchParams = useSearchParams()
   const dispatch = useAppDispatch()
   const {
     items: products,
@@ -176,7 +180,14 @@ export default function ProductPage() {
     detailLoading,
     submitLoading,
     deleteLoading,
+    pagination: productPagination,
   } = useAppSelector((state) => state.products)
+  const { page: listPage, limit: listLimit } =
+    getUrlPaginationParams(searchParams)
+  const listParams = useMemo(
+    () => ({ page: listPage, limit: listLimit }),
+    [listPage, listLimit]
+  )
 
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null)
   const [mode, setMode] = useState<ModeType>("create")
@@ -205,14 +216,14 @@ export default function ProductPage() {
   const isCreateMode = mode === "create"
 
   useEffect(() => {
-    void dispatch(productThunks.fetchAll(LIST_PARAMS))
+    void dispatch(productThunks.fetchPage(listParams))
       .unwrap()
       .catch((error) => {
         showErrorMessage(
           getErrorMessage(error) || "Không thể tải danh sách sản phẩm"
         )
       })
-  }, [dispatch])
+  }, [dispatch, listParams])
 
   const columns = useMemo<DataTableColumn<Product>[]>(
     () => [
@@ -304,7 +315,7 @@ export default function ProductPage() {
   }
 
   const handleRefreshProducts = async () => {
-    await dispatch(productThunks.fetchAll(LIST_PARAMS)).unwrap()
+    await dispatch(productThunks.fetchPage(listParams)).unwrap()
   }
 
   const onRefreshProducts = async () => {
@@ -555,7 +566,16 @@ export default function ProductPage() {
           loading={loading}
           emptyText="Chưa có dữ liệu sản phẩm"
           getRowKey={(item) => item._id}
-          pagination={{ itemLabel: "sản phẩm" }}
+          pagination={{
+            itemLabel: "sản phẩm",
+            pageSizeOptions: URL_PAGE_SIZE_OPTIONS,
+            syncUrl: true,
+          }}
+          totalItems={productPagination.total}
+          currentPage={listPage}
+          setCurrentPage={() => undefined}
+          itemsPerPage={listLimit}
+          setItemsPerPage={() => undefined}
           onView={onView}
           onEdit={onEdit}
           onDelete={onDeleteClick}

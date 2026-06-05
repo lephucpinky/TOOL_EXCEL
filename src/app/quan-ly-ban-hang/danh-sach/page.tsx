@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import { ReceiptText, Settings2 } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 
@@ -29,17 +30,21 @@ import { APIGetReceiptInvoices } from "@/services/receiptInvoice"
 import * as invoiceHelper from "@/utils/invoice"
 import { buildCreateInvoiceApiBody } from "@/utils/invoicePayload"
 import {
+  DEFAULT_URL_LIMIT,
+  DEFAULT_URL_PAGE,
+  getUrlPaginationParams,
+  URL_PAGE_SIZE_OPTIONS,
+} from "@/utils/pagination"
+import {
   applyInvoiceExportResolutionToRow,
   createAlreadyIssuingResolution,
   createInvoiceExportFailureResolution,
-  createRateLimitedResolution,
   getInvoiceExportAlertMessage,
   getInvoiceExportErrorAlertMessage,
   getInvoiceExportJobId,
   type InvoiceExportContext,
   type InvoiceExportResolution,
   isInvoiceAlreadyBeingIssuedError,
-  isInvoiceExportRateLimitedError,
   resolveInvoiceExportResult,
   resolveInvoiceExportResultWithJobStatus,
 } from "@/utils/invoiceExport"
@@ -48,7 +53,6 @@ import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import {
   createSaleTransactionThunk,
   fetchSaleTransactionByIdThunk,
-  fetchSaleTransactionsThunk,
   saleTransactionActions,
   updateSaleTransactionBankThunk,
   updateSaleTransactionThunk,
@@ -88,12 +92,8 @@ type ApiErrorLike = {
 const DEPARTMENT_OVERRIDE_STORAGE_KEY =
   "minvoice.saleTransaction.departmentOverrides"
 
-const LIST_PARAMS = {
-  page: 1,
-  limit: 1000,
-}
-
 export default function InvoiceListPage() {
+  const searchParams = useSearchParams()
   const dispatch = useAppDispatch()
   const {
     items: apiRows,
@@ -110,6 +110,22 @@ export default function InvoiceListPage() {
     detailLoading ||
     submitLoading ||
     deleteLoading
+
+  const { page: listPage, limit: listLimit } =
+    getUrlPaginationParams(searchParams)
+  const listParams = useMemo(
+    () => ({
+      page: listPage,
+      limit: listLimit,
+    }),
+    [listPage, listLimit]
+  )
+  const [listPagination, setListPagination] = useState({
+    page: DEFAULT_URL_PAGE,
+    limit: DEFAULT_URL_LIMIT,
+    total: 0,
+    totalPages: 1,
+  })
 
   const [mode, setMode] = useState<PageMode>("list")
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(
@@ -645,7 +661,7 @@ export default function InvoiceListPage() {
         await new Promise<void>((resolve) => setTimeout(resolve, 1000))
       }
 
-      const response = await APIGetSaleTransactions(LIST_PARAMS)
+      const response = await APIGetSaleTransactions(listParams)
       latestRows = invoiceHelper.normalizeSaleTransactionList(response)
 
       const latestRow =
@@ -772,17 +788,6 @@ export default function InvoiceListPage() {
           .then((result) => {
             if (!isCurrentRefresh()) return
 
-            if (isInvoiceExportRateLimitedError(result?.response)) {
-              finalizeRefresh(
-                createRateLimitedResolution(
-                  result?.response,
-                  exportContext,
-                  "Hệ thống trả về 429 khi kiểm tra kết quả xuất hóa đơn."
-                )
-              )
-              return
-            }
-
             const nextResolution = result?.resolution || null
 
             if (
@@ -810,17 +815,11 @@ export default function InvoiceListPage() {
             if (!isCurrentRefresh()) return
 
             finalizeRefresh(
-              isInvoiceExportRateLimitedError(error)
-                ? createRateLimitedResolution(
-                    error,
-                    exportContext,
-                    "Hệ thống trả về 429 khi kiểm tra kết quả xuất hóa đơn."
-                  )
-                : createInvoiceExportFailureResolution(
-                    error,
-                    exportContext,
-                    "Xuất hóa đơn thất bại."
-                  )
+              createInvoiceExportFailureResolution(
+                error,
+                exportContext,
+                "Xuất hóa đơn thất bại."
+              )
             )
           })
       }, delay)
@@ -878,14 +877,15 @@ export default function InvoiceListPage() {
 
   const handleGetSaleTransactions = async () => {
     try {
+      setPageLoading(true)
+
       const previousRows = apiRowsRef.current
       const previousRowMap = new Map(
         previousRows.map((item) => [item._id, item])
       )
 
-      const rows = await dispatch(
-        fetchSaleTransactionsThunk(LIST_PARAMS)
-      ).unwrap()
+      const response = await APIGetSaleTransactions(listParams)
+      const rows = invoiceHelper.normalizeSaleTransactionList(response)
 
       const nextRows = rows.map((row) => {
         const fallback = previousRowMap.get(row._id)
@@ -897,12 +897,36 @@ export default function InvoiceListPage() {
 
       apiRowsRef.current = nextRows
       dispatch(saleTransactionActions.setSaleTransactions(nextRows))
+
+      const responseMeta = response as any
+      const total = Math.max(Number(responseMeta.total ?? nextRows.length), 0)
+      const limit = Math.max(Number(responseMeta.limit ?? listParams.limit), 1)
+      const totalPages = Math.max(
+        Number(responseMeta.totalPages ?? Math.ceil(total / limit)),
+        1
+      )
+
+      setListPagination({
+        page: Math.max(Number(responseMeta.page ?? listParams.page), 1),
+        limit,
+        total,
+        totalPages,
+      })
     } catch (error) {
       console.error("APIGetSaleTransactions error:", error)
       replaceInvoiceRows(() => [])
+      setListPagination((current) => ({
+        ...current,
+        page: listParams.page,
+        limit: listParams.limit,
+        total: 0,
+        totalPages: 1,
+      }))
       showErrorMessage(
         getErrorAlertMessage(error, "Không thể tải danh sách hóa đơn")
       )
+    } finally {
+      setPageLoading(false)
     }
   }
 
@@ -927,6 +951,9 @@ export default function InvoiceListPage() {
 
   useEffect(() => {
     void handleGetSaleTransactions()
+  }, [listPage, listLimit])
+
+  useEffect(() => {
     void handleGetReceiptConfigs()
   }, [])
 
@@ -1628,18 +1655,6 @@ export default function InvoiceListPage() {
         return
       }
 
-      if (isInvoiceExportRateLimitedError(error)) {
-        const resolution = createRateLimitedResolution(error, exportContext)
-
-        handleInvoiceExported(row._id, resolution, {
-          openDetail: false,
-          fallbackRow: row,
-        })
-
-        showErrorMessage(getInvoiceExportErrorAlertMessage(resolution, row))
-        return
-      }
-
       const resolution = createInvoiceExportFailureResolution(
         error,
         exportContext,
@@ -1775,6 +1790,15 @@ export default function InvoiceListPage() {
                 exportingInvoiceId={exportingInvoiceId}
                 onViewMInvoicePdf={handleViewMInvoicePdf}
                 onCollectPayment={handleOpenCollectPayment}
+                pagination={{
+                  currentPage: listPage,
+                  pageSize: listLimit,
+                  totalItems: listPagination.total,
+                  onPageChange: () => undefined,
+                  onPageSizeChange: () => undefined,
+                  pageSizeOptions: URL_PAGE_SIZE_OPTIONS,
+                  syncUrl: true,
+                }}
               />
             </div>
           </>

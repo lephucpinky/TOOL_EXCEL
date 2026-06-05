@@ -49,6 +49,13 @@ type NormalizedResponse<T> = {
   status: number
 }
 
+export type SaleTransactionListResponse = NormalizedResponse<any> & {
+  total?: number
+  page?: number
+  limit?: number
+  totalPages?: number
+}
+
 const normalizeResponse = <T>(
   response: AxiosResponse<ApiEnvelope<T> | T>
 ): NormalizedResponse<T> => {
@@ -66,6 +73,47 @@ const normalizeResponse = <T>(
   return {
     data: body as T,
     status: response.status,
+  }
+}
+
+const readNumberMeta = (
+  sources: unknown[],
+  keys: string[]
+): number | undefined => {
+  for (const source of sources) {
+    if (!source || typeof source !== "object") continue
+
+    const candidate = source as Record<string, unknown>
+
+    for (const key of keys) {
+      const value = Number(candidate[key])
+
+      if (Number.isFinite(value)) return value
+    }
+  }
+
+  return undefined
+}
+
+const normalizeSaleTransactionListResponse = (
+  response: AxiosResponse<ApiEnvelope<unknown> | unknown>
+): SaleTransactionListResponse => {
+  const normalized = normalizeResponse<any>(response)
+  const body = response.data as any
+  const sources = [
+    body,
+    body?.content,
+    body?.data,
+    body?.result,
+    normalized.data,
+  ]
+
+  return {
+    ...normalized,
+    total: readNumberMeta(sources, ["total", "totalItems", "count"]),
+    page: readNumberMeta(sources, ["page", "currentPage"]),
+    limit: readNumberMeta(sources, ["limit", "pageSize", "perPage"]),
+    totalPages: readNumberMeta(sources, ["totalPages", "pages", "lastPage"]),
   }
 }
 
@@ -141,7 +189,7 @@ const APIGetSaleTransactions = async (params?: SaleTransactionListParams) => {
   const response = await axiosInstance.get("/sale-transaction", { params })
 
   if (response.status >= 200 && response.status < 300) {
-    return normalizeResponse<InvoiceApiRow[]>(response)
+    return normalizeSaleTransactionListResponse(response)
   }
 
   return response

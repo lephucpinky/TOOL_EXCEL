@@ -16,11 +16,16 @@ import { bankActions, bankThunks } from "@/store/slices"
 import { getErrorMessage } from "@/store/utils/crud"
 import { Bank, BankPayload } from "@/types/bank"
 import { Landmark, Loader2, Plus, RefreshCcw, UploadCloud } from "lucide-react"
+import { useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import PageHeader from "../../../components/header/PageHeader"
 import ActionModal from "@/components/modal/ActionModal"
 import { useTransientAlert } from "@/hooks/useTransientAlert"
+import {
+  getUrlPaginationParams,
+  URL_PAGE_SIZE_OPTIONS,
+} from "@/utils/pagination"
 
 const emptyForm: BankPayload = {
   inv_buyerBankName: "",
@@ -67,6 +72,7 @@ function buildBankFormValues(detail: Bank | null): BankPayload {
 }
 
 export default function BankPage() {
+  const searchParams = useSearchParams()
   const dispatch = useAppDispatch()
   const {
     items: banks,
@@ -75,7 +81,14 @@ export default function BankPage() {
     detailLoading,
     submitLoading,
     deleteLoading,
+    pagination: bankPagination,
   } = useAppSelector((state) => state.banks)
+  const { page: listPage, limit: listLimit } =
+    getUrlPaginationParams(searchParams)
+  const listParams = useMemo(
+    () => ({ page: listPage, limit: listLimit }),
+    [listPage, listLimit]
+  )
 
   const [deleteTarget, setDeleteTarget] = useState<Bank | null>(null)
   const [mode, setMode] = useState<ModeType>("create")
@@ -104,14 +117,14 @@ export default function BankPage() {
   const isCreateMode = mode === "create"
 
   useEffect(() => {
-    void dispatch(bankThunks.fetchAll(undefined))
+    void dispatch(bankThunks.fetchPage(listParams))
       .unwrap()
       .catch((error) => {
         showErrorMessage(
           getErrorMessage(error) || "Không thể tải danh sách ngân hàng"
         )
       })
-  }, [dispatch])
+  }, [dispatch, listParams])
 
   const columns = useMemo<DataTableColumn<Bank>[]>(
     () => [
@@ -170,7 +183,7 @@ export default function BankPage() {
   }
 
   const handleRefreshBanks = async () => {
-    await dispatch(bankThunks.fetchAll(undefined)).unwrap()
+    await dispatch(bankThunks.fetchPage(listParams)).unwrap()
   }
   const onRefreshBanks = async () => {
     try {
@@ -374,7 +387,16 @@ export default function BankPage() {
           onView={onView}
           onEdit={onEdit}
           onDelete={onDeleteClick}
-          pagination={{ itemLabel: "ngân hàng" }}
+          pagination={{
+            itemLabel: "ngân hàng",
+            pageSizeOptions: URL_PAGE_SIZE_OPTIONS,
+            syncUrl: true,
+          }}
+          totalItems={bankPagination.total}
+          currentPage={listPage}
+          setCurrentPage={() => undefined}
+          itemsPerPage={listLimit}
+          setItemsPerPage={() => undefined}
         />
       </div>
 

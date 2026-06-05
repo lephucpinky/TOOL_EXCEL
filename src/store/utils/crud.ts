@@ -8,6 +8,13 @@ import { fetchAllPages } from "@/utils/pagination"
 
 export type CrudStatus = "idle" | "loading" | "succeeded" | "failed"
 
+export type CrudPagination = {
+  page: number
+  limit: number
+  total: number
+  totalPages: number
+}
+
 export type CrudState<TItem> = {
   items: TItem[]
   current: TItem | null
@@ -18,11 +25,23 @@ export type CrudState<TItem> = {
   initialized: boolean
   error: string | null
   status: CrudStatus
+  pagination: CrudPagination
 }
 
 type CrudServiceResponse<TItem> = {
   data?: TItem | TItem[] | null
   status?: number
+  total?: number
+  totalItems?: number
+  count?: number
+  page?: number
+  currentPage?: number
+  limit?: number
+  pageSize?: number
+  perPage?: number
+  totalPages?: number
+  pages?: number
+  lastPage?: number
 }
 
 type CrudConfig<TItem, TPayload> = {
@@ -55,6 +74,62 @@ function normalizeList<TItem>(value: unknown): TItem[] {
 function normalizeItem<TItem>(value: unknown): TItem | null {
   if (!value || Array.isArray(value)) return null
   return value as TItem
+}
+
+function readNumberMeta(sources: unknown[], keys: string[]) {
+  for (const source of sources) {
+    if (!source || typeof source !== "object") continue
+
+    const candidate = source as Record<string, unknown>
+
+    for (const key of keys) {
+      const value = Number(candidate[key])
+
+      if (Number.isFinite(value)) return value
+    }
+  }
+
+  return undefined
+}
+
+function normalizePageResult<TItem>(
+  response: CrudServiceResponse<TItem>,
+  params?: Record<string, unknown>
+) {
+  const items = normalizeList<TItem>(response?.data)
+  const sources = [response, response?.data]
+  const requestedLimit =
+    readNumberMeta(sources, ["limit", "pageSize", "perPage"]) ??
+    Number(params?.limit)
+  const limitFallback = items.length || 10
+  const limit = Math.max(
+    Number.isFinite(requestedLimit) ? Number(requestedLimit) : limitFallback,
+    1
+  )
+  const total = Math.max(
+    readNumberMeta(sources, ["total", "totalItems", "count"]) ?? items.length,
+    0
+  )
+  const totalPages = Math.max(
+    readNumberMeta(sources, ["totalPages", "pages", "lastPage"]) ??
+      Math.ceil(total / limit),
+    1
+  )
+
+  return {
+    items,
+    pagination: {
+      page: Math.max(
+        readNumberMeta(sources, ["page", "currentPage"]) ??
+          Number(params?.page) ??
+          1,
+        1
+      ),
+      limit,
+      total,
+      totalPages,
+    },
+  }
 }
 
 export function getErrorMessage(error: unknown) {
@@ -97,6 +172,12 @@ function buildInitialState<TItem>(): CrudState<TItem> {
     initialized: false,
     error: null,
     status: "idle",
+    pagination: {
+      page: 1,
+      limit: 10,
+      total: 0,
+      totalPages: 1,
+    },
   }
 }
 
@@ -131,6 +212,14 @@ export function createCrudModule<TItem, TPayload>(
     `${config.name}/fetchAll`,
     async (params?: any) => {
       return fetchAllPages<TItem>(config.fetchAll, params)
+    }
+  )
+
+  const fetchPage = createAsyncThunk(
+    `${config.name}/fetchPage`,
+    async (params?: Record<string, unknown>) => {
+      const response = await config.fetchAll(params)
+      return normalizePageResult<TItem>(response, params)
     }
   )
 
@@ -183,6 +272,7 @@ export function createCrudModule<TItem, TPayload>(
     extraReducers: (builder) => {
       buildCrudReducers(builder, {
         fetchAll,
+        fetchPage,
         fetchById,
         createItem,
         updateItem,
@@ -197,6 +287,7 @@ export function createCrudModule<TItem, TPayload>(
     actions: slice.actions,
     thunks: {
       fetchAll,
+      fetchPage,
       fetchById,
       createItem,
       updateItem,
@@ -209,6 +300,11 @@ function buildCrudReducers<TItem>(
   builder: ActionReducerMapBuilder<CrudState<TItem>>,
   config: {
     fetchAll: AsyncThunk<TItem[], any, any>
+    fetchPage: AsyncThunk<
+      { items: TItem[]; pagination: CrudPagination },
+      Record<string, unknown> | undefined,
+      any
+    >
     fetchById: AsyncThunk<TItem | null, string, any>
     createItem: AsyncThunk<TItem | null, any, any>
     updateItem: AsyncThunk<TItem | null, { id: string; payload: any }, any>
@@ -229,6 +325,23 @@ function buildCrudReducers<TItem>(
       state.status = "succeeded"
     })
     .addCase(config.fetchAll.rejected, (state, action) => {
+      state.loading = false
+      state.error = getErrorMessage(action.error)
+      state.status = "failed"
+    })
+    .addCase(config.fetchPage.pending, (state) => {
+      state.loading = true
+      state.error = null
+      state.status = "loading"
+    })
+    .addCase(config.fetchPage.fulfilled, (state, action) => {
+      state.loading = false
+      state.initialized = true
+      state.items = action.payload.items as any
+      state.pagination = action.payload.pagination
+      state.status = "succeeded"
+    })
+    .addCase(config.fetchPage.rejected, (state, action) => {
       state.loading = false
       state.error = getErrorMessage(action.error)
       state.status = "failed"

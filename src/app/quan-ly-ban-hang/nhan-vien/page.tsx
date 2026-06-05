@@ -22,11 +22,16 @@ import { Department } from "@/types/department"
 import { Employee, EmployeePayload } from "@/types/employee"
 import { normalize } from "@/utils/excel"
 import { Loader2, Plus, RefreshCcw, UploadCloud, UserRound } from "lucide-react"
+import { useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import PageHeader from "../../../components/header/PageHeader"
 import ActionModal from "@/components/modal/ActionModal"
 import { useTransientAlert } from "@/hooks/useTransientAlert"
+import {
+  getUrlPaginationParams,
+  URL_PAGE_SIZE_OPTIONS,
+} from "@/utils/pagination"
 const LIST_PARAMS = {}
 const emptyForm: EmployeePayload = {
   employeeName: "",
@@ -122,6 +127,7 @@ function buildEmployeeFormValues(detail: Employee | null): EmployeePayload {
 }
 
 export default function EmployeePage() {
+  const searchParams = useSearchParams()
   const dispatch = useAppDispatch()
   const {
     items: employees,
@@ -130,6 +136,7 @@ export default function EmployeePage() {
     detailLoading,
     submitLoading,
     deleteLoading,
+    pagination: employeePagination,
   } = useAppSelector((state) => state.employees)
   const { items: departments, loading: departmentLoading } = useAppSelector(
     (state) => state.departments
@@ -160,9 +167,15 @@ export default function EmployeePage() {
   const isViewMode = mode === "view"
   const isEditMode = mode === "edit"
   const isCreateMode = mode === "create"
+  const { page: listPage, limit: listLimit } =
+    getUrlPaginationParams(searchParams)
+  const listParams = useMemo(
+    () => ({ page: listPage, limit: listLimit }),
+    [listPage, listLimit]
+  )
 
   useEffect(() => {
-    void dispatch(employeeThunks.fetchAll(LIST_PARAMS))
+    void dispatch(employeeThunks.fetchPage(listParams))
       .unwrap()
       .catch((error) => {
         showErrorMessage(
@@ -177,7 +190,7 @@ export default function EmployeePage() {
           getErrorMessage(error) || "Không thể tải danh sách phòng ban"
         )
       })
-  }, [dispatch])
+  }, [dispatch, listParams])
 
   const columns = useMemo<DataTableColumn<Employee>[]>(
     () => [
@@ -261,7 +274,7 @@ export default function EmployeePage() {
   }
 
   const handleRefreshEmployees = async () => {
-    await dispatch(employeeThunks.fetchAll(LIST_PARAMS)).unwrap()
+    await dispatch(employeeThunks.fetchPage(listParams)).unwrap()
   }
 
   const onRefreshEmployees = async () => {
@@ -509,7 +522,16 @@ export default function EmployeePage() {
           loading={loading}
           emptyText="Chưa có dữ liệu nhân viên"
           getRowKey={(item) => item._id}
-          pagination={{ itemLabel: "nhân viên" }}
+          pagination={{
+            itemLabel: "nhân viên",
+            pageSizeOptions: URL_PAGE_SIZE_OPTIONS,
+            syncUrl: true,
+          }}
+          totalItems={employeePagination.total}
+          currentPage={listPage}
+          setCurrentPage={() => undefined}
+          itemsPerPage={listLimit}
+          setItemsPerPage={() => undefined}
           onView={onView}
           onEdit={onEdit}
           onDelete={onDeleteClick}

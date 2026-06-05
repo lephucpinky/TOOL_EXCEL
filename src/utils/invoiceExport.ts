@@ -37,28 +37,6 @@ function normalizeSearchText(value: unknown) {
     .trim()
 }
 
-function getInvoiceExportStatusCode(source: any) {
-  const candidates = [
-    source?.statusCode,
-    source?.code,
-    source?.response?.status,
-    source?.response?.data?.statusCode,
-    source?.response?.data?.code,
-    source?.data?.statusCode,
-    source?.data?.code,
-  ]
-
-  for (const candidate of candidates) {
-    const value = Number(candidate)
-
-    if (Number.isFinite(value)) {
-      return value
-    }
-  }
-
-  return null
-}
-
 function buildExportData(value: any, context: InvoiceExportContext) {
   const source =
     value && typeof value === "object" && !Array.isArray(value) ? value : {}
@@ -145,30 +123,6 @@ export function isInvoiceAlreadyBeingIssuedError(error: any) {
         message.includes("dang duoc phat hanh") ||
         message.includes("dang phat hanh"))
   )
-}
-
-export function isInvoiceExportRateLimitedError(error: any) {
-  if (getInvoiceExportStatusCode(error) === 429) {
-    return true
-  }
-
-  const message = normalizeSearchText(getInvoiceExportMessage(error, ""))
-
-  return Boolean(message && message.includes("too many requests"))
-}
-
-export function getInvoiceExportRateLimitedMessage(
-  error: any,
-  fallback: string
-) {
-  const message = getInvoiceExportMessage(error, "")
-  const normalizedMessage = normalizeSearchText(message)
-
-  if (!message || normalizedMessage.includes("too many requests")) {
-    return fallback
-  }
-
-  return message
 }
 
 function getBooleanFlag(value: unknown) {
@@ -473,27 +427,6 @@ export function createInvoiceExportFailureResolution(
     },
     exportInvoiceId: "",
     message: getInvoiceExportFailureMessage(source, fallbackMessage),
-  }
-}
-
-export function createRateLimitedResolution(
-  error: any,
-  context: InvoiceExportContext,
-  fallbackMessage = "Hệ thống trả về 429 khi xuất hóa đơn."
-): InvoiceExportResolution {
-  const resolution = createInvoiceExportFailureResolution(
-    error,
-    context,
-    getInvoiceExportRateLimitedMessage(error, fallbackMessage)
-  )
-
-  return {
-    ...resolution,
-    exportData: {
-      ...resolution.exportData,
-      code: 429,
-      statusCode: 429,
-    },
   }
 }
 

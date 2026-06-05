@@ -2,13 +2,20 @@ import axiosInstance from "./axiosInstance"
 import { BankPayload } from "@/types/bank"
 
 const normalizeBankResponse = (response: any) => {
+  const body = response.data
+
   return {
     data:
-      response.data?.content ??
-      response.data?.data ??
-      response.data?.result ??
-      response.data,
+      body?.content ??
+      body?.data ??
+      body?.result ??
+      body,
     status: response.status,
+    total: body?.total ?? body?.content?.total ?? body?.data?.total,
+    page: body?.page ?? body?.content?.page ?? body?.data?.page,
+    limit: body?.limit ?? body?.content?.limit ?? body?.data?.limit,
+    totalPages:
+      body?.totalPages ?? body?.content?.totalPages ?? body?.data?.totalPages,
   }
 }
 

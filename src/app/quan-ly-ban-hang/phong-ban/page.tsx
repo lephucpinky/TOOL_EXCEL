@@ -16,13 +16,16 @@ import { departmentActions, departmentThunks } from "@/store/slices"
 import { getErrorMessage } from "@/store/utils/crud"
 import { Department, DepartmentPayload } from "@/types/department"
 import { Building2, Loader2, Plus, RefreshCcw, UploadCloud } from "lucide-react"
+import { useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import PageHeader from "../../../components/header/PageHeader"
 import ActionModal from "@/components/modal/ActionModal"
 import { useTransientAlert } from "@/hooks/useTransientAlert"
-
-const LIST_PARAMS = {}
+import {
+  getUrlPaginationParams,
+  URL_PAGE_SIZE_OPTIONS,
+} from "@/utils/pagination"
 
 const emptyForm: DepartmentPayload = {
   departmentName: "",
@@ -80,6 +83,7 @@ function buildDepartmentFormValues(
 }
 
 export default function DepartmentPage() {
+  const searchParams = useSearchParams()
   const dispatch = useAppDispatch()
   const {
     items: departments,
@@ -88,7 +92,14 @@ export default function DepartmentPage() {
     detailLoading,
     submitLoading,
     deleteLoading,
+    pagination: departmentPagination,
   } = useAppSelector((state) => state.departments)
+  const { page: listPage, limit: listLimit } =
+    getUrlPaginationParams(searchParams)
+  const listParams = useMemo(
+    () => ({ page: listPage, limit: listLimit }),
+    [listPage, listLimit]
+  )
 
   const [deleteTarget, setDeleteTarget] = useState<Department | null>(null)
   const [mode, setMode] = useState<ModeType>("create")
@@ -117,14 +128,14 @@ export default function DepartmentPage() {
   const isCreateMode = mode === "create"
 
   useEffect(() => {
-    void dispatch(departmentThunks.fetchAll(LIST_PARAMS))
+    void dispatch(departmentThunks.fetchPage(listParams))
       .unwrap()
       .catch((error) => {
         showErrorMessage(
           getErrorMessage(error) || "Không thể tải danh sách phòng ban"
         )
       })
-  }, [dispatch])
+  }, [dispatch, listParams])
 
   const columns = useMemo<DataTableColumn<Department>[]>(
     () => [
@@ -185,7 +196,7 @@ export default function DepartmentPage() {
   }
 
   const handleRefreshDepartments = async () => {
-    await dispatch(departmentThunks.fetchAll(LIST_PARAMS)).unwrap()
+    await dispatch(departmentThunks.fetchPage(listParams)).unwrap()
   }
 
   const onRefreshDepartments = async () => {
@@ -400,7 +411,16 @@ export default function DepartmentPage() {
           loading={loading}
           emptyText="Chưa có dữ liệu phòng ban"
           getRowKey={(item) => item._id}
-          pagination={{ itemLabel: "phòng ban" }}
+          pagination={{
+            itemLabel: "phòng ban",
+            pageSizeOptions: URL_PAGE_SIZE_OPTIONS,
+            syncUrl: true,
+          }}
+          totalItems={departmentPagination.total}
+          currentPage={listPage}
+          setCurrentPage={() => undefined}
+          itemsPerPage={listLimit}
+          setItemsPerPage={() => undefined}
           onView={onView}
           onEdit={onEdit}
           onDelete={onDeleteClick}
