@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useMemo, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, type ReactNode } from "react"
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -174,6 +174,7 @@ function ProgressRow({ item, total }: { item: StatusItem; total: number }) {
 
 export default function Page() {
   const dispatch = useAppDispatch()
+  const requestedDashboardDataRef = useRef(false)
   const isAuthenticated = useAppSelector((state) => state.auth.isAuthenticated)
   const {
     items: invoices,
@@ -181,6 +182,13 @@ export default function Page() {
     initialized,
     error,
   } = useAppSelector((state) => state.saleTransactions)
+
+  useEffect(() => {
+    if (!isAuthenticated || requestedDashboardDataRef.current) return
+
+    requestedDashboardDataRef.current = true
+    void dispatch(fetchSaleTransactionsThunk(LIST_PARAMS))
+  }, [dispatch, isAuthenticated])
 
   const dashboard = useMemo(() => {
     const summary = invoices.reduce(
@@ -194,7 +202,7 @@ export default function Page() {
         acc.totalInvoices += 1
         acc.totalRevenue += totalAmount
         acc.collected += collectedAmount
-        acc.remaining += Math.max(totalAmount - collectedAmount, 0)
+        acc.remaining += totalAmount - collectedAmount
 
         if (status === InvoiceStatus.ISSUED) acc.issued += 1
         else if (status === InvoiceStatus.DRAFT) acc.draft += 1

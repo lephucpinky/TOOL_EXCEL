@@ -113,7 +113,7 @@ export default function SalesShell({ children }: { children: ReactNode }) {
 
     categoryCloseTimerRef.current = setTimeout(() => {
       setCategoryMenuOpen(false)
-    }, 120)
+    }, 180)
   }
 
   const closeCategoryMenuImmediately = () => {
@@ -327,7 +327,6 @@ export default function SalesShell({ children }: { children: ReactNode }) {
                     type="button"
                     onMouseEnter={openCategoryMenu}
                     onMouseLeave={closeCategoryMenu}
-                    onFocus={openCategoryMenu}
                     onClick={(event) => {
                       event.preventDefault()
 
@@ -361,6 +360,7 @@ export default function SalesShell({ children }: { children: ReactNode }) {
                   sideOffset={8}
                   onMouseEnter={openCategoryMenu}
                   onMouseLeave={closeCategoryMenu}
+                  onCloseAutoFocus={(event) => event.preventDefault()}
                   className="w-56 overflow-hidden rounded-xl border border-slate-200 bg-white p-2 text-slate-900 shadow-xl shadow-slate-200/70"
                 >
                   <div className="space-y-1">

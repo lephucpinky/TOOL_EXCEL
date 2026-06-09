@@ -19,6 +19,22 @@ type Props = {
   onConfirm: () => void | Promise<void>
 }
 
+const moneyFormatter = new Intl.NumberFormat("vi-VN", {
+  maximumFractionDigits: 0,
+})
+
+function toNumber(value: unknown) {
+  const number = Number(value)
+
+  return Number.isFinite(number) ? number : 0
+}
+
+function parsePaymentAmount(value: string) {
+  const digits = String(value || "").replace(/[^\d]/g, "")
+
+  return digits ? Number(digits) : 0
+}
+
 export default function InvoiceCollectPaymentDialog({
   open,
   invoice,
@@ -36,6 +52,9 @@ export default function InvoiceCollectPaymentDialog({
 
   const companyName =
     invoice.inv_buyerLegalName || invoice.inv_buyerDisplayName || "-"
+  const totalAmount = toNumber(invoice.inv_TotalAmount)
+  const paidAmount = parsePaymentAmount(amountValue)
+  const differenceAmount = totalAmount - paidAmount
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/45 p-4">
@@ -77,8 +96,15 @@ export default function InvoiceCollectPaymentDialog({
               </span>
             </div>
 
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-slate-500">Tổng giá trị hóa đơn</span>
+              <span className="font-semibold text-slate-800">
+                {moneyFormatter.format(totalAmount)}
+              </span>
+            </div>
+
             <div className="grid gap-1.5">
-              <label className="text-slate-500">Tổng thanh toán</label>
+              <label className="text-slate-500">Số tiền thu</label>
               <input
                 type="text"
                 inputMode="numeric"
@@ -88,6 +114,21 @@ export default function InvoiceCollectPaymentDialog({
                 placeholder="Nhập tổng tiền thu"
                 className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-right text-sm font-bold text-emerald-700 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-slate-100"
               />
+            </div>
+
+            <div className="flex items-center justify-between gap-4 rounded-lg bg-white px-3 py-2">
+              <span className="text-slate-500">Chênh lệch</span>
+              <span
+                className={`font-bold ${
+                  differenceAmount < 0
+                    ? "text-rose-600"
+                    : differenceAmount === 0
+                      ? "text-emerald-700"
+                      : "text-amber-700"
+                }`}
+              >
+                {moneyFormatter.format(differenceAmount)}
+              </span>
             </div>
           </div>
 

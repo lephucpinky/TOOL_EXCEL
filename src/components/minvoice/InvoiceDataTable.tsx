@@ -215,10 +215,8 @@ export default function InvoiceDataTable({
     const isCollected = isCollectedFromApi || actualPaidAmount > 0
     const paidAmount =
       actualPaidAmount > 0 ? actualPaidAmount : suggestedPaidAmount
-    const remainingAmount = Math.max(totalAmount - paidAmount, 0)
-    const outstandingAmount = isPaid
-      ? 0
-      : Math.max(totalAmount - actualPaidAmount, 0)
+    const remainingAmount = totalAmount - paidAmount
+    const outstandingAmount = totalAmount - actualPaidAmount
 
     return {
       isPaid,
@@ -470,39 +468,39 @@ export default function InvoiceDataTable({
       headerClassName: "text-center",
       render: (invoice) => invoice.invoiceNumber || "-",
     },
-    {
-      key: "exportInvoiceStatus",
-      title: "Trạng thái xuất HĐ",
-      className: "whitespace-nowrap text-center",
-      headerClassName: "text-center",
-      render: (invoice) => {
-        const status = getInvoiceStatus(invoice)
+    // {
+    //   key: "exportInvoiceStatus",
+    //   title: "Trạng thái xuất HĐ",
+    //   className: "whitespace-nowrap text-center",
+    //   headerClassName: "text-center",
+    //   render: (invoice) => {
+    //     const status = getInvoiceStatus(invoice)
 
-        return (
-          <div className="flex flex-col items-center gap-1">
-            <span
-              className={`inline-flex min-w-[150px] justify-center rounded-full border px-2.5 py-1 text-xs font-semibold ${invoiceStatusClass[status]}`}
-            >
-              {invoiceStatusLabel[status]}
-            </span>
-          </div>
-        )
-      },
-    },
+    //     return (
+    //       <div className="flex flex-col items-center gap-1">
+    //         <span
+    //           className={`inline-flex min-w-[150px] justify-center rounded-full border px-2.5 py-1 text-xs font-semibold ${invoiceStatusClass[status]}`}
+    //         >
+    //           {invoiceStatusLabel[status]}
+    //         </span>
+    //       </div>
+    //     )
+    //   },
+    // },
     {
       key: "agencyId",
       title: "Tên Đại lý",
       className: "min-w-[130px]",
       render: (invoice) => getAgencyName(invoice.agencyId) || "-",
     },
-    {
-      key: "discountPercentage",
-      title: "% chiết khấu",
-      className: "whitespace-nowrap text-right min-w-[120px]",
-      headerClassName: "text-right",
-      render: (invoice) =>
-        `${formatPercent(getInvoiceDiscountPercentage(invoice))}%`,
-    },
+    // {
+    //   key: "discountPercentage",
+    //   title: "% chiết khấu",
+    //   className: "whitespace-nowrap text-right min-w-[120px]",
+    //   headerClassName: "text-right",
+    //   render: (invoice) =>
+    //     `${formatPercent(getInvoiceDiscountPercentage(invoice))}%`,
+    // },
     {
       key: "inv_buyerTaxCode",
       title: "MST",
@@ -516,13 +514,13 @@ export default function InvoiceDataTable({
       render: (invoice) =>
         invoice.inv_buyerLegalName || invoice.inv_buyerDisplayName || "-",
     },
-    {
-      key: "inv_quantity",
-      title: "SL",
-      className: "text-center",
-      headerClassName: "text-center",
-      render: (invoice) => Number(invoice.inv_quantity || 0),
-    },
+    // {
+    //   key: "inv_quantity",
+    //   title: "SL",
+    //   className: "text-center",
+    //   headerClassName: "text-center",
+    //   render: (invoice) => Number(invoice.inv_quantity || 0),
+    // },
     {
       key: "orderNumber",
       title: "Số đơn hàng",
@@ -587,8 +585,16 @@ export default function InvoiceDataTable({
       title: "Số tiền chênh lệch",
       className: "whitespace-nowrap text-center min-w-[150px] ",
       headerClassName: "text-right",
-      render: (invoice) =>
-        moneyFormatter.format(getInvoicePaymentState(invoice).remainingAmount),
+      render: (invoice) => {
+        const remainingAmount =
+          getInvoicePaymentState(invoice).remainingAmount
+
+        return (
+          <span className={remainingAmount < 0 ? "text-rose-600" : ""}>
+            {moneyFormatter.format(remainingAmount)}
+          </span>
+        )
+      },
     },
   ]
 
@@ -876,7 +882,11 @@ export default function InvoiceDataTable({
 
         <div>
           <div className="text-xs text-slate-500">Còn lại</div>
-          <div className="font-bold text-amber-700">
+          <div
+            className={`font-bold ${
+              summary.remainingAmount < 0 ? "text-rose-600" : "text-amber-700"
+            }`}
+          >
             {moneyFormatter.format(summary.remainingAmount)}
           </div>
         </div>

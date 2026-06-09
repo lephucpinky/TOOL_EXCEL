@@ -382,7 +382,7 @@ export default function InvoiceListPage() {
       invoiceTotalAmount > 0 ? invoiceTotalAmount : fallbackTotalAmount
 
     const amountCollected = getPaymentAmountFromInvoice(invoice, fallback)
-    const remainingAmount = Math.max(totalAmount - amountCollected, 0)
+    const remainingAmount = totalAmount - amountCollected
     const suggestedAmountCollectedFromInvoice =
       getSuggestedPaymentAmountFromInvoice(invoice, fallback)
     const invoiceStatus = invoice.invoiceStatus || fallback?.invoiceStatus
@@ -1311,11 +1311,6 @@ export default function InvoiceListPage() {
 
     if (totalAmount <= 0) {
       showErrorMessage("Tổng tiền hóa đơn không hợp lệ.")
-      return
-    }
-
-    if (paidAmount > totalAmount) {
-      showErrorMessage("Số tiền thu không được lớn hơn tổng tiền hóa đơn.")
       return
     }
 

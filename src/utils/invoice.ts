@@ -802,7 +802,7 @@ export function hydrateSaleTransactionDetail(
                       ? totalAmount
                       : 0
 
-  const remainingAmount = Math.max(totalAmount - amountCollected, 0)
+  const remainingAmount = totalAmount - amountCollected
   const paymentStatus =
     totalAmount > 0 && amountCollected >= totalAmount
       ? InvoicePaymentStatus.PAID
