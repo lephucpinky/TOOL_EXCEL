@@ -1,25 +1,46 @@
 import axiosInstance from "./axiosInstance"
 
+const isFailureEnvelope = (body: any) => {
+  const code = Number(body?.code ?? body?.statusCode)
+  const info = String(body?.info ?? "").toUpperCase()
+
+  return (
+    body?.success === false ||
+    info === "FAIL" ||
+    (Number.isFinite(code) && code >= 400)
+  )
+}
+
 const APICreateEmployee = async (data: any) => {
   try {
     const response = await axiosInstance.post("/employees/create", data)
+    const body = response.data
 
-    if (
-      (response.status === 201 || response.status === 200) &&
-      (response.data?.code === 200 ||
-        response.data?.statusCode === 200 ||
-        response.data?.statusCode === 201 ||
-        response.data?.success === true)
-    ) {
+    if (response.status === 201 || response.status === 200) {
+      if (isFailureEnvelope(body)) {
+        console.log("[employee create API] 2xx envelope mismatch", {
+          request: data,
+          status: response.status,
+          body,
+        })
+      }
+
       return {
-        data: response.data?.content ?? response.data?.data ?? response.data,
+        data: body?.content ?? body?.data ?? (body?._id ? body : null),
         status: response.status,
       }
     }
 
+    if (isFailureEnvelope(body)) {
+      console.log("[employee create API] failure envelope", {
+        request: data,
+        status: response.status,
+        body,
+      })
+    }
+
     return response
   } catch (err) {
-    console.error("Error during create employee:", err)
     throw err
   }
 }
@@ -31,9 +52,7 @@ const APIGetEmployees = async (params?: any) => {
 
     if (
       (response.status === 201 || response.status === 200) &&
-      (body?.code === 200 ||
-        body?.statusCode === 200 ||
-        body?.success === true)
+      (body?.code === 200 || body?.statusCode === 200 || body?.success === true)
     ) {
       return {
         data: body?.content ?? body?.data ?? body,
@@ -42,7 +61,9 @@ const APIGetEmployees = async (params?: any) => {
         page: body?.page ?? body?.content?.page ?? body?.data?.page,
         limit: body?.limit ?? body?.content?.limit ?? body?.data?.limit,
         totalPages:
-          body?.totalPages ?? body?.content?.totalPages ?? body?.data?.totalPages,
+          body?.totalPages ??
+          body?.content?.totalPages ??
+          body?.data?.totalPages,
       }
     }
 

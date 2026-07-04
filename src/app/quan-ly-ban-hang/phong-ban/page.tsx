@@ -199,6 +199,16 @@ export default function DepartmentPage() {
     await dispatch(departmentThunks.fetchPage(listParams)).unwrap()
   }
 
+  const refreshDepartmentsAfterDelete = () => {
+    window.setTimeout(() => {
+      void handleRefreshDepartments().catch((error) => {
+        showErrorMessage(
+          getErrorMessage(error) || "Không thể tải lại danh sách phòng ban"
+        )
+      })
+    }, 800)
+  }
+
   const onRefreshDepartments = async () => {
     try {
       await handleRefreshDepartments()
@@ -310,13 +320,13 @@ export default function DepartmentPage() {
   const handleDeleteDepartment = async (id: string) => {
     try {
       await dispatch(departmentThunks.deleteItem(id)).unwrap()
-      await handleRefreshDepartments()
       showSuccessMessage("Xóa phòng ban thành công!")
       setDeleteDialogOpen(false)
       setDeleteTarget(null)
       if (selectedDepartment?._id === id) {
         handleCloseDialog()
       }
+      refreshDepartmentsAfterDelete()
     } catch (error) {
       showErrorMessage(getErrorMessage(error) || "Xóa phòng ban thất bại!")
     }

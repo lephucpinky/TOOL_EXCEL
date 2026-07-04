@@ -71,7 +71,7 @@ export async function fetchAllPages<
   params?: TParams,
   options?: FetchAllPagesOptions<T>
 ) {
-  const pageSize = options?.pageSize ?? 250
+  const pageSize = options?.pageSize ?? 10
   const maxPages = options?.maxPages ?? 10000000
   const getKey = options?.getKey ?? getDefaultItemKey
   const seenKeys = new Set<string>()

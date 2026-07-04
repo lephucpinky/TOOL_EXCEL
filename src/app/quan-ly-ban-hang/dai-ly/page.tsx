@@ -352,6 +352,16 @@ export default function Page() {
     await dispatch(agencyThunks.fetchPage(listParams)).unwrap()
   }
 
+  const refreshAgenciesAfterDelete = () => {
+    window.setTimeout(() => {
+      void handleRefreshAgencies().catch((error) => {
+        showErrorMessage(
+          getErrorMessage(error) || "Không thể tải lại danh sách đại lý"
+        )
+      })
+    }, 800)
+  }
+
   const onRefreshAgencies = async () => {
     try {
       await Promise.all([
@@ -463,13 +473,13 @@ export default function Page() {
   const handleDeleteAgency = async (id: string) => {
     try {
       await dispatch(agencyThunks.deleteItem(id)).unwrap()
-      await handleRefreshAgencies()
       showSuccessMessage("Xóa đại lý thành công!")
       setDeleteDialogOpen(false)
       setDeleteTarget(null)
       if (selectedAgency?._id === id) {
         handleCloseDialog()
       }
+      refreshAgenciesAfterDelete()
     } catch (error) {
       showErrorMessage(getErrorMessage(error) || "Xóa đại lý thất bại!")
     }

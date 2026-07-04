@@ -318,6 +318,16 @@ export default function ProductPage() {
     await dispatch(productThunks.fetchPage(listParams)).unwrap()
   }
 
+  const refreshProductsAfterDelete = () => {
+    window.setTimeout(() => {
+      void handleRefreshProducts().catch((error) => {
+        showErrorMessage(
+          getErrorMessage(error) || "Không thể tải lại danh sách sản phẩm"
+        )
+      })
+    }, 800)
+  }
+
   const onRefreshProducts = async () => {
     try {
       await handleRefreshProducts()
@@ -430,13 +440,13 @@ export default function ProductPage() {
   const handleDeleteProduct = async (id: string) => {
     try {
       await dispatch(productThunks.deleteItem(id)).unwrap()
-      await handleRefreshProducts()
       showSuccessMessage("Xóa sản phẩm thành công!")
       setDeleteDialogOpen(false)
       setDeleteTarget(null)
       if (selectedProduct?._id === id) {
         handleCloseDialog()
       }
+      refreshProductsAfterDelete()
     } catch (error) {
       showErrorMessage(getErrorMessage(error) || "Xóa sản phẩm thất bại!")
     }

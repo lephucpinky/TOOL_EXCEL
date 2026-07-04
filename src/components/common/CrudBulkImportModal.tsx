@@ -68,11 +68,16 @@ type Props<
   previewColumns: readonly BulkImportPreviewColumn<TPayload, TPreview>[]
   notes?: readonly string[]
   createButtonLabel?: string
+  concurrency?: number
+  debugLabel?: string
   onClose: () => void
   onCompleted?: () => Promise<void> | void
   mapRow: (
     context: BulkImportRowContext<TKey>
   ) => BulkImportPreparedRow<TPayload, TPreview>
+  validateRows?: (
+    rows: BulkImportPreparedRow<TPayload, TPreview>[]
+  ) => BulkImportPreparedRow<TPayload, TPreview>[]
   createItem: (payload: TPayload) => Promise<void>
 }
 
@@ -189,9 +194,12 @@ export default function CrudBulkImportModal<
   previewColumns,
   notes = [],
   createButtonLabel,
+  concurrency = 5,
+  debugLabel,
   onClose,
   onCompleted,
   mapRow,
+  validateRows,
   createItem,
 }: Props<TKey, TPayload, TPreview>) {
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -330,7 +338,7 @@ export default function CrudBulkImportModal<
         throw new Error(`Thiếu cột bắt buộc: ${missingColumns.join(", ")}.`)
       }
 
-      const nextRows = rawRows
+      const mappedRows = rawRows
         .map((rawRow, index) => ({
           rawRow,
           rowNumber: index + 2,
@@ -348,6 +356,7 @@ export default function CrudBulkImportModal<
             },
           })
         )
+      const nextRows = validateRows ? validateRows(mappedRows) : mappedRows
 
       if (!nextRows.length) {
         throw new Error("Không có dòng dữ liệu hợp lệ trong file Excel.")
@@ -388,7 +397,7 @@ export default function CrudBulkImportModal<
       const nextCreatedRowIds = { ...createdRowIds }
       let successCount = 0
 
-      await mapWithConcurrency(validRows, 5, async (row) => {
+      await mapWithConcurrency(validRows, concurrency, async (row) => {
         if (!row.payload) return
 
         try {
@@ -396,6 +405,14 @@ export default function CrudBulkImportModal<
           successCount += 1
           nextCreatedRowIds[row.id] = true
         } catch (error) {
+          if (debugLabel) {
+            console.log(`[${debugLabel}] create row error`, {
+              entityLabel,
+              rowNumber: row.rowNumber,
+              payload: row.payload,
+              error,
+            })
+          }
           nextSubmitErrors[row.id] = extractErrorMessage(
             error,
             `Không thể tạo ${entityLabel} ở dòng ${row.rowNumber}.`

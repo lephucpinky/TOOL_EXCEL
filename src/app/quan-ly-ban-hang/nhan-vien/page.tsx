@@ -81,7 +81,13 @@ const EMPLOYEE_IMPORT_COLUMNS: readonly BulkImportColumnDefinition<EmployeeImpor
     {
       key: "department",
       label: "Phòng ban",
-      aliases: ["Phòng ban", "Department", "Tên phòng ban"],
+      aliases: [
+        "Phòng ban",
+        "Tên phòng ban",
+        "Department",
+        "Department Name",
+        "departmentName",
+      ],
       required: true,
     },
     {
@@ -123,6 +129,16 @@ function buildEmployeeFormValues(detail: Employee | null): EmployeePayload {
     employeePhone: detail?.employeePhone || "",
     departmentId: getDepartmentId(detail?.departmentId),
     isActive: Boolean(detail?.isActive),
+  }
+}
+
+function normalizeEmployeePayload(data: EmployeePayload): EmployeePayload {
+  return {
+    employeeName: data.employeeName.trim(),
+    employeeEmail: data.employeeEmail.trim(),
+    employeePhone: data.employeePhone.trim(),
+    departmentId: data.departmentId.trim(),
+    isActive: Boolean(data.isActive),
   }
 }
 
@@ -277,6 +293,16 @@ export default function EmployeePage() {
     await dispatch(employeeThunks.fetchPage(listParams)).unwrap()
   }
 
+  const refreshEmployeesAfterDelete = () => {
+    window.setTimeout(() => {
+      void handleRefreshEmployees().catch((error) => {
+        showErrorMessage(
+          getErrorMessage(error) || "Không thể tải lại danh sách nhân viên"
+        )
+      })
+    }, 800)
+  }
+
   const onRefreshEmployees = async () => {
     try {
       await handleRefreshEmployees()
@@ -288,17 +314,64 @@ export default function EmployeePage() {
   }
 
   const createBulkEmployee = async (payload: EmployeePayload) => {
-    await dispatch(employeeThunks.createItem(payload)).unwrap()
+    const body = normalizeEmployeePayload(payload)
+
+    console.log("[employee bulk import] create payload", body)
+
+    try {
+      await dispatch(employeeThunks.createItem(body)).unwrap()
+    } catch (error) {
+      console.log("[employee bulk import] create error", {
+        payload: body,
+        response: (error as any)?.response?.data,
+        error,
+      })
+      throw error
+    }
+  }
+
+  const validateEmployeeImportRows = (
+    rows: BulkImportPreparedRow<EmployeePayload, EmployeeImportPreview>[]
+  ) => {
+    const emailCounts = new Map<string, number>()
+    const phoneCounts = new Map<string, number>()
+
+    rows.forEach((row) => {
+      const email = cleanImportText(row.preview.employeeEmail).toLowerCase()
+      const phone = cleanImportText(row.preview.employeePhone)
+
+      if (email) {
+        emailCounts.set(email, (emailCounts.get(email) || 0) + 1)
+      }
+
+      if (phone) {
+        phoneCounts.set(phone, (phoneCounts.get(phone) || 0) + 1)
+      }
+    })
+
+    return rows.map((row) => {
+      const errors = [...row.errors]
+      const email = cleanImportText(row.preview.employeeEmail).toLowerCase()
+      const phone = cleanImportText(row.preview.employeePhone)
+
+      if (email && (emailCounts.get(email) || 0) > 1) {
+        errors.push("Email nhân viên bị trùng trong file Excel.")
+      }
+
+      if (phone && (phoneCounts.get(phone) || 0) > 1) {
+        errors.push("Số điện thoại nhân viên bị trùng trong file Excel.")
+      }
+
+      return {
+        ...row,
+        payload: errors.length === 0 ? row.payload : null,
+        errors,
+      }
+    })
   }
 
   const onSubmit = async (data: EmployeePayload) => {
-    const body: EmployeePayload = {
-      employeeName: data.employeeName.trim(),
-      employeeEmail: data.employeeEmail.trim(),
-      employeePhone: data.employeePhone.trim(),
-      departmentId: data.departmentId.trim(),
-      isActive: Boolean(data.isActive),
-    }
+    const body = normalizeEmployeePayload(data)
 
     try {
       if (isCreateMode) {
@@ -390,13 +463,13 @@ export default function EmployeePage() {
   const handleDeleteEmployee = async (id: string) => {
     try {
       await dispatch(employeeThunks.deleteItem(id)).unwrap()
-      await handleRefreshEmployees()
       showSuccessMessage("Xóa nhân viên thành công!")
       setDeleteDialogOpen(false)
       setDeleteTarget(null)
       if (selectedEmployee?._id === id) {
         handleCloseDialog()
       }
+      refreshEmployeesAfterDelete()
     } catch (error) {
       showErrorMessage(getErrorMessage(error) || "Xóa nhân viên thất bại!")
     }
@@ -414,13 +487,13 @@ export default function EmployeePage() {
     const employeeEmail = cleanImportText(getValue("employeeEmail"))
     const employeePhone = cleanImportText(getValue("employeePhone"))
     const departmentKeyword = cleanImportText(getValue("department"))
+    const normalizedDepartmentKeyword = normalize(departmentKeyword)
     const isActive = parseImportBoolean(getValue("status"), true)
 
     const matchedDepartment =
-      departments.find((department) =>
-        [department._id, department.departmentName].some(
-          (value) => normalize(value) === normalize(departmentKeyword)
-        )
+      departments.find(
+        (department) =>
+          normalize(department.departmentName) === normalizedDepartmentKeyword
       ) || null
 
     if (!employeeName) {
@@ -747,13 +820,16 @@ export default function EmployeePage() {
         columns={EMPLOYEE_IMPORT_COLUMNS}
         previewColumns={EMPLOYEE_IMPORT_PREVIEW_COLUMNS}
         notes={[
-          'Cột "Phòng ban" có thể nhập theo tên hoặc ID phòng ban.',
+          'Cột "Phòng ban" nhập đúng departmentName từ danh sách phòng ban, ví dụ "Phòng CS".',
           'Cột "Trạng thái" có thể để trống, hệ thống sẽ mặc định là Đang hoạt động.',
         ]}
         onClose={() => setBulkImportOpen(false)}
         onCompleted={handleRefreshEmployees}
         mapRow={mapEmployeeImportRow}
+        validateRows={validateEmployeeImportRows}
         createItem={createBulkEmployee}
+        concurrency={1}
+        debugLabel="employee bulk import"
       />
 
       <AlertOption

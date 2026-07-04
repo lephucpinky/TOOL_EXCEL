@@ -1,5 +1,6 @@
 export interface Department {
   _id: string
+  departmentNumber?: string
   departmentName: string
   departmentDescription: string
   isActive: boolean
