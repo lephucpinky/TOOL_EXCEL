@@ -6,6 +6,8 @@ export type MInvoiceReceiptPostPayload = {
   inv_invoiceSeries: string
   inv_invoiceIssuedDate: string
   editmode: number
+  inv_invoiceNumber?: number
+  inv_invoiceAuth_id?: string
 }
 
 export type MInvoiceReceiptJobStatus = {
@@ -59,6 +61,25 @@ export const APIExportMInvoiceReceiptPost = async (
       },
     }
   )
+
+  return response.data
+}
+
+export const APIUpdateMInvoiceReceiptPost = async (
+  payload: MInvoiceReceiptPostPayload,
+  taxCode: string
+) => {
+  const normalizedTaxCode = String(taxCode || "").trim()
+
+  if (!normalizedTaxCode) {
+    throw new Error("Thiếu mã số thuế cấu hình hóa đơn.")
+  }
+
+  const response = await axiosInstance.put("/m-invoice-receipt-post", payload, {
+    params: {
+      tax_code: normalizedTaxCode,
+    },
+  })
 
   return response.data
 }

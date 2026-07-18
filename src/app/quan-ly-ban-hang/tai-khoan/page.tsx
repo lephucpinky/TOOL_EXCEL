@@ -176,7 +176,7 @@ export default function AccountManagementPage() {
       })
     } catch (error) {
       showErrorMessage(
-        getErrorMessage(error) || "Không thể tải danh sách tài khoản"
+        getErrorMessage(error, "Không thể tải danh sách tài khoản")
       )
     } finally {
       setLoading(false)
@@ -341,7 +341,7 @@ export default function AccountManagementPage() {
       if (detailRequestRef.current !== requestId) return
 
       showErrorMessage(
-        getErrorMessage(error) || "Không thể tải chi tiết tài khoản"
+        getErrorMessage(error, "Không thể tải chi tiết tài khoản")
       )
     } finally {
       if (detailRequestRef.current === requestId) {
@@ -400,7 +400,7 @@ export default function AccountManagementPage() {
       showSuccessMessage("Cập nhật tài khoản thành công!")
       resetDialog()
     } catch (error) {
-      showErrorMessage(getErrorMessage(error) || "Cập nhật tài khoản thất bại!")
+      showErrorMessage(getErrorMessage(error, "Cập nhật tài khoản thất bại!"))
     } finally {
       setSubmitLoading(false)
     }
@@ -434,7 +434,7 @@ export default function AccountManagementPage() {
       setDeleteDialogOpen(false)
       setDeleteTarget(null)
     } catch (error) {
-      showErrorMessage(getErrorMessage(error) || "Xóa tài khoản thất bại!")
+      showErrorMessage(getErrorMessage(error, "Xóa tài khoản thất bại!"))
     } finally {
       setDeleteLoading(false)
     }

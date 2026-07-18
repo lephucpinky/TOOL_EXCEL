@@ -49,19 +49,21 @@ export const buildHoaHongSheet = ({
 
   const headerMap = buildHeaderMapHH(salesHeaders, dataRows)
   validateHeaderMapHH(headerMap)
+  const productSectionHeader =
+    headerMap.PRODUCT_SECTION || headerMap.LOAI_CODE || headerMap.LOAI
 
   let rows = resolveTemplateRowsHoaHong(ws)
   const grouped = ensureAllSectionsHaveSpaceHoaHong(
     ws,
     dataRows,
-    headerMap.LOAI
+    productSectionHeader
   )
 
   rows = resolveTemplateRowsHoaHong(ws)
   rows = compactSectionsHoaHong(ws, grouped)
 
   clearAllSectionBlocksHoaHong(ws, rows)
-  setColumnWidthsHoaHong(ws)
+  setColumnWidthsHoaHong(ws, rows)
   applyHeaderDealerMonth(ws, dealerName)
 
   fillAllSectionsHoaHong(ws, rows, grouped, headerMap)

@@ -47,6 +47,10 @@ export interface DataTableProps<T> {
   loading?: boolean
   emptyText?: string
   getRowKey?: (item: T, index: number) => string
+  selectable?: boolean
+  selectedRowKeys?: string[]
+  onSelectedRowKeysChange?: (keys: string[]) => void
+  isRowSelectable?: (item: T) => boolean
   onView?: (item: T) => void
   onEdit?: (item: T) => void
   canEdit?: (item: T) => boolean
@@ -77,12 +81,48 @@ function getDefaultRowKey<T>(item: T, index: number) {
   return id === undefined || id === null ? String(index) : String(id)
 }
 
+function SelectionCheckbox({
+  checked,
+  indeterminate = false,
+  disabled = false,
+  title,
+  ariaLabel,
+  onChange,
+}: {
+  checked: boolean
+  indeterminate?: boolean
+  disabled?: boolean
+  title: string
+  ariaLabel: string
+  onChange: (checked: boolean) => void
+}) {
+  return (
+    <input
+      ref={(element) => {
+        if (element) element.indeterminate = indeterminate
+      }}
+      type="checkbox"
+      checked={checked}
+      disabled={disabled}
+      title={title}
+      aria-label={ariaLabel}
+      onChange={(event) => onChange(event.target.checked)}
+      onClick={(event) => event.stopPropagation()}
+      className="h-4 w-4 rounded border-slate-300 accent-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+    />
+  )
+}
+
 export function DataTable<T>({
   data,
   columns,
   loading = false,
   emptyText = "Không có dữ liệu",
   getRowKey,
+  selectable = false,
+  selectedRowKeys = [],
+  onSelectedRowKeysChange,
+  isRowSelectable,
   onView,
   onEdit,
   canEdit,
@@ -102,11 +142,14 @@ export function DataTable<T>({
   showExportButton = false,
 }: DataTableProps<T>) {
   const hasActions = Boolean(onView || onEdit || onDelete || renderActions)
+  const hasSelection = Boolean(selectable && onSelectedRowKeysChange)
   const hasToolbar = Boolean(
     titleTable || children || onClickAddNew || showExportButton
   )
+  const selectionColWidth = "w-[48px] min-w-[48px] max-w-[48px]"
   const firstColWidth = "w-[126px] min-w-[126px] max-w-[126px]"
-  const actionColWidth = "w-[180px] min-w-[180px] max-w-[180px]"
+  const firstDataColumnLeft = hasSelection ? "left-[48px]" : "left-0"
+  const actionColWidth = "w-[260px] min-w-[260px] max-w-[260px]"
   const stickyCoverBase =
     "overflow-visible before:pointer-events-none before:absolute before:inset-y-0 before:z-0 before:bg-inherit before:content-['']"
   const leftStickyCover = "overflow-hidden"
@@ -166,6 +209,57 @@ export function DataTable<T>({
     isPaginationEnabled && !isExternalPagination
       ? data.slice(startIndex, startIndex + effectivePageSize)
       : data
+  const getRenderRowIndex = (index: number) =>
+    isPaginationEnabled ? startIndex + index : index
+  const getResolvedRowKey = (item: T, index: number) =>
+    getRowKey?.(item, index) ?? getDefaultRowKey(item, index)
+  const selectedRowKeySet = useMemo(
+    () => new Set(selectedRowKeys),
+    [selectedRowKeys]
+  )
+  const selectableVisibleRowKeys = hasSelection
+    ? visibleRows.flatMap((item, index) => {
+        if (isRowSelectable && !isRowSelectable(item)) return []
+
+        return [getResolvedRowKey(item, getRenderRowIndex(index))]
+      })
+    : []
+  const allVisibleRowsSelected =
+    selectableVisibleRowKeys.length > 0 &&
+    selectableVisibleRowKeys.every((key) => selectedRowKeySet.has(key))
+  const someVisibleRowsSelected = selectableVisibleRowKeys.some((key) =>
+    selectedRowKeySet.has(key)
+  )
+
+  const handleToggleAllVisibleRows = (checked: boolean) => {
+    if (!onSelectedRowKeysChange) return
+
+    const nextSelectedKeys = new Set(selectedRowKeys)
+
+    selectableVisibleRowKeys.forEach((key) => {
+      if (checked) {
+        nextSelectedKeys.add(key)
+      } else {
+        nextSelectedKeys.delete(key)
+      }
+    })
+
+    onSelectedRowKeysChange(Array.from(nextSelectedKeys))
+  }
+
+  const handleToggleRow = (rowKey: string, checked: boolean) => {
+    if (!onSelectedRowKeysChange) return
+
+    const nextSelectedKeys = new Set(selectedRowKeys)
+
+    if (checked) {
+      nextSelectedKeys.add(rowKey)
+    } else {
+      nextSelectedKeys.delete(rowKey)
+    }
+
+    onSelectedRowKeysChange(Array.from(nextSelectedKeys))
+  }
 
   const tableScrollRef = useRef<HTMLDivElement | null>(null)
   const isTableDraggingRef = useRef(false)
@@ -344,6 +438,29 @@ export function DataTable<T>({
             <table className="relative w-full min-w-[860px] caption-bottom border-separate border-spacing-0 text-sm shadow-2xl">
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
+                  {hasSelection && (
+                    <TableHead
+                      className={cn(
+                        leftStickyCover,
+                        selectionColWidth,
+                        "sticky left-0 top-0 z-40 h-10 bg-[#2869B4] px-3 text-center font-semibold text-white"
+                      )}
+                    >
+                      <div className="relative z-10 flex items-center justify-center">
+                        <SelectionCheckbox
+                          checked={allVisibleRowsSelected}
+                          indeterminate={
+                            someVisibleRowsSelected && !allVisibleRowsSelected
+                          }
+                          disabled={selectableVisibleRowKeys.length === 0}
+                          title="Chọn tất cả dòng đang hiển thị"
+                          ariaLabel="Chọn tất cả dòng đang hiển thị"
+                          onChange={handleToggleAllVisibleRows}
+                        />
+                      </div>
+                    </TableHead>
+                  )}
+
                   {columns.map((column, index) => {
                     const isFirstColumn = index === 0
                     const isLastDataColumn = index === columns.length - 1
@@ -355,7 +472,8 @@ export function DataTable<T>({
                           "sticky top-0 z-20 h-10 bg-[#2869B4] px-3 text-center font-semibold text-white",
                           isFirstColumn && leftStickyCover,
                           isFirstColumn && firstColWidth,
-                          isFirstColumn && "left-0 z-30",
+                          isFirstColumn && firstDataColumnLeft,
+                          isFirstColumn && "z-30",
                           !hasActions && isLastDataColumn && rightStickyCover,
                           !hasActions && isLastDataColumn && "right-0 z-50",
                           column.headerClassName
@@ -383,24 +501,44 @@ export function DataTable<T>({
               <TableBody>
                 {visibleRows.length > 0 ? (
                   visibleRows.map((item, index) => {
-                    const rowIndex = isExternalPagination
-                      ? startIndex + index
-                      : isPaginationEnabled
-                        ? startIndex + index
-                        : index
+                    const rowIndex = getRenderRowIndex(index)
+                    const rowKey = getResolvedRowKey(item, rowIndex)
+                    const rowSelectable =
+                      !isRowSelectable || isRowSelectable(item)
                     const rowBg =
                       rowIndex % 2 === 0
                         ? "bg-white group-hover:bg-blue-50"
                         : "bg-slate-50/60 group-hover:bg-blue-50"
 
                     return (
-                      <TableRow
-                        className="group text-center"
-                        key={
-                          getRowKey?.(item, rowIndex) ??
-                          getDefaultRowKey(item, rowIndex)
-                        }
-                      >
+                      <TableRow className="group text-center" key={rowKey}>
+                        {hasSelection && (
+                          <TableCell
+                            className={cn(
+                              leftStickyCover,
+                              selectionColWidth,
+                              "sticky left-0 z-30 border-b border-slate-100 px-3 py-3 text-center align-middle transition-colors",
+                              rowBg
+                            )}
+                          >
+                            <div className="relative z-10 flex items-center justify-center">
+                              <SelectionCheckbox
+                                checked={selectedRowKeySet.has(rowKey)}
+                                disabled={!rowSelectable}
+                                title={
+                                  rowSelectable
+                                    ? "Chọn dòng"
+                                    : "Không thể chọn dòng này"
+                                }
+                                ariaLabel="Chọn dòng"
+                                onChange={(checked) =>
+                                  handleToggleRow(rowKey, checked)
+                                }
+                              />
+                            </div>
+                          </TableCell>
+                        )}
+
                         {columns.map((column, columnIndex) => {
                           const isFirstColumn = columnIndex === 0
                           const isLastDataColumn =
@@ -414,8 +552,9 @@ export function DataTable<T>({
                                 rowBg,
                                 isFirstColumn && leftStickyCover,
                                 isFirstColumn && firstColWidth,
+                                isFirstColumn && firstDataColumnLeft,
                                 isFirstColumn &&
-                                  "sticky left-0 z-20 font-medium text-slate-800",
+                                  "sticky z-20 font-medium text-slate-800",
                                 !hasActions &&
                                   isLastDataColumn &&
                                   rightStickyCover,
@@ -460,7 +599,7 @@ export function DataTable<T>({
                               actionColWidth
                             )}
                           >
-                            <div className="relative z-10 flex items-center justify-center gap-2 whitespace-nowrap">
+                            <div className="relative z-10 flex w-full items-center justify-center gap-2 whitespace-nowrap px-1 [&>div]:contents">
                               {onView && (
                                 <button
                                   type="button"
@@ -513,7 +652,11 @@ export function DataTable<T>({
                 ) : (
                   <TableRow>
                     <TableCell
-                      colSpan={columns.length + (hasActions ? 1 : 0)}
+                      colSpan={
+                        columns.length +
+                        (hasSelection ? 1 : 0) +
+                        (hasActions ? 1 : 0)
+                      }
                       className="h-24 text-center text-sm font-medium text-slate-500"
                     >
                       {emptyText}

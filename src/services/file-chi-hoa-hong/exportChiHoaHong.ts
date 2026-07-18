@@ -50,8 +50,10 @@ const downloadBlob = (blob: Blob, name: string) => {
   const a = document.createElement("a")
   a.href = url
   a.download = name
+  document.body.appendChild(a)
   a.click()
-  URL.revokeObjectURL(url)
+  a.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 0)
 }
 
 export async function exportChiHoaHongXlsx({
@@ -158,6 +160,10 @@ export async function exportChiHoaHongXlsx({
     } catch (e: any) {
       errors.push(`[${dealer}] ${e?.message ?? String(e)}`)
     }
+  }
+
+  if (!zip && errors.length) {
+    throw new Error(`❌ Xuất chi hoa hồng thất bại:\n- ${errors.join("\n- ")}`)
   }
 
   if (zip) {

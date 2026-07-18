@@ -32,6 +32,7 @@ import {
   getUrlPaginationParams,
   URL_PAGE_SIZE_OPTIONS,
 } from "@/utils/pagination"
+import { scheduleDelayedRefresh } from "@/utils/refresh"
 const LIST_PARAMS = {}
 const emptyForm: EmployeePayload = {
   employeeName: "",
@@ -195,7 +196,7 @@ export default function EmployeePage() {
       .unwrap()
       .catch((error) => {
         showErrorMessage(
-          getErrorMessage(error) || "Không thể tải danh sách nhân viên"
+          getErrorMessage(error, "Không thể tải danh sách nhân viên")
         )
       })
 
@@ -203,7 +204,7 @@ export default function EmployeePage() {
       .unwrap()
       .catch((error) => {
         showErrorMessage(
-          getErrorMessage(error) || "Không thể tải danh sách phòng ban"
+          getErrorMessage(error, "Không thể tải danh sách phòng ban")
         )
       })
   }, [dispatch, listParams])
@@ -293,41 +294,20 @@ export default function EmployeePage() {
     await dispatch(employeeThunks.fetchPage(listParams)).unwrap()
   }
 
-  const refreshEmployeesAfterDelete = () => {
-    window.setTimeout(() => {
-      void handleRefreshEmployees().catch((error) => {
-        showErrorMessage(
-          getErrorMessage(error) || "Không thể tải lại danh sách nhân viên"
-        )
-      })
-    }, 800)
-  }
-
   const onRefreshEmployees = async () => {
     try {
       await handleRefreshEmployees()
     } catch (error) {
       showErrorMessage(
-        getErrorMessage(error) || "Không thể tải lại danh sách nhân viên"
+        getErrorMessage(error, "Không thể tải lại danh sách nhân viên")
       )
     }
   }
 
   const createBulkEmployee = async (payload: EmployeePayload) => {
-    const body = normalizeEmployeePayload(payload)
-
-    console.log("[employee bulk import] create payload", body)
-
-    try {
-      await dispatch(employeeThunks.createItem(body)).unwrap()
-    } catch (error) {
-      console.log("[employee bulk import] create error", {
-        payload: body,
-        response: (error as any)?.response?.data,
-        error,
-      })
-      throw error
-    }
+    await dispatch(
+      employeeThunks.createItem(normalizeEmployeePayload(payload))
+    ).unwrap()
   }
 
   const validateEmployeeImportRows = (
@@ -394,7 +374,7 @@ export default function EmployeePage() {
         handleCloseDialog()
       }
     } catch (error) {
-      showErrorMessage(getErrorMessage(error) || "Lưu nhân viên thất bại!")
+      showErrorMessage(getErrorMessage(error, "Lưu nhân viên thất bại!"))
     }
   }
 
@@ -419,7 +399,7 @@ export default function EmployeePage() {
       setOpen(true)
     } catch (error) {
       showErrorMessage(
-        getErrorMessage(error) || "Không thể tải chi tiết nhân viên"
+        getErrorMessage(error, "Không thể tải chi tiết nhân viên")
       )
     }
   }
@@ -445,7 +425,7 @@ export default function EmployeePage() {
       setOpen(true)
     } catch (error) {
       showErrorMessage(
-        getErrorMessage(error) || "Không thể tải dữ liệu nhân viên"
+        getErrorMessage(error, "Không thể tải dữ liệu nhân viên")
       )
     }
   }
@@ -469,9 +449,13 @@ export default function EmployeePage() {
       if (selectedEmployee?._id === id) {
         handleCloseDialog()
       }
-      refreshEmployeesAfterDelete()
+      scheduleDelayedRefresh(handleRefreshEmployees, (error) => {
+        showErrorMessage(
+          getErrorMessage(error, "Không thể tải lại danh sách nhân viên")
+        )
+      })
     } catch (error) {
-      showErrorMessage(getErrorMessage(error) || "Xóa nhân viên thất bại!")
+      showErrorMessage(getErrorMessage(error, "Xóa nhân viên thất bại!"))
     }
   }
 
@@ -829,7 +813,6 @@ export default function EmployeePage() {
         validateRows={validateEmployeeImportRows}
         createItem={createBulkEmployee}
         concurrency={1}
-        debugLabel="employee bulk import"
       />
 
       <AlertOption

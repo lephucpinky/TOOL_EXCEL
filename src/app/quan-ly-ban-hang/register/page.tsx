@@ -88,7 +88,7 @@ export default function RegisterPage() {
       }, 900)
     } catch (error) {
       setSuccessMessage("")
-      setErrorMessage(getErrorMessage(error) || "Tạo tài khoản thất bại")
+      setErrorMessage(getErrorMessage(error, "Tạo tài khoản thất bại"))
     } finally {
       setLoading(false)
     }

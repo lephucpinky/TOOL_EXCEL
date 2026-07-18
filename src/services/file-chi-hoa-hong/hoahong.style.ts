@@ -51,29 +51,26 @@ const SECTION_KEYS = ["rA", "rB", "rC", "rD", "rE", "rF", "rG", "rH"] as const
 
 const CENTER_ALIGN_COLS: number[] = [
   COL_HOA_HONG.STT,
-  COL_HOA_HONG.THANG,
-  COL_HOA_HONG.MST,
+  COL_HOA_HONG.NGAYPHATSINH,
+  COL_HOA_HONG.MASOTHUE,
+  COL_HOA_HONG.SOLUONG,
 ]
 
 const INT_COLS = [
   COL_HOA_HONG.STT,
-  COL_HOA_HONG.SL_MOI,
-  COL_HOA_HONG.SL_GH,
-  COL_HOA_HONG.SL_TANG,
+  COL_HOA_HONG.SOLUONG,
 ]
 
 const MONEY_COLS = [
-  COL_HOA_HONG.BANQUYEN,
-  COL_HOA_HONG.DT_GOI_HD,
-  COL_HOA_HONG.DT_KHAC,
-  COL_HOA_HONG.TRI_GIA_XUAT_HD,
-  COL_HOA_HONG.GIA_DOI_SOAT,
-  COL_HOA_HONG.VUOT_GIA,
-  COL_HOA_HONG.TIEN_HOA_HONG,
+  COL_HOA_HONG.DOANH_THU_SAN_PHAM,
   COL_HOA_HONG.PHI_VIET_CHENH,
-  COL_HOA_HONG.TONG_TRA_DOI_TAC,
-  COL_HOA_HONG.DT_MINVOICE,
-  COL_HOA_HONG.CHENH_LECH,
+  COL_HOA_HONG.GIA_TRI_XUAT_HOA_DON,
+  COL_HOA_HONG.GIA_DOI_SOAT,
+  COL_HOA_HONG.TIEN_HOA_HONG,
+  COL_HOA_HONG.CHENH_LECH_VIET_CHENH,
+  COL_HOA_HONG.TONG_TIEN_TRA_DOI_TAC,
+  COL_HOA_HONG.MINV_DA_THU,
+  COL_HOA_HONG.CHENH_LECH_THANH_TOAN,
 ]
 
 const FOOTER_LABELS = {
@@ -352,7 +349,7 @@ export const applyFooterFormulasAndHighlight = (
   opts?: { isTncnExempt?: boolean }
 ) => {
   const isTncnExempt = !!opts?.isTncnExempt
-  const FOOTER_COL0 = COL_HOA_HONG.VUOT_GIA
+  const FOOTER_COL0 = COL_HOA_HONG.TONG_TIEN_TRA_DOI_TAC
 
   let rowTongCong = -1
   let rowThue = -1
@@ -378,7 +375,10 @@ export const applyFooterFormulasAndHighlight = (
     setFormulaKeepStyle(ws, row0, FOOTER_COL0, formula, NUM_PARENS_FMT)
   }
 
-  setFooterVal(rowTongCong, `=${addrRC(rTOTAL, COL_HOA_HONG.TONG_TRA_DOI_TAC)}`)
+  setFooterVal(
+    rowTongCong,
+    `=${addrRC(rTOTAL, COL_HOA_HONG.TONG_TIEN_TRA_DOI_TAC)}`
+  )
 
   if (rowTongCong !== -1 && rowThue !== -1) {
     setFooterVal(
@@ -394,13 +394,13 @@ export const applyFooterFormulasAndHighlight = (
     )
   }
 
-  if (rowMinvoiceConPhaiThu !== -1 && rowDlHuong !== -1) {
+  if (rowMinvoiceConPhaiThu !== -1) {
     setFooterVal(
       rowMinvoiceConPhaiThu,
-      `=${addrRC(rTOTAL, COL_HOA_HONG.CHENH_LECH)}-${addrRC(
-        rowDlHuong,
-        FOOTER_COL0
-      )}`
+      `=${addrRC(rTOTAL, COL_HOA_HONG.GIA_TRI_XUAT_HOA_DON)}-${addrRC(
+        rTOTAL,
+        COL_HOA_HONG.TONG_TIEN_TRA_DOI_TAC
+      )}-${addrRC(rTOTAL, COL_HOA_HONG.MINV_DA_THU)}`
     )
   }
 
@@ -475,7 +475,7 @@ export const applyHoaHongTableStyle = (ws: XLSX.WorkSheet, rows: TableRows) => {
   if (dataEnd >= dataStart) {
     setRowVerticalBottom(ws, dataStart, dataEnd, 0, maxCol)
 
-    setColAlignmentMergeAware(ws, dataStart, dataEnd, COL_HOA_HONG.TEN, {
+    setColAlignmentMergeAware(ws, dataStart, dataEnd, COL_HOA_HONG.TENDONVI, {
       horizontal: "left",
       vertical: "bottom",
       wrapText: true,
@@ -498,18 +498,6 @@ export const applyHoaHongTableStyle = (ws: XLSX.WorkSheet, rows: TableRows) => {
       vertical: "bottom",
       wrapText: true,
     })
-  }
-
-  const cksStart = rows.rG + 1
-  const cksEnd = rows.rH - 1
-  if (cksEnd >= cksStart) {
-    for (let r0 = cksStart; r0 <= cksEnd; r0++) {
-      setAlignmentCellMergeAware(ws, r0, COL_HOA_HONG.BANQUYEN, {
-        horizontal: "center",
-        vertical: "bottom",
-        wrapText: true,
-      })
-    }
   }
 
   setFontAll(ws, "Times New Roman")
@@ -620,7 +608,7 @@ export const formatAllNumbers = (ws: XLSX.WorkSheet) => {
   const rng = XLSX.utils.decode_range(ws["!ref"] || "A1")
 
   for (let r0 = 0; r0 <= rng.e.r; r0++) {
-    const dateCell: any = (ws as any)[addrRC(r0, COL_HOA_HONG.THANG)]
+    const dateCell: any = (ws as any)[addrRC(r0, COL_HOA_HONG.NGAYPHATSINH)]
     if (dateCell) normalizeDateCell(dateCell)
 
     INT_COLS.forEach((c0) => {

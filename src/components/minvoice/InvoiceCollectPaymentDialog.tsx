@@ -11,10 +11,12 @@ type Props = {
   banks: Bank[]
   bankId: string
   amountValue: string
+  paidDateValue: string
   loadingBanks?: boolean
   saving?: boolean
   onBankChange: (value: string) => void
   onAmountChange: (value: string) => void
+  onPaidDateChange: (value: string) => void
   onClose: () => void
   onConfirm: () => void | Promise<void>
 }
@@ -41,10 +43,12 @@ export default function InvoiceCollectPaymentDialog({
   banks,
   bankId,
   amountValue,
+  paidDateValue,
   loadingBanks = false,
   saving = false,
   onBankChange,
   onAmountChange,
+  onPaidDateChange,
   onClose,
   onConfirm,
 }: Props) {
@@ -116,6 +120,17 @@ export default function InvoiceCollectPaymentDialog({
               />
             </div>
 
+            <div className="grid gap-1.5">
+              <label className="text-slate-500">Ngày thu tiền</label>
+              <input
+                type="date"
+                value={paidDateValue}
+                disabled={loadingBanks || saving}
+                onChange={(event) => onPaidDateChange(event.target.value)}
+                className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-slate-100"
+              />
+            </div>
+
             <div className="flex items-center justify-between gap-4 rounded-lg bg-white px-3 py-2">
               <span className="text-slate-500">Chênh lệch</span>
               <span
@@ -167,7 +182,7 @@ export default function InvoiceCollectPaymentDialog({
           <button
             type="button"
             onClick={onConfirm}
-            disabled={saving || loadingBanks || !amountValue}
+            disabled={saving || loadingBanks || !amountValue || !paidDateValue}
             className="inline-flex h-10 min-w-[120px] items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <CheckCircle2 size={17} />

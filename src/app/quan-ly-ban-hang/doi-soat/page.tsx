@@ -32,6 +32,8 @@ import PageHeader from "../../../components/header/PageHeader"
 
 const ALL_VALUE = "__ALL__"
 const LIST_PARAMS = {}
+const EXCEL_MIME_TYPE =
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 const INVOICE_STATUS_OPTIONS = [
   { value: "", label: "Tất cả trạng thái" },
@@ -129,6 +131,18 @@ function buildDefaultReportFileName(filters: ReportFilters) {
     : "sale-transaction-report.xlsx"
 }
 
+function downloadBlob(blob: Blob, fileName: string) {
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement("a")
+
+  link.href = url
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.setTimeout(() => window.URL.revokeObjectURL(url), 0)
+}
+
 function pickKeyFromRow(row: Record<string, any>, aliases: string[]) {
   const keys = Object.keys(row || {})
   const map = new Map<string, string>()
@@ -155,8 +169,23 @@ function parseSalesWorkbook(wb: XLSX.WorkBook): {
   const headers = json.length ? Object.keys(json[0]) : []
   const sample = json[0] || {}
 
-  const keyDealer = pickKeyFromRow(sample, ["Đại Lý"])
-  const keyDate = pickKeyFromRow(sample, ["NGÀY KÍCH HOẠT"])
+  const keyDealer = pickKeyFromRow(sample, [
+    "Đại Lý",
+    "Tên đại lý",
+    "Danh mục đại lý",
+    "Dai Ly",
+    "Ten Dai Ly",
+    "Danh Muc Dai Ly",
+    "Dealer",
+    "Agency",
+    "CTV",
+  ])
+  const keyDate = pickKeyFromRow(sample, [
+    "NGÀY KÍCH HOẠT",
+    "NGÀY PHÁT SINH",
+    "THÁNG PHÁT SINH",
+    "THÁNG",
+  ])
 
   return {
     headers,
@@ -340,7 +369,15 @@ export default function HomePage() {
       setKeyDealer(parsed.keyDealer)
       setKeyDate(parsed.keyDate)
 
-      const dls = uniqueSorted(parsed.rows.map((r: any) => r[parsed.keyDealer]))
+      if (!parsed.keyDealer) {
+        setExportErr(
+          "Không tìm thấy cột Đại lý / Danh mục đại lý trong file doanh số."
+        )
+      }
+
+      const dls = parsed.keyDealer
+        ? uniqueSorted(parsed.rows.map((r: any) => r[parsed.keyDealer]))
+        : []
       setDealers(dls)
     } catch (e: any) {
       console.error("Parse sales file failed:", e)
@@ -443,7 +480,7 @@ export default function HomePage() {
         response.data instanceof Blob
           ? response.data
           : new Blob([response.data], {
-              type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              type: EXCEL_MIME_TYPE,
             })
 
       if (!blob.size) {
@@ -453,15 +490,7 @@ export default function HomePage() {
       const fileName =
         getFilenameFromDisposition(response.headers?.["content-disposition"]) ||
         buildDefaultReportFileName(reportFilters)
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement("a")
-
-      link.href = url
-      link.download = fileName
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      window.setTimeout(() => window.URL.revokeObjectURL(url), 0)
+      downloadBlob(blob, fileName)
     } catch (e: any) {
       console.error("Export sale transaction report failed:", e)
       setReportExportErr(

@@ -121,7 +121,7 @@ export default function BankPage() {
       .unwrap()
       .catch((error) => {
         showErrorMessage(
-          getErrorMessage(error) || "Không thể tải danh sách ngân hàng"
+          getErrorMessage(error, "Không thể tải danh sách ngân hàng")
         )
       })
   }, [dispatch, listParams])
@@ -190,7 +190,7 @@ export default function BankPage() {
       await handleRefreshBanks()
     } catch (error) {
       showErrorMessage(
-        getErrorMessage(error) || "Không thể tải danh sách ngân hàng"
+        getErrorMessage(error, "Không thể tải danh sách ngân hàng")
       )
     }
   }
@@ -223,7 +223,7 @@ export default function BankPage() {
         handleCloseDialog()
       }
     } catch (error) {
-      showErrorMessage(getErrorMessage(error) || "Lưu ngân hàng thất bại!")
+      showErrorMessage(getErrorMessage(error, "Lưu ngân hàng thất bại!"))
     }
   }
 
@@ -246,7 +246,7 @@ export default function BankPage() {
       setOpen(true)
     } catch (error) {
       showErrorMessage(
-        getErrorMessage(error) || "Không thể tải chi tiết ngân hàng"
+        getErrorMessage(error, "Không thể tải chi tiết ngân hàng")
       )
     }
   }
@@ -270,7 +270,7 @@ export default function BankPage() {
       setOpen(true)
     } catch (error) {
       showErrorMessage(
-        getErrorMessage(error) || "Không thể tải dữ liệu ngân hàng"
+        getErrorMessage(error, "Không thể tải dữ liệu ngân hàng")
       )
     }
   }
@@ -296,7 +296,7 @@ export default function BankPage() {
         handleCloseDialog()
       }
     } catch (error) {
-      showErrorMessage(getErrorMessage(error) || "Xóa ngân hàng thất bại!")
+      showErrorMessage(getErrorMessage(error, "Xóa ngân hàng thất bại!"))
     }
   }
 

@@ -33,6 +33,7 @@ import {
   getUrlPaginationParams,
   URL_PAGE_SIZE_OPTIONS,
 } from "@/utils/pagination"
+import { scheduleDelayedRefresh } from "@/utils/refresh"
 
 const emptyForm: ProductPayload = {
   inv_itemName: "",
@@ -220,7 +221,7 @@ export default function ProductPage() {
       .unwrap()
       .catch((error) => {
         showErrorMessage(
-          getErrorMessage(error) || "Không thể tải danh sách sản phẩm"
+          getErrorMessage(error, "Không thể tải danh sách sản phẩm")
         )
       })
   }, [dispatch, listParams])
@@ -318,22 +319,12 @@ export default function ProductPage() {
     await dispatch(productThunks.fetchPage(listParams)).unwrap()
   }
 
-  const refreshProductsAfterDelete = () => {
-    window.setTimeout(() => {
-      void handleRefreshProducts().catch((error) => {
-        showErrorMessage(
-          getErrorMessage(error) || "Không thể tải lại danh sách sản phẩm"
-        )
-      })
-    }, 800)
-  }
-
   const onRefreshProducts = async () => {
     try {
       await handleRefreshProducts()
     } catch (error) {
       showErrorMessage(
-        getErrorMessage(error) || "Không thể tải lại danh sách sản phẩm"
+        getErrorMessage(error, "Không thể tải lại danh sách sản phẩm")
       )
     }
   }
@@ -371,7 +362,7 @@ export default function ProductPage() {
         handleCloseDialog()
       }
     } catch (error) {
-      showErrorMessage(getErrorMessage(error) || "Lưu sản phẩm thất bại!")
+      showErrorMessage(getErrorMessage(error, "Lưu sản phẩm thất bại!"))
     }
   }
 
@@ -396,7 +387,7 @@ export default function ProductPage() {
       setOpen(true)
     } catch (error) {
       showErrorMessage(
-        getErrorMessage(error) || "Không thể tải chi tiết sản phẩm"
+        getErrorMessage(error, "Không thể tải chi tiết sản phẩm")
       )
     }
   }
@@ -421,9 +412,7 @@ export default function ProductPage() {
       setMode("edit")
       setOpen(true)
     } catch (error) {
-      showErrorMessage(
-        getErrorMessage(error) || "Không thể tải dữ liệu sản phẩm"
-      )
+      showErrorMessage(getErrorMessage(error, "Không thể tải dữ liệu sản phẩm"))
     }
   }
 
@@ -446,9 +435,13 @@ export default function ProductPage() {
       if (selectedProduct?._id === id) {
         handleCloseDialog()
       }
-      refreshProductsAfterDelete()
+      scheduleDelayedRefresh(handleRefreshProducts, (error) => {
+        showErrorMessage(
+          getErrorMessage(error, "Không thể tải lại danh sách sản phẩm")
+        )
+      })
     } catch (error) {
-      showErrorMessage(getErrorMessage(error) || "Xóa sản phẩm thất bại!")
+      showErrorMessage(getErrorMessage(error, "Xóa sản phẩm thất bại!"))
     }
   }
 

@@ -26,6 +26,7 @@ import {
   getUrlPaginationParams,
   URL_PAGE_SIZE_OPTIONS,
 } from "@/utils/pagination"
+import { scheduleDelayedRefresh } from "@/utils/refresh"
 
 const emptyForm: DepartmentPayload = {
   departmentName: "",
@@ -132,7 +133,7 @@ export default function DepartmentPage() {
       .unwrap()
       .catch((error) => {
         showErrorMessage(
-          getErrorMessage(error) || "Không thể tải danh sách phòng ban"
+          getErrorMessage(error, "Không thể tải danh sách phòng ban")
         )
       })
   }, [dispatch, listParams])
@@ -199,22 +200,12 @@ export default function DepartmentPage() {
     await dispatch(departmentThunks.fetchPage(listParams)).unwrap()
   }
 
-  const refreshDepartmentsAfterDelete = () => {
-    window.setTimeout(() => {
-      void handleRefreshDepartments().catch((error) => {
-        showErrorMessage(
-          getErrorMessage(error) || "Không thể tải lại danh sách phòng ban"
-        )
-      })
-    }, 800)
-  }
-
   const onRefreshDepartments = async () => {
     try {
       await handleRefreshDepartments()
     } catch (error) {
       showErrorMessage(
-        getErrorMessage(error) || "Không thể tải lại danh sách phòng ban"
+        getErrorMessage(error, "Không thể tải lại danh sách phòng ban")
       )
     }
   }
@@ -251,7 +242,7 @@ export default function DepartmentPage() {
         handleCloseDialog()
       }
     } catch (error) {
-      showErrorMessage(getErrorMessage(error) || "Lưu phòng ban thất bại!")
+      showErrorMessage(getErrorMessage(error, "Lưu phòng ban thất bại!"))
     }
   }
 
@@ -276,7 +267,7 @@ export default function DepartmentPage() {
       setOpen(true)
     } catch (error) {
       showErrorMessage(
-        getErrorMessage(error) || "Không thể tải chi tiết phòng ban"
+        getErrorMessage(error, "Không thể tải chi tiết phòng ban")
       )
     }
   }
@@ -302,7 +293,7 @@ export default function DepartmentPage() {
       setOpen(true)
     } catch (error) {
       showErrorMessage(
-        getErrorMessage(error) || "Không thể tải dữ liệu phòng ban"
+        getErrorMessage(error, "Không thể tải dữ liệu phòng ban")
       )
     }
   }
@@ -326,9 +317,13 @@ export default function DepartmentPage() {
       if (selectedDepartment?._id === id) {
         handleCloseDialog()
       }
-      refreshDepartmentsAfterDelete()
+      scheduleDelayedRefresh(handleRefreshDepartments, (error) => {
+        showErrorMessage(
+          getErrorMessage(error, "Không thể tải lại danh sách phòng ban")
+        )
+      })
     } catch (error) {
-      showErrorMessage(getErrorMessage(error) || "Xóa phòng ban thất bại!")
+      showErrorMessage(getErrorMessage(error, "Xóa phòng ban thất bại!"))
     }
   }
 

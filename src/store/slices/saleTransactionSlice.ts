@@ -15,12 +15,8 @@ import {
   type SaleTransactionPayload,
   type UpdateSaleTransactionBankPayload,
 } from "@/services/saleTransaction"
-import { InvoiceApiRow } from "@/types/invoice"
+import type { InvoiceApiRow } from "@/types/invoice"
 import { getErrorMessage } from "@/store/utils/crud"
-import {
-  normalizeSaleTransactionDetail,
-  normalizeSaleTransactionList,
-} from "@/utils/invoice"
 
 type SaleTransactionState = {
   items: InvoiceApiRow[]
@@ -59,7 +55,7 @@ export const fetchSaleTransactionsThunk = createAsyncThunk(
   "saleTransactions/fetchAll",
   async (params?: SaleTransactionListParams) => {
     const response = await APIGetAllSaleTransactions(params)
-    return normalizeSaleTransactionList(response)
+    return response.data
   }
 )
 
@@ -67,7 +63,7 @@ export const fetchSaleTransactionByIdThunk = createAsyncThunk(
   "saleTransactions/fetchById",
   async (id: string) => {
     const response = await APIGetSaleTransactionById(id)
-    return normalizeSaleTransactionDetail(response)
+    return response.data
   }
 )
 
@@ -75,7 +71,7 @@ export const createSaleTransactionThunk = createAsyncThunk(
   "saleTransactions/create",
   async (payload: SaleTransactionPayload) => {
     const response = await APICreateSaleTransaction(payload)
-    return normalizeSaleTransactionDetail(response)
+    return response.data
   }
 )
 
@@ -83,7 +79,7 @@ export const updateSaleTransactionThunk = createAsyncThunk(
   "saleTransactions/update",
   async ({ id, payload }: { id: string; payload: SaleTransactionPayload }) => {
     const response = await APIUpdateSaleTransaction(id, payload)
-    return normalizeSaleTransactionDetail(response)
+    return response.data
   }
 )
 
@@ -101,7 +97,7 @@ export const updateSaleTransactionBankThunk = createAsyncThunk(
       bankId,
     })
 
-    return normalizeSaleTransactionDetail(response)
+    return response.data
   }
 )
 

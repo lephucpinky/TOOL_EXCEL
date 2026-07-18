@@ -13,13 +13,10 @@ import type { Product } from "@/types/product"
 import { APIGetAgencies } from "@/services/agency"
 import { APIGetDepartments } from "@/services/department"
 import { APIGetEmployees } from "@/services/employee"
-import { APIGetProducts } from "@/services/product"
+import { APIGetAllProducts } from "@/services/product"
 import { APIGetBanks } from "@/services/bank"
 import { APIGetCompanyInfo } from "@/services/companyInfo"
-import {
-  APIExportMInvoiceReceiptPost,
-  APIGetMInvoiceReceiptJobStatus,
-} from "@/services/mInvoiceReceipt"
+import { APIExportMInvoiceReceiptPost } from "@/services/mInvoiceReceipt"
 import { Loader2, Search } from "lucide-react"
 import type { ReceiptInvoiceConfig } from "@/types/receiptInvoice"
 import AlertOption from "../alert/AlertOption"
@@ -39,22 +36,13 @@ import {
   invoiceStatusLabel,
   mergeOptions,
   normalizeDateInput,
+  normalizeInvoiceStatusValue,
   normalizeInvoiceTaxCode,
   numberToVietnamese,
   resolveInvoiceTaxCodeAndRate,
   resolveOption,
   roundInvoiceMoney,
 } from "@/utils/invoice"
-import {
-  createAlreadyIssuingResolution,
-  createInvoiceExportFailureResolution,
-  getInvoiceExportAlertMessage,
-  getInvoiceExportErrorAlertMessage,
-  type InvoiceExportContext,
-  type InvoiceExportResolution,
-  isInvoiceAlreadyBeingIssuedError,
-  resolveInvoiceExportResultWithJobStatus,
-} from "@/utils/invoiceExport"
 import { toNumber } from "@/utils/excel"
 import { InvoiceApiRow, InvoiceStatus } from "@/types/invoice"
 type InvoiceScreenMode = "create" | "edit" | "detail"
@@ -66,7 +54,6 @@ type InvoiceGeneralForm = {
   currency: string
   exchangeRate: number
   paymentMethod: string
-  activatedDate: string
   agency: Agency | null
   department: Department | null
   employee: Employee | null
@@ -106,8 +93,12 @@ type Props = {
   onEdit?: () => void
   onExported?: (
     saleTransactionId: string,
-    resolution: InvoiceExportResolution
-  ) => void | Promise<void>
+    response: any,
+    fallbackRow?: InvoiceApiRow | null,
+    options?: { openDetail?: boolean }
+  ) => void | Promise<unknown>
+  onUpdateMInvoice?: (row: InvoiceApiRow) => void | Promise<unknown>
+  updateMInvoiceLoading?: boolean
   mode?: InvoiceScreenMode
   initialInvoice?: InvoiceApiRow | null
   receiptConfig?: ReceiptInvoiceConfig | null
@@ -115,6 +106,8 @@ type Props = {
   selectedReceiptConfigValue?: string
   onReceiptConfigChange?: (value: string) => void
   receiptConfigLocked?: boolean
+  exportInvoiceMinDate?: string
+  exportInvoiceMaxDate?: string
 }
 const today = new Date().toISOString().slice(0, 10)
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -183,13 +176,6 @@ function formatReceiptConfigLabel(config: ReceiptInvoiceConfig) {
   return invoiceSeries || "Cấu hình hóa đơn chưa hoàn chỉnh"
 }
 
-const issuedEditableGeneralKeys: Array<keyof InvoiceGeneralForm> = [
-  "bank",
-  "isPaid",
-  "paidAmount",
-  "paidDate",
-]
-
 function normalizePercent(value: unknown) {
   const numericValue = Number(value)
 
@@ -218,6 +204,8 @@ export default function InvoiceCreateForm({
   onSaved,
   onEdit,
   onExported,
+  onUpdateMInvoice,
+  updateMInvoiceLoading = false,
   mode = "create",
   initialInvoice = null,
   receiptConfig = null,
@@ -225,8 +213,13 @@ export default function InvoiceCreateForm({
   selectedReceiptConfigValue = "",
   onReceiptConfigChange,
   receiptConfigLocked = false,
+  exportInvoiceMinDate = "",
+  exportInvoiceMaxDate = today,
 }: Props) {
   const invoiceStatus = getInvoiceStatus(initialInvoice)
+  const invoiceStatusDisplayLabel =
+    String(initialInvoice?.invoiceStatusVi || "").trim() ||
+    invoiceStatusLabel[invoiceStatus]
   const isIssuedInvoice = invoiceStatus === InvoiceStatus.ISSUED
   const isIssuingInvoice = invoiceStatus === InvoiceStatus.ISSUING
   const isCancelledInvoice = invoiceStatus === InvoiceStatus.CANCELLED
@@ -234,14 +227,14 @@ export default function InvoiceCreateForm({
 
   const alreadyExported = isIssuedInvoice
 
-  const readOnly = mode === "detail" || isCancelledInvoice
+  const readOnly = mode === "detail" || isCancelledInvoice || isIssuingInvoice
 
-  // Chỉ hóa đơn ISSUED mới được vào luồng sửa riêng ngân hàng.
-  const issuedLimitedEdit = mode === "edit" && isIssuedInvoice
-  const canEditBank = issuedLimitedEdit
+  // Bank is editable from the issued-invoice edit flow.
+  const canEditBank = mode === "edit" && isIssuedInvoice
 
-  const mainFieldsDisabled = readOnly || issuedLimitedEdit
-  const paymentFieldsDisabled = !issuedLimitedEdit
+  const mainFieldsDisabled = readOnly
+  const invoiceDateFieldDisabled = readOnly
+  const paymentFieldsDisabled = readOnly
   const effectiveReceiptConfig = useMemo(
     () => receiptConfig || receiptConfigs[0] || FIXED_RECEIPT_INVOICE_CONFIG,
     [receiptConfig, receiptConfigs]
@@ -272,8 +265,6 @@ export default function InvoiceCreateForm({
     currency: "VND",
     exchangeRate: 1,
     paymentMethod: "CK",
-
-    activatedDate: today,
 
     agency: null,
     department: null,
@@ -313,6 +304,9 @@ export default function InvoiceCreateForm({
   const [exportInvoiceLoading, setExportInvoiceLoading] = useState(false)
   const [saveLoading, setSaveLoading] = useState(false)
   const [companyInfoLoading, setCompanyInfoLoading] = useState(false)
+  const [exportDateDialogOpen, setExportDateDialogOpen] = useState(false)
+  const [selectedExportInvoiceDate, setSelectedExportInvoiceDate] =
+    useState(today)
 
   const [showSuccess, setShowSuccess] = useState(false)
   const [showError, setShowError] = useState(false)
@@ -475,7 +469,7 @@ export default function InvoiceCreateForm({
             APIGetAgencies(),
             APIGetDepartments(),
             APIGetEmployees(),
-            APIGetProducts(),
+            APIGetAllProducts(),
             APIGetBanks(),
           ])
 
@@ -563,14 +557,20 @@ export default function InvoiceCreateForm({
         (initialInvoice as any).productId ||
         (initialInvoice as any).product
     )
+    const invoiceDate =
+      normalizeDateInput(initialInvoice.activationDate || undefined) || today
+    const initialPaidAmount = Number(
+      (initialInvoice as any).amountCollected ||
+        (initialInvoice as any).paidAmount ||
+        0
+    )
+    const initialIsPaid =
+      Boolean((initialInvoice as any).isPaid) || initialPaidAmount > 0
 
     setGeneral((prev) => ({
       ...prev,
       symbol: activeReceiptSeries,
-      activatedDate:
-        normalizeDateInput(initialInvoice.activationDate || undefined) || today,
-      invoiceDate:
-        normalizeDateInput(initialInvoice.inv_invoiceIssuedDate) || today,
+      invoiceDate,
 
       currency: initialInvoice.inv_currencyCode || "VND",
       exchangeRate: Number(initialInvoice.inv_exchangeRate || 1),
@@ -590,10 +590,8 @@ export default function InvoiceCreateForm({
       email: initialInvoice.inv_buyerEmail || "",
       address: initialInvoice.inv_buyerAddressLine || "",
 
-      isPaid:
-        Boolean((initialInvoice as any).isPaid) ||
-        Number((initialInvoice as any).paidAmount || 0) > 0,
-      paidAmount: Number((initialInvoice as any).paidAmount || 0),
+      isPaid: initialIsPaid,
+      paidAmount: initialPaidAmount,
       paidDate:
         normalizeDateInput((initialInvoice as any).paidDate) ||
         normalizeDateInput((initialInvoice as any).paymentDate) ||
@@ -619,11 +617,15 @@ export default function InvoiceCreateForm({
             discountAmount: Number(
               (initialInvoice as any).inv_discountAmount || 0
             ),
-            discountPercentage: resolveAgencyDiscountPercentage(
-              (initialInvoice as any).inv_discountPercentage ??
-                resolvedAgency?.commissionPercent,
-              resolvedAgency
-            ),
+            discountPercentage: Number(
+              (initialInvoice as any).inv_discountAmount || 0
+            )
+              ? 0
+              : resolveAgencyDiscountPercentage(
+                  (initialInvoice as any).inv_discountPercentage ??
+                    resolvedAgency?.commissionPercent,
+                  resolvedAgency
+                ),
             taxRate: normalizeInvoiceTaxCode(resolvedProduct.ma_thue),
             capitalPrice: 0,
             totalSalary: 0,
@@ -682,6 +684,13 @@ export default function InvoiceCreateForm({
             : 0) ||
           (netUnitPrice > 0 ? netUnitPrice * (1 + taxRateNumber / 100) : 0) ||
           Number(product?.inv_unitPrice || 0)
+        const loadedDiscountAmount = toNumber(
+          apiItem.discountAmount ??
+            apiItem.inv_discountAmount ??
+            (apiItems.length === 1
+              ? (initialInvoice as any).inv_discountAmount
+              : 0)
+        )
 
         return {
           id: apiItem._id || `${index}-${createItemId()}`,
@@ -704,13 +713,16 @@ export default function InvoiceCreateForm({
           quantity: quantity || 1,
           type: apiItem.type || apiItem.itemType || "Mới",
           unitPrice,
-          discountAmount: 0,
-          discountPercentage: resolveAgencyDiscountPercentage(
-            apiItem.discountPercentage ??
-              apiItem.commissionRate ??
-              (initialInvoice as any).inv_discountPercentage,
-            resolvedAgency
-          ),
+          discountAmount: loadedDiscountAmount,
+          discountPercentage:
+            loadedDiscountAmount > 0
+              ? 0
+              : resolveAgencyDiscountPercentage(
+                  apiItem.discountPercentage ??
+                    apiItem.commissionRate ??
+                    (initialInvoice as any).inv_discountPercentage,
+                  resolvedAgency
+                ),
           taxRate,
           capitalPrice: Number(apiItem.capitalPrice || 0),
           totalSalary: Number(apiItem.totalSalary || 0),
@@ -801,10 +813,7 @@ export default function InvoiceCreateForm({
       { value: "", label: "Chọn mã hàng" },
       ...productOptions.map((product) => ({
         value: getId(product),
-        label:
-          [product.inv_itemProduct, product.inv_itemName]
-            .filter(Boolean)
-            .join(" - ") || getId(product),
+        label: product.inv_itemCode || getId(product),
       })),
     ],
     [productOptions]
@@ -834,17 +843,19 @@ export default function InvoiceCreateForm({
       // FE đang dùng ô Đơn giá làm `price` gửi xuống BE, tức giá đã gồm VAT.
       const price = Number(item.unitPrice || 0)
 
-      // BE invoice discount stays 0; item discountPercentage is agency commission for revenue.
-      const discount = 0
-      const discountPercentage = normalizePercent(item.discountPercentage)
-
       // Keep special tax codes for M-Invoice; use numeric value only for VAT math.
       const { displayTaxCode, taxRate } = resolveInvoiceTaxCodeAndRate(
         item.taxRate
       )
 
-      // Khớp BE: totalPrice = price * quantity - discount
-      const totalPrice = price * quantity - discount
+      const totalPrice = price * quantity
+      const discountAmount = roundInvoiceMoney(
+        Math.max(0, Number(item.discountAmount || 0))
+      )
+      const hasDiscountAmount = discountAmount > 0
+      const discountPercentage = hasDiscountAmount
+        ? 0
+        : normalizePercent(item.discountPercentage)
 
       // Khớp BE: totalAmountWithVat = totalPrice / (1 + tax)
       const totalAmountWithoutVat = totalPrice / (1 + taxRate)
@@ -857,7 +868,9 @@ export default function InvoiceCreateForm({
 
       // Khớp BE: unitPrice = totalBeforeDiscount / quantity
       const invUnitPrice = quantity > 0 ? totalBeforeDiscount / quantity : 0
-      const revenue = roundInvoiceMoney((totalPrice * discountPercentage) / 100)
+      const revenue = hasDiscountAmount
+        ? roundInvoiceMoney(Math.max(price - discountAmount, 0))
+        : roundInvoiceMoney((totalPrice * discountPercentage) / 100)
 
       return {
         ...item,
@@ -871,7 +884,7 @@ export default function InvoiceCreateForm({
         amount: roundInvoiceMoney(totalPrice),
 
         // Hoa hồng đại lý không tham gia công thức BE, chỉ giữ lại nếu UI cần dùng.
-        discountAmount: roundInvoiceMoney(discount),
+        discountAmount,
         discountPercentage: roundInvoiceMoney(discountPercentage),
 
         taxRate: displayTaxCode,
@@ -924,9 +937,6 @@ export default function InvoiceCreateForm({
     ? roundInvoiceMoney(Number(general.paidAmount || totalPayment))
     : 0
 
-  const effectiveRemainingAmount = general.isPaid
-    ? Math.max(roundInvoiceMoney(totalPayment - effectivePaidAmount), 0)
-    : roundInvoiceMoney(totalPayment)
   useEffect(() => {
     if (readOnly || paymentFieldsDisabled) return
     if (!general.isPaid) return
@@ -960,9 +970,6 @@ export default function InvoiceCreateForm({
     ) {
       return
     }
-
-    // Hóa đơn đã ISSUED thì chỉ cho đổi ngân hàng, khóa toàn bộ thông tin khác.
-    if (issuedLimitedEdit && !issuedEditableGeneralKeys.includes(key)) return
 
     if (key === "agency") {
       const agency = value as Agency | null
@@ -1068,6 +1075,25 @@ export default function InvoiceCreateForm({
       prev.map((item) => {
         if (item.id !== id) return item
 
+        if (key === "discountPercentage") {
+          return {
+            ...item,
+            discountAmount: 0,
+            discountPercentage: normalizePercent(value),
+          }
+        }
+
+        if (key === "discountAmount") {
+          const nextDiscountAmount = Math.max(0, Number(value || 0))
+
+          return {
+            ...item,
+            discountAmount: nextDiscountAmount,
+            discountPercentage:
+              nextDiscountAmount > 0 ? 0 : item.discountPercentage,
+          }
+        }
+
         if (key === "product") {
           const product = value as Product | null
 
@@ -1154,7 +1180,7 @@ export default function InvoiceCreateForm({
       ...prev,
       isPaid: checked,
       paidAmount: checked ? roundInvoiceMoney(totalPayment) : 0,
-      paidDate: checked ? today : prev.paidDate,
+      paidDate: prev.paidDate || today,
     }))
   }
 
@@ -1166,7 +1192,6 @@ export default function InvoiceCreateForm({
 
     const agencyId = getId(general.agency)
     const employeeId = getId(general.employee)
-    const bankId = getId(general.bank)
     const nextFieldErrors: InvoiceFieldErrors = {}
 
     if (!general.symbol.trim()) {
@@ -1206,6 +1231,11 @@ export default function InvoiceCreateForm({
 
     setFieldErrors({})
 
+    if (general.isPaid && !general.paidDate) {
+      showErrorMessage("Vui lòng chọn ngày thu tiền.")
+      return null
+    }
+
     if (!general.companyName.trim()) {
       showErrorMessage("Vui lòng nhập Tên công ty.")
       return null
@@ -1226,16 +1256,16 @@ export default function InvoiceCreateForm({
     )
 
     return {
-      activationDate: general.activatedDate || null,
       inv_invoiceSeries: activeReceiptSeries,
-      inv_invoiceIssuedDate: general.invoiceDate,
+      activationDate: general.invoiceDate || null,
       inv_currencyCode: general.currency,
       inv_exchangeRate: Number(general.exchangeRate || 1),
       inv_paymentMethodName: general.paymentMethod,
 
       agencyId,
       employeeId: employeeId || undefined,
-      bankId: bankId || undefined,
+      amountCollected: effectivePaidAmount,
+      paidDate: general.isPaid ? general.paidDate : null,
 
       inv_buyerTaxCode: buyerTaxCode,
       inv_buyerLegalName: general.companyName.trim(),
@@ -1265,23 +1295,23 @@ export default function InvoiceCreateForm({
       items: validItems.map((item) => ({
         productId: getId(item.product),
         product: item.product,
-        quantity: Number(item.quantity || 1),
-        inv_quantity: Number(item.quantity || 1),
-        price: roundInvoiceMoney(item.price || 0),
+        productCode: item.productCode,
+        productName: item.productName,
+        unit: item.unit,
+        quantity: item.quantity,
+        inv_quantity: item.quantity,
+        price: roundInvoiceMoney(item.price || item.unitPrice || 0),
+        unitPrice: roundInvoiceMoney(item.price || item.unitPrice || 0),
+        inv_unitPrice: roundInvoiceMoney(item.invUnitPrice || 0),
+        ma_thue: item.ma_thue,
+        taxRate: item.taxRate,
         discountPercentage: roundInvoiceMoney(item.discountPercentage || 0),
-        ma_thue: normalizeInvoiceTaxCode(item.ma_thue || item.taxRate || "0"),
         // Khớp schema BE hiện tại của TransactionItem.
         revenue: roundInvoiceMoney(item.revenue || 0),
         capitalPrice: Number(item.capitalPrice || 0),
         totalSalary: roundInvoiceMoney(item.totalSalary || item.revenue || 0),
         accountingAccountCode: Number(item.accountingAccountCode || 0),
       })),
-      __clientSnapshot: {
-        agency: general.agency,
-        department: general.department,
-        employee: general.employee,
-        bank: general.bank,
-      },
     }
   }
 
@@ -1291,21 +1321,18 @@ export default function InvoiceCreateForm({
       return
     }
 
+    if (isIssuingInvoice) {
+      showErrorMessage("Hóa đơn đang xuất, vui lòng chờ hệ thống xử lý xong.")
+      return
+    }
+
     const payload = buildPayload()
     if (!payload) return
 
     try {
       setSaveLoading(true)
 
-      await onSaved?.({
-        ...payload,
-        __clientPayment: {
-          isPaid: Boolean(general.isPaid),
-          paidAmount: effectivePaidAmount,
-          paidDate: general.isPaid ? general.paidDate || today : "",
-          remainingAmount: effectiveRemainingAmount,
-        },
-      })
+      await onSaved?.(payload)
 
       showSuccessMessage(
         mode === "edit" ? "Cập nhật thành công." : "Tạo thành công."
@@ -1334,7 +1361,42 @@ export default function InvoiceCreateForm({
     }
   }
 
-  const handleExportInvoice = async () => {
+  const openExportInvoiceDateDialog = () => {
+    if (exportInvoiceLoading || !canExportInvoice) return
+
+    if (exportInvoiceMinDate && exportInvoiceMinDate > exportInvoiceMaxDate) {
+      showErrorMessage("Không có ngày xuất hóa đơn hợp lệ.")
+      return
+    }
+
+    setSelectedExportInvoiceDate(exportInvoiceMaxDate || today)
+    setExportDateDialogOpen(true)
+  }
+
+  const handleConfirmExportInvoiceDate = async () => {
+    if (!selectedExportInvoiceDate) {
+      showErrorMessage("Vui lòng chọn ngày xuất hóa đơn.")
+      return
+    }
+
+    if (
+      exportInvoiceMinDate &&
+      selectedExportInvoiceDate < exportInvoiceMinDate
+    ) {
+      showErrorMessage("Ngày xuất hóa đơn nhỏ hơn ngày hợp lệ.")
+      return
+    }
+
+    if (selectedExportInvoiceDate > exportInvoiceMaxDate) {
+      showErrorMessage("Ngày xuất hóa đơn không được lớn hơn hôm nay.")
+      return
+    }
+
+    setExportDateDialogOpen(false)
+    await handleExportInvoice(selectedExportInvoiceDate)
+  }
+
+  const handleExportInvoice = async (exportInvoiceIssuedDate: string) => {
     if (!initialInvoice?._id) {
       showErrorMessage("Không tìm thấy ID giao dịch bán hàng để xuất hóa đơn.")
       return
@@ -1359,17 +1421,17 @@ export default function InvoiceCreateForm({
       return
     }
 
-    const invoiceIssuedDate = normalizeDateInput(general.invoiceDate) || today
     const payload = {
       saleTransactionId: initialInvoice._id,
       inv_invoiceSeries: invoiceSeries,
-      inv_invoiceIssuedDate: invoiceIssuedDate,
+      inv_invoiceIssuedDate: exportInvoiceIssuedDate,
       editmode: 1,
     }
-    const exportContext: InvoiceExportContext = {
-      saleTransactionId: initialInvoice._id,
-      invoiceSeries,
-      taxCode: activeReceiptTaxCode,
+    const fallbackRow: InvoiceApiRow = {
+      ...initialInvoice,
+      inv_invoiceSeries: invoiceSeries,
+      inv_invoiceIssuedDate: exportInvoiceIssuedDate,
+      invoiceStatus: InvoiceStatus.ISSUING,
     }
 
     try {
@@ -1379,27 +1441,59 @@ export default function InvoiceCreateForm({
         payload,
         activeReceiptTaxCode
       )
-      const resolution = await resolveInvoiceExportResultWithJobStatus(
+      const exportResult = (await onExported?.(
+        initialInvoice._id,
         response,
-        exportContext,
-        APIGetMInvoiceReceiptJobStatus
+        fallbackRow
+      )) as any
+      const responseContent = response?.content
+      const responseInfo = String(response?.info || responseContent?.info || "")
+        .trim()
+        .toUpperCase()
+      const responseCode = Number(
+        response?.code ?? response?.statusCode ?? response?.status ?? NaN
       )
+      const responseJobId = String(
+        response?.jobId || responseContent?.jobId || ""
+      ).trim()
+      const responseMessage = String(
+        exportResult?.source?.message ||
+          response?.message ||
+          responseContent?.message ||
+          ""
+      ).trim()
+      const status =
+        normalizeInvoiceStatusValue(exportResult?.status) ||
+        normalizeInvoiceStatusValue(
+          response?.invoiceStatus || responseContent?.invoiceStatus
+        ) ||
+        (responseInfo === "FAIL" ||
+        responseInfo === "FAILED" ||
+        responseCode >= 400
+          ? InvoiceStatus.FAILED
+          : null) ||
+        (responseJobId || responseInfo === "PROCESSING" || responseCode === 202
+          ? InvoiceStatus.ISSUING
+          : null)
 
-      await onExported?.(initialInvoice._id, resolution)
-
-      if (resolution.status === InvoiceStatus.FAILED) {
-        showErrorMessage(
-          getInvoiceExportErrorAlertMessage(resolution, initialInvoice)
-        )
+      if (!status && !responseContent) {
+        showErrorMessage("Không nhận được kết quả xuất hóa đơn từ hệ thống.")
         return
       }
 
-      if (resolution.status === InvoiceStatus.ISSUED) {
-        showSuccessMessage(getInvoiceExportAlertMessage(resolution))
+      if (status === InvoiceStatus.FAILED) {
+        showErrorMessage(responseMessage || "Xuất hóa đơn thất bại.")
         return
       }
 
-      showSuccessMessage(getInvoiceExportAlertMessage(resolution))
+      if (status === InvoiceStatus.ISSUED) {
+        showSuccessMessage(responseMessage || "Xuất hóa đơn thành công.")
+        return
+      }
+
+      showSuccessMessage(
+        responseMessage || "Đã gửi yêu cầu xuất hóa đơn. Hệ thống đang xử lý."
+      )
     } catch (err: any) {
       console.error("EXPORT_M_INVOICE_ERROR", {
         saleTransactionId: initialInvoice._id,
@@ -1409,23 +1503,44 @@ export default function InvoiceCreateForm({
         response: err?.response?.data,
       })
 
-      if (isInvoiceAlreadyBeingIssuedError(err)) {
-        const resolution = createAlreadyIssuingResolution(err, exportContext)
-        await onExported?.(initialInvoice._id, resolution)
-        showSuccessMessage(getInvoiceExportAlertMessage(resolution))
+      const errorBody = err?.response?.data
+      const errorContent = errorBody?.content
+      const errorStatus =
+        normalizeInvoiceStatusValue(
+          errorBody?.invoiceStatus || errorContent?.invoiceStatus
+        ) || InvoiceStatus.FAILED
+      const errorMessage = String(
+        errorBody?.message ||
+          errorContent?.message ||
+          errorBody?.error ||
+          err?.message ||
+          "Xuất hóa đơn thất bại."
+      ).trim()
+
+      await onExported?.(
+        initialInvoice._id,
+        {
+          ...(errorBody && typeof errorBody === "object" ? errorBody : {}),
+          code: errorBody?.code || err?.response?.status || 500,
+          info:
+            errorBody?.info ||
+            (errorStatus === InvoiceStatus.FAILED ? "FAIL" : "PROCESSING"),
+          message: errorMessage,
+          invoiceStatus: errorStatus,
+        },
+        {
+          ...fallbackRow,
+          invoiceStatus: errorStatus,
+        }
+      )
+      if (errorStatus === InvoiceStatus.ISSUING) {
+        showSuccessMessage(
+          errorMessage || "Đã gửi yêu cầu xuất hóa đơn. Hệ thống đang xử lý."
+        )
         return
       }
 
-      const resolution = createInvoiceExportFailureResolution(
-        err,
-        exportContext,
-        err?.message || "Xuất hóa đơn thất bại."
-      )
-
-      await onExported?.(initialInvoice._id, resolution)
-      showErrorMessage(
-        getInvoiceExportErrorAlertMessage(resolution, initialInvoice)
-      )
+      showErrorMessage(errorMessage || "Xuất hóa đơn thất bại.")
     } finally {
       setExportInvoiceLoading(false)
     }
@@ -1460,7 +1575,7 @@ export default function InvoiceCreateForm({
             <span
               className={`rounded-full border px-3 py-1 text-xs font-semibold ${invoiceStatusClass[invoiceStatus]}`}
             >
-              {invoiceStatusLabel[invoiceStatus]}
+              {invoiceStatusDisplayLabel}
             </span>
           </div>
 
@@ -1506,9 +1621,9 @@ export default function InvoiceCreateForm({
               <input
                 className={inputClass}
                 type="date"
-                value={general.activatedDate}
-                disabled={mainFieldsDisabled}
-                onChange={(e) => updateGeneral("activatedDate", e.target.value)}
+                value={general.invoiceDate}
+                disabled={invoiceDateFieldDisabled}
+                onChange={(e) => updateGeneral("invoiceDate", e.target.value)}
               />
             </div>
 
@@ -1750,7 +1865,7 @@ export default function InvoiceCreateForm({
               <input
                 className={`${inputClass} text-right`}
                 value={general.paidAmount}
-                disabled={paymentFieldsDisabled}
+                disabled={paymentFieldsDisabled || !general.isPaid}
                 onChange={(e) =>
                   updateGeneral("paidAmount", toNumber(e.target.value))
                 }
@@ -1863,6 +1978,9 @@ export default function InvoiceCreateForm({
                 </th>
                 <th className="min-w-[130px] border-b border-r border-slate-300 px-2 py-2 text-right">
                   % chiết khấu
+                </th>
+                <th className="min-w-[150px] border-b border-r border-slate-300 px-2 py-2 text-right">
+                  Tiền chiết khấu
                 </th>
                 <th className="min-w-[150px] border-b border-r border-slate-300 px-2 py-2 text-right">
                   Doanh thu
@@ -1993,6 +2111,21 @@ export default function InvoiceCreateForm({
                       placeholder="%"
                     />
                   </td>
+                  <td className="border-b border-r border-slate-200 px-2 py-2">
+                    <input
+                      className={`${inputClass} text-right`}
+                      value={item.discountAmount}
+                      disabled={mainFieldsDisabled}
+                      onChange={(e) =>
+                        updateItem(
+                          item.id,
+                          "discountAmount",
+                          toNumber(e.target.value)
+                        )
+                      }
+                      placeholder="0"
+                    />
+                  </td>
                   <td className="border-b border-r border-slate-200 px-2 py-2 text-right font-semibold text-blue-700">
                     {formatMoney(item.revenue)}
                   </td>
@@ -2077,29 +2210,41 @@ export default function InvoiceCreateForm({
 
             <button
               onClick={onEdit}
-              disabled={
-                isCancelledInvoice || isIssuedInvoice || isIssuingInvoice
-              }
+              disabled={isCancelledInvoice || isIssuingInvoice}
               className="rounded border border-indigo-500 bg-indigo-50 px-5 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Sửa
             </button>
 
-            <button
-              onClick={handleExportInvoice}
-              disabled={exportInvoiceLoading || !canExportInvoice}
-              className="rounded border border-emerald-500 bg-emerald-50 px-5 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isCancelledInvoice
-                ? "Hóa đơn đã hủy"
-                : alreadyExported
-                  ? "Đã xuất hóa đơn"
-                  : exportInvoiceLoading || isIssuingInvoice
-                    ? "Đang xuất..."
-                    : invoiceStatus === InvoiceStatus.FAILED
-                      ? "Xuất lại hóa đơn"
-                      : "Xuất hóa đơn"}
-            </button>
+            {alreadyExported && initialInvoice && onUpdateMInvoice ? (
+              <button
+                onClick={() => {
+                  void onUpdateMInvoice(initialInvoice)
+                }}
+                disabled={updateMInvoiceLoading}
+                className="rounded border border-blue-500 bg-blue-50 px-5 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {updateMInvoiceLoading
+                  ? "Đang cập nhật..."
+                  : "Cập nhật hóa đơn"}
+              </button>
+            ) : (
+              <button
+                onClick={openExportInvoiceDateDialog}
+                disabled={exportInvoiceLoading || !canExportInvoice}
+                className="rounded border border-emerald-500 bg-emerald-50 px-5 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isCancelledInvoice
+                  ? "Hóa đơn đã hủy"
+                  : alreadyExported
+                    ? "Đã xuất hóa đơn"
+                    : exportInvoiceLoading || isIssuingInvoice
+                      ? "Đang xuất..."
+                      : invoiceStatus === InvoiceStatus.FAILED
+                        ? "Xuất lại hóa đơn"
+                        : "Xuất hóa đơn"}
+              </button>
+            )}
           </>
         ) : mode === "edit" ? (
           <>
@@ -2139,6 +2284,61 @@ export default function InvoiceCreateForm({
           </>
         )}
       </div>
+
+      {exportDateDialogOpen && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/50 p-4">
+          <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white shadow-xl">
+            <div className="border-b border-slate-100 px-5 py-4">
+              <h3 className="text-base font-bold text-slate-900">
+                Chọn ngày xuất hóa đơn
+              </h3>
+            </div>
+
+            <div className="space-y-3 px-5 py-4">
+              <label
+                htmlFor="invoice-form-export-date"
+                className="block text-sm font-medium text-slate-700"
+              >
+                Ngày xuất hóa đơn
+              </label>
+              <input
+                id="invoice-form-export-date"
+                className={inputClass}
+                type="date"
+                value={selectedExportInvoiceDate}
+                min={exportInvoiceMinDate || undefined}
+                max={exportInvoiceMaxDate}
+                disabled={exportInvoiceLoading}
+                onChange={(e) => setSelectedExportInvoiceDate(e.target.value)}
+              />
+              <p className="text-xs text-slate-500">
+                Ngày hợp lệ: {exportInvoiceMinDate || "..."} -{" "}
+                {exportInvoiceMaxDate}
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setExportDateDialogOpen(false)}
+                disabled={exportInvoiceLoading}
+                className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleConfirmExportInvoiceDate()}
+                disabled={exportInvoiceLoading}
+                className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {exportInvoiceLoading ? "Đang xuất..." : "Xuất hóa đơn"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <AlertOption
         isOpen={isCancelDialogOpen}
         onOpenChange={setCancelDialogOpen}

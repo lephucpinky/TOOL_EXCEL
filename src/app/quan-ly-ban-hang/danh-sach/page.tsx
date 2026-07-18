@@ -10,6 +10,22 @@ import InvoiceDataTable from "@/components/minvoice/InvoiceDataTable"
 import InvoiceBulkImport from "@/components/minvoice/InvoiceBulkImport"
 import InvoiceToolbar from "@/components/minvoice/InvoiceToolbar"
 import InvoiceCollectPaymentDialog from "@/components/minvoice/InvoiceCollectPaymentDialog"
+import {
+  applyDepartmentOverride,
+  buildCopiedInvoiceDraft,
+  canCollectPayment,
+  canUpdateMInvoiceRow,
+  getInvoiceAmountCollected,
+  getInvoiceDefaultCollectPaymentAmount,
+  getInvoicePaidDateInput,
+  getPaymentStatus,
+  getTodayDate,
+  getUniqueInvoiceRows,
+  hasOwnField,
+  isFilledValue,
+  mergeInvoicePaymentState,
+  toSafeNumber,
+} from "@/components/minvoice/invoiceListUtils"
 
 import AlertOption from "@/components/alert/AlertOption"
 import AlertSuccess from "@/components/alert/AlertSuccess"
@@ -23,6 +39,7 @@ import {
 import {
   APIExportMInvoiceReceiptPost,
   APIGetMInvoiceReceiptJobStatus,
+  APIUpdateMInvoiceReceiptPost,
   APIViewPrintInvoice,
 } from "@/services/mInvoiceReceipt"
 import { APIGetReceiptInvoices } from "@/services/receiptInvoice"
@@ -35,20 +52,6 @@ import {
   getUrlPaginationParams,
   URL_PAGE_SIZE_OPTIONS,
 } from "@/utils/pagination"
-import {
-  applyInvoiceExportResolutionToRow,
-  createAlreadyIssuingResolution,
-  createInvoiceExportFailureResolution,
-  getInvoiceExportAlertMessage,
-  getInvoiceExportErrorAlertMessage,
-  getInvoiceExportJobId,
-  type InvoiceExportContext,
-  type InvoiceExportResolution,
-  isInvoiceAlreadyBeingIssuedError,
-  resolveInvoiceExportResult,
-  resolveInvoiceExportResultWithJobStatus,
-} from "@/utils/invoiceExport"
-
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import {
   createSaleTransactionThunk,
@@ -56,13 +59,10 @@ import {
   saleTransactionActions,
   updateSaleTransactionBankThunk,
   updateSaleTransactionThunk,
-} from "@/store/slices"
+} from "@/store/slices/saleTransactionSlice"
+import { getErrorMessage } from "@/store/utils/crud"
 
-import {
-  InvoiceApiRow,
-  InvoicePaymentStatus,
-  InvoiceStatus,
-} from "@/types/invoice"
+import { InvoiceApiRow, InvoiceStatus } from "@/types/invoice"
 import type { Bank } from "@/types/bank"
 import type { ReceiptInvoiceConfig } from "@/types/receiptInvoice"
 
@@ -74,23 +74,21 @@ type InvoiceFormPayload = Partial<InvoiceApiRow> & {
   bankOnlyEdit?: boolean
   bankId?: Bank | string | null
   inv_buyerBankName?: string
-  __clientSnapshot?: {
-    department?: InvoiceApiRow["departmentId"]
-  }
 }
 
-type ApiErrorLike = {
-  response?: {
-    data?: {
-      message?: string
-      error?: string
-    }
-  }
-  message?: string
+type InvoiceListActionOptions = {
+  silent?: boolean
+  bypassBusyGuard?: boolean
 }
 
-const DEPARTMENT_OVERRIDE_STORAGE_KEY =
-  "minvoice.saleTransaction.departmentOverrides"
+type InvoiceListActionStatus =
+  | InvoiceStatus.ISSUED
+  | InvoiceStatus.ISSUING
+  | InvoiceStatus.FAILED
+  | null
+
+const NO_INVOICE_EXPORT_RESULT_MESSAGE =
+  "Xuất hoá đơn không thành công, vui lòng thử lại sau."
 
 export default function InvoiceListPage() {
   const searchParams = useSearchParams()
@@ -149,6 +147,23 @@ export default function InvoiceListPage() {
   const [exportingInvoiceId, setExportingInvoiceId] = useState<string | null>(
     null
   )
+  const [updatingMInvoiceId, setUpdatingMInvoiceId] = useState<string | null>(
+    null
+  )
+  const [exportDateDialogOpen, setExportDateDialogOpen] = useState(false)
+  const [pendingExportInvoice, setPendingExportInvoice] =
+    useState<InvoiceApiRow | null>(null)
+  const [pendingBulkExportInvoices, setPendingBulkExportInvoices] = useState<
+    InvoiceApiRow[]
+  >([])
+  const [selectedExportInvoiceDate, setSelectedExportInvoiceDate] = useState("")
+  const [selectedBulkInvoiceIds, setSelectedBulkInvoiceIds] = useState<
+    string[]
+  >([])
+  const [copyInvoiceDraft, setCopyInvoiceDraft] =
+    useState<InvoiceApiRow | null>(null)
+  const [bulkInvoiceActionLoading, setBulkInvoiceActionLoading] =
+    useState(false)
 
   const [pdfViewerOpen, setPdfViewerOpen] = useState(false)
   const [pdfLoading, setPdfLoading] = useState(false)
@@ -161,6 +176,7 @@ export default function InvoiceListPage() {
   const [collectPaymentBanks, setCollectPaymentBanks] = useState<Bank[]>([])
   const [collectPaymentBankId, setCollectPaymentBankId] = useState("")
   const [collectPaymentAmount, setCollectPaymentAmount] = useState("")
+  const [collectPaymentDate, setCollectPaymentDate] = useState(getTodayDate)
   const [collectPaymentLoading, setCollectPaymentLoading] = useState(false)
   const [collectPaymentSaving, setCollectPaymentSaving] = useState(false)
 
@@ -172,271 +188,44 @@ export default function InvoiceListPage() {
   const issuingSyncVersionRef = useRef<Map<string, number>>(new Map())
   const alertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const exportingInvoiceRef = useRef(false)
+  const updatingMInvoiceRef = useRef(false)
+  const bulkInvoiceActionRef = useRef(false)
   const collectPaymentSavingRef = useRef(false)
 
-  const hasOwnField = <K extends PropertyKey>(
-    value: unknown,
-    key: K
-  ): value is Record<K, unknown> => {
-    return (
-      Boolean(value) &&
-      typeof value === "object" &&
-      Object.prototype.hasOwnProperty.call(value, key)
+  const isInvoiceActionBusy = () => {
+    return Boolean(
+      exportingInvoiceRef.current ||
+        exportingInvoiceId ||
+        updatingMInvoiceRef.current ||
+        updatingMInvoiceId ||
+        bulkInvoiceActionRef.current ||
+        bulkInvoiceActionLoading
     )
   }
 
-  const isFilledValue = (value: unknown) => {
-    return value !== undefined && value !== null && String(value).trim() !== ""
-  }
-
-  const toSafeNumber = (value: unknown) => {
-    const numberValue = invoiceHelper.toNumber(value)
-    return Number.isFinite(numberValue) ? numberValue : 0
-  }
-
-  const readDepartmentOverrides = () => {
-    if (typeof window === "undefined") return {}
-
-    try {
-      const rawValue = window.localStorage.getItem(
-        DEPARTMENT_OVERRIDE_STORAGE_KEY
-      )
-      const parsedValue = rawValue ? JSON.parse(rawValue) : {}
-
-      return parsedValue && typeof parsedValue === "object"
-        ? (parsedValue as Record<string, InvoiceApiRow["departmentId"]>)
-        : {}
-    } catch {
-      return {}
-    }
-  }
-
-  const persistDepartmentOverride = (
-    invoiceId: string,
-    department: InvoiceApiRow["departmentId"] | undefined
-  ) => {
-    if (!invoiceId || typeof window === "undefined") return
-
-    const overrides = readDepartmentOverrides()
-
-    if (department && typeof department === "object") {
-      overrides[invoiceId] = department
-    } else {
-      delete overrides[invoiceId]
-    }
-
-    window.localStorage.setItem(
-      DEPARTMENT_OVERRIDE_STORAGE_KEY,
-      JSON.stringify(overrides)
-    )
-  }
-
-  const applyDepartmentOverride = (invoice: InvoiceApiRow): InvoiceApiRow => {
-    if (!invoice?._id) return invoice
-
-    const override = readDepartmentOverrides()[invoice._id]
-
-    if (!override || typeof override !== "object") return invoice
+  const getInvoicePrintContext = (invoice: InvoiceApiRow) => {
+    const matchedReceiptConfig =
+      receiptConfigs.find((config) =>
+        invoiceHelper.isInvoiceMatchedReceiptConfig(invoice, config)
+      ) ||
+      activeReceiptConfig ||
+      invoiceHelper.getFixedReceiptInvoiceConfig()
+    const taxCode =
+      matchedReceiptConfig?.tax_code ||
+      invoiceHelper.getInvoiceSellerTaxCode(invoice)
+    const invoiceSeries = String(
+      invoice.inv_invoiceSeries || matchedReceiptConfig?.inv_invoiceSeries || ""
+    ).trim()
+    const invoiceIssuedDate =
+      invoiceHelper.normalizeDateInput(invoice.inv_invoiceIssuedDate || "") ||
+      exportInvoiceMaxDate
 
     return {
-      ...invoice,
-      departmentId: override,
+      invInvoiceCreatedId: invoiceHelper.getExportInvoiceId(invoice),
+      taxCode,
+      invoiceSeries,
+      invoiceIssuedDate,
     }
-  }
-
-  const getPaymentStatus = (
-    totalAmount: number,
-    amountCollected: number
-  ): InvoicePaymentStatus => {
-    if (totalAmount > 0 && amountCollected >= totalAmount) {
-      return InvoicePaymentStatus.PAID
-    }
-
-    if (amountCollected > 0) {
-      return InvoicePaymentStatus.PARTIAL
-    }
-
-    return InvoicePaymentStatus.UNPAID
-  }
-
-  const getErrorAlertMessage = (error: unknown, fallbackMessage: string) => {
-    if (error && typeof error === "object") {
-      const err = error as ApiErrorLike
-
-      return (
-        err.response?.data?.message ||
-        err.response?.data?.error ||
-        err.message ||
-        fallbackMessage
-      )
-    }
-
-    return fallbackMessage
-  }
-
-  const canCollectPayment = (invoice?: InvoiceApiRow | null) => {
-    const status = invoiceHelper.getInvoiceStatus(invoice)
-
-    return status === InvoiceStatus.DRAFT || status === InvoiceStatus.ISSUED
-  }
-
-  const getPaymentAmountFromInvoice = (
-    invoice?: InvoiceApiRow | null,
-    fallback?: InvoiceApiRow | null
-  ) => {
-    const invoiceTotalAmount = toSafeNumber(invoice?.inv_TotalAmount)
-    const fallbackTotalAmount = toSafeNumber(fallback?.inv_TotalAmount)
-    const totalAmount =
-      invoiceTotalAmount > 0 ? invoiceTotalAmount : fallbackTotalAmount
-
-    if (
-      hasOwnField(invoice, "amountCollected") &&
-      isFilledValue(invoice.amountCollected)
-    ) {
-      const amountCollected = toSafeNumber(invoice.amountCollected)
-
-      if (amountCollected > 0) {
-        return amountCollected
-      }
-    }
-
-    if (hasOwnField(invoice, "paidAmount") && isFilledValue(invoice.paidAmount)) {
-      const paidAmount = toSafeNumber(invoice.paidAmount)
-
-      if (paidAmount > 0) {
-        return paidAmount
-      }
-    }
-
-    if (
-      totalAmount > 0 &&
-      (invoice?.isPaid === true ||
-        invoice?.paymentStatus === InvoicePaymentStatus.PAID)
-    ) {
-      return totalAmount
-    }
-
-    if (
-      hasOwnField(fallback, "amountCollected") &&
-      isFilledValue(fallback.amountCollected)
-    ) {
-      const amountCollected = toSafeNumber(fallback.amountCollected)
-
-      if (amountCollected > 0) {
-        return amountCollected
-      }
-    }
-
-    if (
-      hasOwnField(fallback, "paidAmount") &&
-      isFilledValue(fallback.paidAmount)
-    ) {
-      const paidAmount = toSafeNumber(fallback.paidAmount)
-
-      if (paidAmount > 0) {
-        return paidAmount
-      }
-    }
-
-    if (
-      totalAmount > 0 &&
-      (fallback?.isPaid === true ||
-        fallback?.paymentStatus === InvoicePaymentStatus.PAID)
-    ) {
-      return totalAmount
-    }
-
-    return 0
-  }
-
-  const getSuggestedPaymentAmountFromInvoice = (
-    invoice?: InvoiceApiRow | null,
-    fallback?: InvoiceApiRow | null
-  ) => {
-    if (
-      hasOwnField(invoice, "suggestedAmountCollected") &&
-      isFilledValue(invoice.suggestedAmountCollected)
-    ) {
-      return toSafeNumber(invoice.suggestedAmountCollected)
-    }
-
-    if (
-      hasOwnField(fallback, "suggestedAmountCollected") &&
-      isFilledValue(fallback.suggestedAmountCollected)
-    ) {
-      return toSafeNumber(fallback.suggestedAmountCollected)
-    }
-
-    return 0
-  }
-
-  const mergeInvoicePaymentState = (
-    invoice: InvoiceApiRow,
-    fallback?: InvoiceApiRow | null
-  ): InvoiceApiRow => {
-    if (!invoice?._id) return invoice
-
-    const invoiceTotalAmount = toSafeNumber(invoice.inv_TotalAmount)
-    const fallbackTotalAmount = toSafeNumber(fallback?.inv_TotalAmount)
-    const totalAmount =
-      invoiceTotalAmount > 0 ? invoiceTotalAmount : fallbackTotalAmount
-
-    const amountCollected = getPaymentAmountFromInvoice(invoice, fallback)
-    const remainingAmount = totalAmount - amountCollected
-    const suggestedAmountCollectedFromInvoice =
-      getSuggestedPaymentAmountFromInvoice(invoice, fallback)
-    const invoiceStatus = invoice.invoiceStatus || fallback?.invoiceStatus
-    const suggestedAmountCollected =
-      amountCollected > 0
-        ? amountCollected
-        : suggestedAmountCollectedFromInvoice > 0
-          ? suggestedAmountCollectedFromInvoice
-          : invoiceStatus === InvoiceStatus.ISSUED
-            ? totalAmount
-            : 0
-
-    /**
-     * Quy tắc đúng:
-     * - Chưa thu hoặc thu một phần: isPaid = false
-     * - Chỉ khi thu đủ hoặc lớn hơn tổng tiền: isPaid = true
-     */
-    const isPaid = totalAmount > 0 && amountCollected >= totalAmount
-
-    const paidDate =
-      invoice.paidDate ||
-      invoice.paymentDate ||
-      fallback?.paidDate ||
-      fallback?.paymentDate ||
-      undefined
-
-    return {
-      ...invoice,
-      inv_TotalAmount: totalAmount,
-      amountCollected,
-      suggestedAmountCollected,
-      paidAmount: amountCollected,
-      isPaid,
-      paymentStatus: getPaymentStatus(totalAmount, amountCollected),
-      paidDate: amountCollected > 0 ? paidDate : undefined,
-      paymentDate: amountCollected > 0 ? paidDate : undefined,
-      remainingAmount,
-    }
-  }
-
-  const getInvoiceAmountCollected = (invoice?: InvoiceApiRow | null) => {
-    return getPaymentAmountFromInvoice(invoice)
-  }
-
-  const getInvoiceDefaultCollectPaymentAmount = (
-    invoice?: InvoiceApiRow | null
-  ) => {
-    const amountCollected = getInvoiceAmountCollected(invoice)
-
-    if (amountCollected > 0) {
-      return amountCollected
-    }
-
-    return getSuggestedPaymentAmountFromInvoice(invoice)
   }
 
   const clearAlertTimer = () => {
@@ -483,10 +272,6 @@ export default function InvoiceListPage() {
     }
   }
 
-  useEffect(() => {
-    apiRowsRef.current = apiRows
-  }, [apiRows])
-
   const replaceInvoiceRows = (
     updater: (rows: InvoiceApiRow[]) => InvoiceApiRow[]
   ) => {
@@ -494,11 +279,6 @@ export default function InvoiceListPage() {
     apiRowsRef.current = nextRows
     dispatch(saleTransactionActions.setSaleTransactions(nextRows))
   }
-
-  const selectedInvoice = useMemo(() => {
-    if (!selectedInvoiceId) return null
-    return apiRows.find((item) => item._id === selectedInvoiceId) ?? null
-  }, [apiRows, selectedInvoiceId])
 
   const activeReceiptConfig = useMemo(() => {
     return (
@@ -518,6 +298,61 @@ export default function InvoiceListPage() {
   const listRows = useMemo(() => {
     return apiRows
   }, [apiRows])
+
+  useEffect(() => {
+    apiRowsRef.current = listRows
+  }, [listRows])
+
+  useEffect(() => {
+    setSelectedBulkInvoiceIds((currentIds) => {
+      if (!currentIds.length) return currentIds
+
+      const currentRowIds = new Set(listRows.map((row) => row._id))
+      const nextIds = currentIds.filter((id) => currentRowIds.has(id))
+
+      return nextIds.length === currentIds.length ? currentIds : nextIds
+    })
+  }, [listRows])
+
+  const selectedInvoice = useMemo(() => {
+    if (!selectedInvoiceId) return null
+    return listRows.find((item) => item._id === selectedInvoiceId) ?? null
+  }, [listRows, selectedInvoiceId])
+
+  const exportInvoiceMaxDate = new Date().toISOString().slice(0, 10)
+  const exportInvoiceMinDate = useMemo(() => {
+    let latestIssuedDate = ""
+
+    listRows.forEach((row) => {
+      const isIssued =
+        invoiceHelper.getInvoiceStatus(row) === InvoiceStatus.ISSUED
+
+      if (!isIssued) return
+
+      const issuedDate = invoiceHelper.normalizeDateInput(
+        row.inv_invoiceIssuedDate || ""
+      )
+
+      if (issuedDate && (!latestIssuedDate || issuedDate > latestIssuedDate)) {
+        latestIssuedDate = issuedDate
+      }
+    })
+
+    if (!latestIssuedDate) return ""
+
+    const [year, month, day] = latestIssuedDate.split("-").map(Number)
+    const nextDate = new Date(year, month - 1, day + 1)
+
+    const nextDateText = [
+      nextDate.getFullYear(),
+      String(nextDate.getMonth() + 1).padStart(2, "0"),
+      String(nextDate.getDate()).padStart(2, "0"),
+    ].join("-")
+
+    return latestIssuedDate === exportInvoiceMaxDate
+      ? exportInvoiceMaxDate
+      : nextDateText
+  }, [listRows, exportInvoiceMaxDate])
 
   const upsertInvoiceRow = (nextRow: InvoiceApiRow) => {
     const fallback = apiRowsRef.current.find((item) => item._id === nextRow._id)
@@ -577,46 +412,6 @@ export default function InvoiceListPage() {
     issuingSyncVersionRef.current.delete(saleTransactionId)
   }
 
-  const buildInvoiceExportContext = (
-    saleTransactionId: string,
-    fallback?: InvoiceApiRow | null,
-    resolution?: InvoiceExportResolution | null
-  ): InvoiceExportContext => {
-    const matchedReceiptConfig = fallback
-      ? receiptConfigs.find((config) =>
-          invoiceHelper.isInvoiceMatchedReceiptConfig(fallback, config)
-        ) ||
-        activeReceiptConfig ||
-        invoiceHelper.getFixedReceiptInvoiceConfig()
-      : null
-
-    return {
-      saleTransactionId,
-      invoiceSeries: String(
-        resolution?.exportData?.inv_invoiceSeries ||
-          matchedReceiptConfig?.inv_invoiceSeries ||
-          fallback?.inv_invoiceSeries ||
-          ""
-      ).trim(),
-      invoiceIssuedDate:
-        invoiceHelper.normalizeDateInput(
-          resolution?.exportData?.inv_invoiceIssuedDate ||
-            fallback?.inv_invoiceIssuedDate ||
-            ""
-        ) || undefined,
-      taxCode: String(
-        resolution?.exportData?.tax_code ||
-          matchedReceiptConfig?.tax_code ||
-          (fallback
-            ? invoiceHelper.getInvoiceSellerTaxCode(
-                fallback,
-                matchedReceiptConfig?.tax_code || ""
-              )
-            : "")
-      ).trim(),
-    }
-  }
-
   const fetchSaleTransactionDetail = async (
     saleTransactionId: string,
     fallback?: InvoiceApiRow | null
@@ -640,38 +435,9 @@ export default function InvoiceListPage() {
     }
   }
 
-  const fetchInvoiceJobStatus = async (
-    jobId: string,
-    exportContext: InvoiceExportContext
-  ) => {
-    const response = await APIGetMInvoiceReceiptJobStatus(jobId)
-    const resolution = resolveInvoiceExportResult(response, exportContext)
-
-    return {
-      response,
-      resolution,
-    }
-  }
-
-  const syncInvoiceListAfterExport = async (saleTransactionId: string) => {
-    let latestRows: InvoiceApiRow[] = []
-
-    for (let attempt = 0; attempt < 10; attempt += 1) {
-      if (attempt > 0) {
-        await new Promise<void>((resolve) => setTimeout(resolve, 1000))
-      }
-
-      const response = await APIGetSaleTransactions(listParams)
-      latestRows = invoiceHelper.normalizeSaleTransactionList(response)
-
-      const latestRow =
-        latestRows.find((item) => item._id === saleTransactionId) || null
-      const latestInvoiceNumber = String(latestRow?.invoiceNumber ?? "").trim()
-
-      if (latestInvoiceNumber) {
-        break
-      }
-    }
+  const syncInvoiceListAfterExport = async () => {
+    const response = await APIGetSaleTransactions(listParams)
+    const latestRows = response.data
 
     if (!latestRows.length) return
 
@@ -681,27 +447,8 @@ export default function InvoiceListPage() {
     const nextRows = latestRows.map((item) => {
       const fallback = previousRowMap.get(item._id)
 
-      if (item._id !== saleTransactionId) {
-        return mergeInvoicePaymentState(
-          applyDepartmentOverride(item),
-          fallback ? applyDepartmentOverride(fallback) : fallback
-        )
-      }
-
-      const amountCollected = Math.max(
-        getPaymentAmountFromInvoice(item),
-        getPaymentAmountFromInvoice(fallback)
-      )
-
       return mergeInvoicePaymentState(
-        applyDepartmentOverride({
-          ...item,
-          invoiceStatus: InvoiceStatus.ISSUED,
-          amountCollected,
-          suggestedAmountCollected:
-            amountCollected ||
-            toSafeNumber(item.inv_TotalAmount || fallback?.inv_TotalAmount),
-        }),
+        applyDepartmentOverride(item),
         fallback ? applyDepartmentOverride(fallback) : fallback
       )
     })
@@ -713,7 +460,7 @@ export default function InvoiceListPage() {
   const scheduleInvoiceRefresh = (
     saleTransactionId: string,
     fallback?: InvoiceApiRow | null,
-    initialResolution?: InvoiceExportResolution | null
+    jobId?: string
   ) => {
     const scheduledIds = issuingSyncQueueRef.current
 
@@ -729,152 +476,100 @@ export default function InvoiceListPage() {
       issuingSyncVersionRef.current.get(saleTransactionId) === syncVersion
 
     const refreshIntervals = [3000, 5000, 7000]
-    const exportContext = buildInvoiceExportContext(
-      saleTransactionId,
-      fallback,
-      initialResolution
-    )
-    const jobId =
-      getInvoiceExportJobId(initialResolution?.exportData) ||
-      getInvoiceExportJobId(fallback)
 
-    const finalizeRefresh = (resolution: InvoiceExportResolution) => {
+    const stopRefresh = () => {
+      issuingSyncQueueRef.current.delete(saleTransactionId)
+      issuingSyncVersionRef.current.delete(saleTransactionId)
+    }
+
+    const finish = (row: InvoiceApiRow, message?: string) => {
       if (!isCurrentRefresh()) return
 
-      cancelInvoiceRefresh(saleTransactionId)
-      applyInvoiceExportResolution(saleTransactionId, resolution, {
-        openDetail: false,
-        fallbackRow: fallback,
-      })
+      stopRefresh()
 
-      if (resolution.status === InvoiceStatus.ISSUED) {
-        showSuccessMessage(getInvoiceExportAlertMessage(resolution))
-        return
+      const status = invoiceHelper.getInvoiceStatus(row)
+
+      if (status === InvoiceStatus.ISSUED) {
+        showSuccessMessage(message || "Xuất hóa đơn thành công.")
+        void syncInvoiceListAfterExport().catch((error) => {
+          console.error("FETCH_LIST_AFTER_EXPORT_SUCCESS_ERROR", {
+            saleTransactionId,
+            error,
+          })
+        })
+      } else if (status === InvoiceStatus.FAILED) {
+        showErrorMessage(message || "Xuất hóa đơn thất bại.")
       }
-
-      showErrorMessage(getInvoiceExportErrorAlertMessage(resolution, fallback))
     }
 
     const runRefresh = (index: number) => {
       if (index >= refreshIntervals.length) {
-        finalizeRefresh(
-          createInvoiceExportFailureResolution(
-            { message: "Không nhận được kết quả xuất hóa đơn từ hệ thống." },
-            exportContext,
-            "Không nhận được kết quả xuất hóa đơn từ hệ thống."
-          )
+        const currentRow =
+          apiRowsRef.current.find((item) => item._id === saleTransactionId) ||
+          fallback ||
+          null
+        const failedRow = mergeInvoicePaymentState(
+          applyDepartmentOverride({
+            ...(currentRow || ({} as InvoiceApiRow)),
+            _id: saleTransactionId,
+            invoiceStatus: InvoiceStatus.FAILED,
+            invoiceErrorMessage: NO_INVOICE_EXPORT_RESULT_MESSAGE,
+            rawFailedReason: NO_INVOICE_EXPORT_RESULT_MESSAGE,
+            isActive: true,
+            updatedAt: new Date().toISOString(),
+          }),
+          currentRow ? applyDepartmentOverride(currentRow) : currentRow
         )
+
+        upsertInvoiceRow(failedRow)
+        finish(failedRow, NO_INVOICE_EXPORT_RESULT_MESSAGE)
         return
       }
 
-      const delay = refreshIntervals[index]
       const timeoutId = setTimeout(() => {
         issuingSyncTimeoutRef.current.delete(saleTransactionId)
 
         if (!isCurrentRefresh()) return
 
-        const refreshPromise = jobId
-          ? fetchInvoiceJobStatus(jobId, exportContext)
-          : fetchSaleTransactionDetail(saleTransactionId, fallback).then(
-              (result) => ({
-                response: result.response,
-                resolution: result.detail
-                  ? resolveInvoiceExportResult(result.detail, exportContext)
-                  : null,
-              })
-            )
+        const statusPromise = jobId
+          ? APIGetMInvoiceReceiptJobStatus(jobId).catch((error) => error)
+          : Promise.resolve(null)
 
-        void refreshPromise
-          .then((result) => {
+        void statusPromise
+          .then(async (jobStatus) => {
             if (!isCurrentRefresh()) return
 
-            const nextResolution = result?.resolution || null
+            const detailResult = await fetchSaleTransactionDetail(
+              saleTransactionId,
+              fallback
+            )
+            const detail = detailResult.detail
 
-            if (
-              nextResolution &&
-              nextResolution.status !== InvoiceStatus.ISSUING
-            ) {
-              finalizeRefresh(nextResolution)
+            if (!detail) {
+              runRefresh(index + 1)
               return
             }
 
-            if (index === refreshIntervals.length - 1) {
-              finalizeRefresh(
-                createInvoiceExportFailureResolution(
-                  result?.resolution?.exportData || result?.response,
-                  exportContext,
-                  "Xuất hóa đơn thất bại."
-                )
-              )
+            const status = invoiceHelper.getInvoiceStatus(detail)
+
+            if (status !== InvoiceStatus.ISSUING) {
+              finish(detail, String(jobStatus?.message || "").trim())
               return
             }
 
             runRefresh(index + 1)
           })
-          .catch((error) => {
+          .catch(() => {
             if (!isCurrentRefresh()) return
-
-            finalizeRefresh(
-              createInvoiceExportFailureResolution(
-                error,
-                exportContext,
-                "Xuất hóa đơn thất bại."
-              )
-            )
+            runRefresh(index + 1)
           })
-      }, delay)
+      }, refreshIntervals[index])
 
       issuingSyncTimeoutRef.current.set(saleTransactionId, timeoutId)
     }
 
     runRefresh(0)
   }
-
-  const applyInvoiceExportResolution = (
-    saleTransactionId: string,
-    resolution: InvoiceExportResolution,
-    options?: { openDetail?: boolean; fallbackRow?: InvoiceApiRow | null }
-  ) => {
-    replaceInvoiceRows((prev) =>
-      prev.map((row) => {
-        if (row._id !== saleTransactionId) return row
-
-        return mergeInvoicePaymentState(
-          applyDepartmentOverride(
-            applyInvoiceExportResolutionToRow(row, resolution)
-          ),
-          applyDepartmentOverride(row)
-        )
-      })
-    )
-
-    if (resolution.status === InvoiceStatus.ISSUED) {
-      void syncInvoiceListAfterExport(saleTransactionId).catch((error) => {
-        console.error("FETCH_LIST_AFTER_EXPORT_SUCCESS_ERROR", {
-          saleTransactionId,
-          error,
-        })
-      })
-    }
-
-    if (resolution.status === InvoiceStatus.ISSUING) {
-      scheduleInvoiceRefresh(
-        saleTransactionId,
-        options?.fallbackRow,
-        resolution
-      )
-    } else {
-      cancelInvoiceRefresh(saleTransactionId)
-    }
-
-    if (options?.openDetail === false) {
-      return
-    }
-
-    setSelectedInvoiceId(saleTransactionId)
-    setMode("detail")
-  }
-
   const handleGetSaleTransactions = async () => {
     try {
       setPageLoading(true)
@@ -885,10 +580,11 @@ export default function InvoiceListPage() {
       )
 
       const response = await APIGetSaleTransactions(listParams)
-      const rows = invoiceHelper.normalizeSaleTransactionList(response)
+      const rows = response.data
 
       const nextRows = rows.map((row) => {
         const fallback = previousRowMap.get(row._id)
+
         return mergeInvoicePaymentState(
           applyDepartmentOverride(row),
           fallback ? applyDepartmentOverride(fallback) : fallback
@@ -898,16 +594,15 @@ export default function InvoiceListPage() {
       apiRowsRef.current = nextRows
       dispatch(saleTransactionActions.setSaleTransactions(nextRows))
 
-      const responseMeta = response as any
-      const total = Math.max(Number(responseMeta.total ?? nextRows.length), 0)
-      const limit = Math.max(Number(responseMeta.limit ?? listParams.limit), 1)
+      const total = Math.max(Number(response.total ?? nextRows.length), 0)
+      const limit = Math.max(Number(response.limit ?? listParams.limit), 1)
       const totalPages = Math.max(
-        Number(responseMeta.totalPages ?? Math.ceil(total / limit)),
+        Number(response.totalPages ?? Math.ceil(total / limit)),
         1
       )
 
       setListPagination({
-        page: Math.max(Number(responseMeta.page ?? listParams.page), 1),
+        page: Math.max(Number(response.page ?? listParams.page), 1),
         limit,
         total,
         totalPages,
@@ -923,7 +618,7 @@ export default function InvoiceListPage() {
         totalPages: 1,
       }))
       showErrorMessage(
-        getErrorAlertMessage(error, "Không thể tải danh sách hóa đơn")
+        getErrorMessage(error, "Không thể tải danh sách hóa đơn")
       )
     } finally {
       setPageLoading(false)
@@ -943,9 +638,7 @@ export default function InvoiceListPage() {
     } catch (error) {
       console.error("APIGetReceiptInvoices error:", error)
       setReceiptConfigs(invoiceHelper.getFixedReceiptInvoiceConfigs())
-      showErrorMessage(
-        getErrorAlertMessage(error, "Không thể tải cấu hình hóa đơn")
-      )
+      showErrorMessage(getErrorMessage(error, "Không thể tải cấu hình hóa đơn"))
     }
   }
 
@@ -971,7 +664,7 @@ export default function InvoiceListPage() {
       0
     )
 
-    setSelectedReceiptConfigValue((prev:any) => {
+    setSelectedReceiptConfigValue((prev: any) => {
       if (!prev) return fixedValue
 
       const existed = receiptConfigs.some(
@@ -1007,13 +700,13 @@ export default function InvoiceListPage() {
       matchedIndex
     )
 
-    setSelectedReceiptConfigValue((prev:any) =>
+    setSelectedReceiptConfigValue((prev: any) =>
       prev === nextValue ? prev : nextValue
     )
   }, [selectedInvoice, receiptConfigs])
 
   useEffect(() => {
-    apiRows.forEach((invoice) => {
+    listRows.forEach((invoice) => {
       if (
         invoiceHelper.getInvoiceStatus(invoice) !== InvoiceStatus.ISSUING ||
         !invoice._id
@@ -1026,10 +719,12 @@ export default function InvoiceListPage() {
 
       scheduleInvoiceRefresh(invoice._id, invoice)
     })
-  }, [apiRows])
+  }, [listRows])
 
   const handleReload = async () => {
     setSelectedInvoiceId(null)
+    setSelectedBulkInvoiceIds([])
+    setCopyInvoiceDraft(null)
     setMode("list")
     await Promise.all([handleGetSaleTransactions(), handleGetReceiptConfigs()])
   }
@@ -1040,11 +735,15 @@ export default function InvoiceListPage() {
     )
 
     setSelectedInvoiceId(null)
+    setSelectedBulkInvoiceIds([])
+    setCopyInvoiceDraft(null)
     setMode("create")
   }
 
   const handleOpenBulkImport = () => {
     setSelectedInvoiceId(null)
+    setSelectedBulkInvoiceIds([])
+    setCopyInvoiceDraft(null)
     setMode("bulk-import")
   }
 
@@ -1076,7 +775,7 @@ export default function InvoiceListPage() {
       const res = await APIDeleteSaleTransaction(id)
 
       if (res?.status === 200 || res?.status === 201 || res?.status === 204) {
-        const detail = invoiceHelper.normalizeSaleTransactionDetail(res)
+        const detail = res.data
 
         replaceInvoiceRows((prev) =>
           prev.map((row) => {
@@ -1086,7 +785,10 @@ export default function InvoiceListPage() {
               {
                 ...row,
                 ...(detail || {}),
-                invoiceStatus: InvoiceStatus.CANCELLED,
+                invoiceStatus:
+                  detail?.invoiceStatus ||
+                  row.invoiceStatus ||
+                  InvoiceStatus.CANCELLED,
                 updatedAt: new Date().toISOString(),
               },
               row
@@ -1103,7 +805,7 @@ export default function InvoiceListPage() {
       showErrorMessage("Hủy hóa đơn thất bại!")
     } catch (error) {
       console.error("APIDeleteSaleTransaction error:", error)
-      showErrorMessage(getErrorAlertMessage(error, "Hủy hóa đơn thất bại!"))
+      showErrorMessage(getErrorMessage(error, "Hủy hóa đơn thất bại!"))
     } finally {
       setPageLoading(false)
       setPendingDeleteId(null)
@@ -1131,22 +833,64 @@ export default function InvoiceListPage() {
         return
       }
 
-      if (status === InvoiceStatus.ISSUED) {
-        showErrorMessage(
-          "Hóa đơn đã xuất, vui lòng dùng nút Thu tiền để cập nhật thanh toán."
-        )
+      if (status === InvoiceStatus.ISSUING) {
+        showErrorMessage("Hóa đơn đang xuất, vui lòng chờ hệ thống xử lý xong.")
         setSelectedInvoiceId(nextDetail._id)
         setMode("detail")
         return
       }
 
       setSelectedInvoiceId(nextDetail._id)
+      setCopyInvoiceDraft(null)
       setMode("edit")
     } catch (error) {
       console.error("APIGetSaleTransactionById edit error:", error)
-      showErrorMessage(
-        getErrorAlertMessage(error, "Không thể tải dữ liệu hóa đơn")
+      showErrorMessage(getErrorMessage(error, "Không thể tải dữ liệu hóa đơn"))
+    }
+  }
+
+  const handleCopyInvoice = async (row: InvoiceApiRow) => {
+    if (!row?._id) {
+      showErrorMessage("Không tìm thấy hóa đơn cần sao chép.")
+      return
+    }
+
+    try {
+      const detail = await dispatch(
+        fetchSaleTransactionByIdThunk(row._id)
+      ).unwrap()
+
+      if (!detail?._id) {
+        showErrorMessage("Không tìm thấy dữ liệu hóa đơn cần sao chép.")
+        return
+      }
+
+      const source = applyDepartmentOverride(
+        invoiceHelper.hydrateSaleTransactionDetail(detail, null, row)
       )
+      const draft = buildCopiedInvoiceDraft(source)
+      const matchedReceiptConfigIndex = receiptConfigs.findIndex((config) =>
+        invoiceHelper.isInvoiceMatchedReceiptConfig(source, config)
+      )
+
+      setSelectedReceiptConfigValue(
+        matchedReceiptConfigIndex >= 0
+          ? invoiceHelper.getReceiptConfigOptionValue(
+              receiptConfigs[matchedReceiptConfigIndex],
+              matchedReceiptConfigIndex
+            )
+          : invoiceHelper.getFixedReceiptConfigOptionValue()
+      )
+      setSelectedInvoiceId(null)
+      setSelectedBulkInvoiceIds([])
+      setCopyInvoiceDraft(draft)
+      setMode("create")
+      showSuccessMessage(
+        "Đã sao chép dữ liệu hóa đơn. Vui lòng kiểm tra và lưu hóa đơn mới."
+      )
+    } catch (error) {
+      console.error("APIGetSaleTransactionById copy error:", error)
+      showErrorMessage(getErrorMessage(error, "Không thể sao chép hóa đơn."))
     }
   }
 
@@ -1164,12 +908,11 @@ export default function InvoiceListPage() {
       const nextDetail = hydrateAndUpsertInvoice(detail, null, row)
 
       setSelectedInvoiceId(nextDetail._id)
+      setCopyInvoiceDraft(null)
       setMode("detail")
     } catch (error) {
       console.error("APIGetSaleTransactionById view error:", error)
-      showErrorMessage(
-        getErrorAlertMessage(error, "Không thể tải chi tiết hóa đơn")
-      )
+      showErrorMessage(getErrorMessage(error, "Không thể tải chi tiết hóa đơn"))
     }
   }
 
@@ -1180,6 +923,7 @@ export default function InvoiceListPage() {
     setCollectPaymentTarget(null)
     setCollectPaymentBankId("")
     setCollectPaymentAmount("")
+    setCollectPaymentDate(getTodayDate())
     setCollectPaymentBanks([])
   }
 
@@ -1204,6 +948,7 @@ export default function InvoiceListPage() {
 
     setCollectPaymentTarget(safeRow)
     setCollectPaymentBankId(invoiceHelper.getId(safeRow.bankId))
+    setCollectPaymentDate(getInvoicePaidDateInput(safeRow))
     setCollectPaymentAmount(
       rowCollectedAmount > 0
         ? invoiceHelper.formatPaymentAmountInput(rowCollectedAmount)
@@ -1258,6 +1003,7 @@ export default function InvoiceListPage() {
       setCollectPaymentTarget(nextTarget)
       setCollectPaymentBanks(nextBanks)
       setCollectPaymentBankId(invoiceHelper.getId(nextTarget.bankId))
+      setCollectPaymentDate(getInvoicePaidDateInput(nextTarget))
       setCollectPaymentAmount(
         nextTargetCollectedAmount > 0
           ? invoiceHelper.formatPaymentAmountInput(nextTargetCollectedAmount)
@@ -1266,7 +1012,7 @@ export default function InvoiceListPage() {
     } catch (error) {
       console.error("OPEN_COLLECT_PAYMENT_ERROR", error)
       showErrorMessage(
-        getErrorAlertMessage(error, "Không thể tải dữ liệu thu tiền.")
+        getErrorMessage(error, "Không thể tải dữ liệu thu tiền.")
       )
     } finally {
       setCollectPaymentLoading(false)
@@ -1298,9 +1044,14 @@ export default function InvoiceListPage() {
       return
     }
 
-    const paidDate = new Date().toISOString().slice(0, 10)
+    const paidDate = collectPaymentDate || getTodayDate()
     const paidAmount =
       invoiceHelper.parsePaymentAmountInput(collectPaymentAmount)
+
+    if (!paidDate) {
+      showErrorMessage("Vui lòng chọn ngày thu tiền.")
+      return
+    }
 
     if (paidAmount <= 0) {
       showErrorMessage("Vui lòng nhập tổng tiền thu hợp lệ.")
@@ -1318,13 +1069,73 @@ export default function InvoiceListPage() {
       collectPaymentSavingRef.current = true
       setCollectPaymentSaving(true)
 
-      const detail = await dispatch(
+      let paymentBaseDetail = target
+
+      if (
+        !Array.isArray(paymentBaseDetail.items) ||
+        !paymentBaseDetail.items.length
+      ) {
+        const loadedDetail = await dispatch(
+          fetchSaleTransactionByIdThunk(target._id)
+        ).unwrap()
+
+        if (loadedDetail?._id) {
+          paymentBaseDetail = hydrateAndUpsertInvoice(
+            loadedDetail,
+            null,
+            target
+          )
+        }
+      }
+
+      const paymentItems = (
+        Array.isArray(paymentBaseDetail.items) ? paymentBaseDetail.items : []
+      ).flatMap((item) => {
+        const productId =
+          invoiceHelper.getId(item.productId) ||
+          invoiceHelper.getId(item.product)
+
+        if (!productId) return []
+
+        return [
+          {
+            productId,
+            quantity: toSafeNumber(item.quantity ?? item.inv_quantity ?? 1),
+            price: toSafeNumber(item.price ?? item.unitPrice),
+            revenue: toSafeNumber(item.revenue),
+            capitalPrice: toSafeNumber(item.capitalPrice),
+            totalSalary: toSafeNumber(item.totalSalary),
+            accountingAccountCode: Number(item.accountingAccountCode || 0),
+          },
+        ]
+      })
+
+      if (!paymentItems.length) {
+        throw new Error(
+          "Hóa đơn chưa có dòng hàng hợp lệ để cập nhật ngày thu tiền."
+        )
+      }
+
+      const bankDetail = await dispatch(
         updateSaleTransactionBankThunk({
           id: target._id,
           bankId: selectedBank._id,
           amountCollected: paidAmount,
         })
       ).unwrap()
+
+      const paidDateDetail = await dispatch(
+        updateSaleTransactionThunk({
+          id: target._id,
+          payload: {
+            amountCollected: paidAmount,
+            paidDate,
+            items: paymentItems,
+          },
+        })
+      ).unwrap()
+
+      const detail = paidDateDetail?._id ? paidDateDetail : bankDetail
 
       if (!detail?._id) {
         throw new Error("Thu tiền thất bại.")
@@ -1358,7 +1169,7 @@ export default function InvoiceListPage() {
           invoiceStatus:
             detail.invoiceStatus ||
             target.invoiceStatus ||
-            InvoiceStatus.ISSUED,
+            invoiceHelper.getInvoiceStatus(target),
           updatedAt: new Date().toISOString(),
         },
         target
@@ -1376,12 +1187,13 @@ export default function InvoiceListPage() {
       setCollectPaymentTarget(null)
       setCollectPaymentBankId("")
       setCollectPaymentAmount("")
+      setCollectPaymentDate(getTodayDate())
       setCollectPaymentBanks([])
 
       showSuccessMessage("Thu tiền thành công!")
     } catch (error) {
       console.error("CONFIRM_COLLECT_PAYMENT_ERROR", error)
-      showErrorMessage(getErrorAlertMessage(error, "Thu tiền thất bại."))
+      showErrorMessage(getErrorMessage(error, "Thu tiền thất bại."))
     } finally {
       collectPaymentSavingRef.current = false
       setCollectPaymentSaving(false)
@@ -1445,7 +1257,8 @@ export default function InvoiceListPage() {
                 editingTotalAmount,
                 nextAmountCollected
               ),
-              invoiceStatus: InvoiceStatus.ISSUED,
+              invoiceStatus:
+                detail.invoiceStatus || editingInvoice.invoiceStatus,
               updatedAt: new Date().toISOString(),
             },
             editingInvoice
@@ -1459,6 +1272,7 @@ export default function InvoiceListPage() {
           )
 
           setSelectedInvoiceId(editingInvoice._id)
+          setCopyInvoiceDraft(null)
           setMode("detail")
           return
         }
@@ -1473,7 +1287,6 @@ export default function InvoiceListPage() {
       const body = buildCreateInvoiceApiBody(payload, {
         includePayment: allowPaymentUpdate,
         includeId: Boolean(editingInvoice?._id),
-        itemMode: editingInvoice?._id ? "update" : "create",
       })
 
       const detail = editingInvoice?._id
@@ -1486,23 +1299,25 @@ export default function InvoiceListPage() {
         : await dispatch(createSaleTransactionThunk(body)).unwrap()
 
       if (detail?._id) {
-        persistDepartmentOverride(
-          detail._id,
-          payload.__clientSnapshot?.department
-        )
+        const refreshedDetail = editingInvoice?._id
+          ? detail
+          : (await dispatch(
+              fetchSaleTransactionByIdThunk(detail._id)
+            ).unwrap()) || detail
 
         const nextDetail = mergeInvoicePaymentState(
           {
             ...invoiceHelper.hydrateSaleTransactionDetail(
-              detail,
+              refreshedDetail,
               payload,
               editingInvoice
             ),
             invoiceStatus:
-              detail.invoiceStatus ||
+              refreshedDetail.invoiceStatus ||
               (editingInvoice
                 ? invoiceHelper.getInvoiceStatus(editingInvoice)
                 : InvoiceStatus.DRAFT),
+            updatedAt: new Date().toISOString(),
           },
           editingInvoice
         )
@@ -1510,6 +1325,7 @@ export default function InvoiceListPage() {
         upsertInvoiceRow(nextDetail)
 
         setSelectedInvoiceId(nextDetail._id)
+        setCopyInvoiceDraft(null)
         setMode("detail")
 
         return
@@ -1530,16 +1346,189 @@ export default function InvoiceListPage() {
     }
   }
 
-  const handleInvoiceExported = (
+  const handleInvoiceExported = async (
     saleTransactionId: string,
-    resolution: InvoiceExportResolution,
-    options?: { openDetail?: boolean; fallbackRow?: InvoiceApiRow | null }
+    response: any,
+    fallbackRow?: InvoiceApiRow | null,
+    options?: { openDetail?: boolean }
   ) => {
-    applyInvoiceExportResolution(saleTransactionId, resolution, options)
+    const previousRow =
+      fallbackRow ||
+      apiRowsRef.current.find((item) => item._id === saleTransactionId) ||
+      null
+    const content = response?.content
+    const jobId = String(response?.jobId || content?.jobId || "").trim()
+    const message = String(response?.message || content?.message || "").trim()
+    const code = Number(response?.code ?? response?.statusCode ?? NaN)
+    const info = String(response?.info || content?.info || "")
+      .trim()
+      .toUpperCase()
+    const responseStatus = invoiceHelper.normalizeInvoiceStatusValue(
+      response?.invoiceStatus || content?.invoiceStatus
+    )
+    const failed =
+      responseStatus === InvoiceStatus.FAILED ||
+      info === "FAIL" ||
+      info === "FAILED" ||
+      (Number.isFinite(code) && code >= 400)
+
+    if (failed) {
+      const failedRow = mergeInvoicePaymentState(
+        applyDepartmentOverride({
+          ...(previousRow || ({} as InvoiceApiRow)),
+          _id: saleTransactionId,
+          invoiceStatus: InvoiceStatus.FAILED,
+          invoiceErrorMessage: message || NO_INVOICE_EXPORT_RESULT_MESSAGE,
+          rawFailedReason: message || NO_INVOICE_EXPORT_RESULT_MESSAGE,
+          isActive: true,
+          updatedAt: new Date().toISOString(),
+        }),
+        previousRow ? applyDepartmentOverride(previousRow) : previousRow
+      )
+
+      upsertInvoiceRow(failedRow)
+      cancelInvoiceRefresh(saleTransactionId)
+
+      return {
+        source: response,
+        row: failedRow,
+        status: InvoiceStatus.FAILED,
+      }
+    }
+
+    if (
+      responseStatus === InvoiceStatus.ISSUED ||
+      responseStatus === InvoiceStatus.CANCELLED
+    ) {
+      const responseRow = content?._id ? (content as InvoiceApiRow) : null
+      const terminalRow = mergeInvoicePaymentState(
+        applyDepartmentOverride({
+          ...(previousRow || ({} as InvoiceApiRow)),
+          ...(responseRow || {}),
+          _id: saleTransactionId,
+          invoiceStatus: responseStatus,
+          isActive: true,
+          updatedAt: new Date().toISOString(),
+        }),
+        previousRow ? applyDepartmentOverride(previousRow) : previousRow
+      )
+
+      upsertInvoiceRow(terminalRow)
+      cancelInvoiceRefresh(saleTransactionId)
+
+      if (options?.openDetail !== false) {
+        setSelectedInvoiceId(saleTransactionId)
+        setMode("detail")
+      }
+
+      return {
+        source: responseRow || response,
+        row: terminalRow,
+        status: responseStatus,
+      }
+    }
+
+    if (jobId || responseStatus === InvoiceStatus.ISSUING) {
+      const issuingRow = mergeInvoicePaymentState(
+        applyDepartmentOverride({
+          ...(previousRow || ({} as InvoiceApiRow)),
+          _id: saleTransactionId,
+          jobId: jobId || previousRow?.jobId || null,
+          invoiceStatus: InvoiceStatus.ISSUING,
+          isActive: true,
+          updatedAt: new Date().toISOString(),
+        }),
+        previousRow ? applyDepartmentOverride(previousRow) : previousRow
+      )
+
+      upsertInvoiceRow(issuingRow)
+      scheduleInvoiceRefresh(saleTransactionId, issuingRow, jobId || undefined)
+
+      if (options?.openDetail !== false) {
+        setSelectedInvoiceId(saleTransactionId)
+        setMode("detail")
+      }
+
+      return {
+        source: response,
+        row: issuingRow,
+        status: InvoiceStatus.ISSUING,
+      }
+    }
+
+    try {
+      const result = await fetchSaleTransactionDetail(
+        saleTransactionId,
+        previousRow
+      )
+
+      if (result.detail) {
+        const status = invoiceHelper.getInvoiceStatus(result.detail)
+
+        if (status === InvoiceStatus.ISSUING) {
+          scheduleInvoiceRefresh(saleTransactionId, result.detail, jobId)
+
+          if (options?.openDetail !== false) {
+            setSelectedInvoiceId(saleTransactionId)
+            setMode("detail")
+          }
+
+          return {
+            source: result.detail,
+            row: result.detail,
+            status,
+          }
+        } else if (
+          status === InvoiceStatus.ISSUED ||
+          status === InvoiceStatus.FAILED ||
+          status === InvoiceStatus.CANCELLED
+        ) {
+          cancelInvoiceRefresh(saleTransactionId)
+
+          if (options?.openDetail !== false) {
+            setSelectedInvoiceId(saleTransactionId)
+            setMode("detail")
+          }
+
+          return {
+            source: result.detail,
+            row: result.detail,
+            status,
+          }
+        }
+      }
+    } catch (error) {
+      console.error("FETCH_TRANSACTION_AFTER_EXPORT_ERROR", {
+        saleTransactionId,
+        error,
+      })
+    }
+
+    const failedRow = mergeInvoicePaymentState(
+      applyDepartmentOverride({
+        ...(previousRow || ({} as InvoiceApiRow)),
+        _id: saleTransactionId,
+        invoiceStatus: InvoiceStatus.FAILED,
+        invoiceErrorMessage: message || NO_INVOICE_EXPORT_RESULT_MESSAGE,
+        rawFailedReason: message || NO_INVOICE_EXPORT_RESULT_MESSAGE,
+        isActive: true,
+        updatedAt: new Date().toISOString(),
+      }),
+      previousRow ? applyDepartmentOverride(previousRow) : previousRow
+    )
+
+    upsertInvoiceRow(failedRow)
+    cancelInvoiceRefresh(saleTransactionId)
+
+    return {
+      source: response,
+      row: failedRow,
+      status: InvoiceStatus.FAILED,
+    }
   }
 
-  const handleExportInvoiceFromList = async (row: InvoiceApiRow) => {
-    if (exportingInvoiceRef.current || exportingInvoiceId) return
+  const handleExportInvoiceFromList = (row: InvoiceApiRow) => {
+    if (isInvoiceActionBusy()) return
 
     if (!row?._id) {
       showErrorMessage("Không tìm thấy ID giao dịch bán hàng để xuất hóa đơn.")
@@ -1554,6 +1543,93 @@ export default function InvoiceListPage() {
       return
     }
 
+    if (exportInvoiceMinDate && exportInvoiceMinDate > exportInvoiceMaxDate) {
+      showErrorMessage("Không có ngày xuất hóa đơn hợp lệ.")
+      return
+    }
+
+    setPendingExportInvoice(row)
+    setPendingBulkExportInvoices([])
+    setSelectedExportInvoiceDate(exportInvoiceMaxDate)
+    setExportDateDialogOpen(true)
+  }
+
+  const handleBulkExportInvoiceFromList = (rows: InvoiceApiRow[]) => {
+    if (isInvoiceActionBusy()) return
+
+    const exportRows = getUniqueInvoiceRows(rows).filter((row) => {
+      return invoiceHelper.canStartInvoiceExport(
+        invoiceHelper.getInvoiceStatus(row)
+      )
+    })
+
+    if (!exportRows.length) {
+      showErrorMessage(
+        "Vui lòng chọn hóa đơn nháp hoặc xuất thất bại để xuất hóa đơn hàng loạt."
+      )
+      return
+    }
+
+    if (exportInvoiceMinDate && exportInvoiceMinDate > exportInvoiceMaxDate) {
+      showErrorMessage("Không có ngày xuất hóa đơn hợp lệ.")
+      return
+    }
+
+    setPendingExportInvoice(null)
+    setPendingBulkExportInvoices(exportRows)
+    setSelectedExportInvoiceDate(exportInvoiceMaxDate)
+    setExportDateDialogOpen(true)
+  }
+
+  const handleConfirmExportInvoiceFromList = async () => {
+    const exportRows = pendingBulkExportInvoices.length
+      ? pendingBulkExportInvoices
+      : pendingExportInvoice
+        ? [pendingExportInvoice]
+        : []
+
+    if (!exportRows.length) {
+      showErrorMessage("Không tìm thấy hóa đơn cần xuất.")
+      return
+    }
+
+    if (!selectedExportInvoiceDate) {
+      showErrorMessage("Vui lòng chọn ngày xuất hóa đơn.")
+      return
+    }
+
+    if (
+      exportInvoiceMinDate &&
+      selectedExportInvoiceDate < exportInvoiceMinDate
+    ) {
+      showErrorMessage("Ngày xuất hóa đơn nhỏ hơn ngày hợp lệ.")
+      return
+    }
+
+    if (selectedExportInvoiceDate > exportInvoiceMaxDate) {
+      showErrorMessage("Ngày xuất hóa đơn không được lớn hơn hôm nay.")
+      return
+    }
+
+    setExportDateDialogOpen(false)
+
+    if (exportRows.length > 1) {
+      await submitBulkExportInvoicesFromList(
+        exportRows,
+        selectedExportInvoiceDate
+      )
+      return
+    }
+
+    await submitExportInvoiceFromList(exportRows[0], selectedExportInvoiceDate)
+  }
+
+  const submitExportInvoiceFromList = async (
+    row: InvoiceApiRow,
+    exportInvoiceIssuedDate: string,
+    options: InvoiceListActionOptions = {}
+  ): Promise<InvoiceListActionStatus> => {
+    const silent = Boolean(options.silent)
     const matchedReceiptConfig =
       receiptConfigs.find((config) =>
         invoiceHelper.isInvoiceMatchedReceiptConfig(row, config)
@@ -1572,25 +1648,27 @@ export default function InvoiceListPage() {
         ""
     ).trim()
 
-    const invoiceIssuedDate =
-      invoiceHelper.normalizeDateInput(row.inv_invoiceIssuedDate) ||
-      new Date().toISOString().slice(0, 10)
-
     if (!invoiceSeries) {
-      showErrorMessage("Chưa có ký hiệu hóa đơn từ cấu hình.")
-      return
+      setPendingExportInvoice(null)
+      if (!silent) {
+        showErrorMessage("Chưa có ký hiệu hóa đơn từ cấu hình.")
+      }
+      return InvoiceStatus.FAILED
     }
 
     if (!taxCode) {
-      showErrorMessage("Chưa có mã số thuế từ cấu hình hóa đơn.")
-      return
+      setPendingExportInvoice(null)
+      if (!silent) {
+        showErrorMessage("Chưa có mã số thuế từ cấu hình hóa đơn.")
+      }
+      return InvoiceStatus.FAILED
     }
 
-    const exportContext: InvoiceExportContext = {
-      saleTransactionId: row._id,
-      invoiceSeries,
-      invoiceIssuedDate,
-      taxCode,
+    const fallbackRow: InvoiceApiRow = {
+      ...row,
+      inv_invoiceSeries: invoiceSeries,
+      inv_invoiceIssuedDate: exportInvoiceIssuedDate,
+      invoiceStatus: InvoiceStatus.ISSUING,
     }
 
     try {
@@ -1601,97 +1679,396 @@ export default function InvoiceListPage() {
         {
           saleTransactionId: row._id,
           inv_invoiceSeries: invoiceSeries,
-          inv_invoiceIssuedDate: invoiceIssuedDate,
+          inv_invoiceIssuedDate: exportInvoiceIssuedDate,
           editmode: 1,
         },
         taxCode
       )
 
-      const resolution = await resolveInvoiceExportResultWithJobStatus(
+      const exportResult = await handleInvoiceExported(
+        row._id,
         response,
-        exportContext,
-        APIGetMInvoiceReceiptJobStatus
+        fallbackRow,
+        {
+          openDetail: false,
+        }
       )
+      const resultSource = exportResult?.source || response
+      const status =
+        exportResult?.status ||
+        invoiceHelper.normalizeInvoiceStatusValue(
+          response?.invoiceStatus || response?.content?.invoiceStatus
+        ) ||
+        (response?.jobId || response?.content?.jobId
+          ? InvoiceStatus.ISSUING
+          : null)
+      const resultMessage = String(
+        resultSource?.message || response?.message || ""
+      ).trim()
 
-      handleInvoiceExported(row._id, resolution, {
-        openDetail: false,
-        fallbackRow: row,
-      })
-
-      if (resolution.status === InvoiceStatus.FAILED) {
-        showErrorMessage(getInvoiceExportErrorAlertMessage(resolution, row))
-        return
+      if (status === InvoiceStatus.FAILED) {
+        if (!silent) {
+          showErrorMessage(resultMessage || "Xuất hóa đơn thất bại.")
+        }
+        return InvoiceStatus.FAILED
       }
 
-      if (resolution.status === InvoiceStatus.ISSUED) {
-        showSuccessMessage(getInvoiceExportAlertMessage(resolution))
-        return
+      if (status === InvoiceStatus.ISSUED) {
+        if (!silent) {
+          showSuccessMessage(resultMessage || "Xuất hóa đơn thành công.")
+        }
+        return InvoiceStatus.ISSUED
       }
 
-      showSuccessMessage(getInvoiceExportAlertMessage(resolution))
+      if (!silent) {
+        showSuccessMessage(
+          resultMessage || "Đã gửi yêu cầu xuất hóa đơn. Hệ thống đang xử lý."
+        )
+      }
+      return InvoiceStatus.ISSUING
     } catch (error) {
       console.error("EXPORT_M_INVOICE_FROM_LIST_ERROR", {
         saleTransactionId: row._id,
         invoiceSeries,
-        invoiceIssuedDate,
+        invoiceIssuedDate: exportInvoiceIssuedDate,
         taxCode,
         error,
       })
 
-      if (isInvoiceAlreadyBeingIssuedError(error)) {
-        const resolution = createAlreadyIssuingResolution(error, exportContext)
+      const errorMessage = getErrorMessage(error, "Xuất hóa đơn thất bại.")
 
-        handleInvoiceExported(row._id, resolution, {
-          openDetail: false,
-          fallbackRow: row,
-        })
-
-        showSuccessMessage(getInvoiceExportAlertMessage(resolution))
-        return
-      }
-
-      const resolution = createInvoiceExportFailureResolution(
-        error,
-        exportContext,
-        error instanceof Error ? error.message : "Xuất hóa đơn thất bại."
+      await handleInvoiceExported(
+        row._id,
+        {
+          code: (error as any)?.response?.status || 500,
+          info: "FAIL",
+          message: errorMessage,
+          invoiceStatus: InvoiceStatus.FAILED,
+        },
+        {
+          ...fallbackRow,
+          invoiceStatus: InvoiceStatus.FAILED,
+        },
+        { openDetail: false }
       )
 
-      handleInvoiceExported(row._id, resolution, {
-        openDetail: false,
-        fallbackRow: row,
-      })
-
-      showErrorMessage(getInvoiceExportErrorAlertMessage(resolution, row))
+      if (!silent) {
+        showErrorMessage(errorMessage)
+      }
+      return InvoiceStatus.FAILED
     } finally {
       exportingInvoiceRef.current = false
       setExportingInvoiceId(null)
+      setPendingExportInvoice(null)
+      setPendingBulkExportInvoices([])
+    }
+  }
+
+  const submitBulkExportInvoicesFromList = async (
+    rows: InvoiceApiRow[],
+    exportInvoiceIssuedDate: string
+  ) => {
+    const exportRows = getUniqueInvoiceRows(rows).filter((row) =>
+      invoiceHelper.canStartInvoiceExport(invoiceHelper.getInvoiceStatus(row))
+    )
+
+    if (!exportRows.length) {
+      showErrorMessage(
+        "Vui lòng chọn hóa đơn nháp hoặc xuất thất bại để xuất hóa đơn hàng loạt."
+      )
+      return
+    }
+
+    let issuedCount = 0
+    let processingCount = 0
+    let failedCount = 0
+
+    try {
+      bulkInvoiceActionRef.current = true
+      setBulkInvoiceActionLoading(true)
+
+      for (const row of exportRows) {
+        const status = await submitExportInvoiceFromList(
+          row,
+          exportInvoiceIssuedDate,
+          { silent: true }
+        )
+
+        if (status === InvoiceStatus.ISSUED) {
+          issuedCount += 1
+        } else if (status === InvoiceStatus.ISSUING) {
+          processingCount += 1
+        } else {
+          failedCount += 1
+        }
+      }
+
+      setSelectedBulkInvoiceIds([])
+
+      if (failedCount > 0) {
+        showErrorMessage(
+          `Đã xử lý ${issuedCount + processingCount}/${exportRows.length} hóa đơn, ${failedCount} lỗi.`
+        )
+        return
+      }
+
+      showSuccessMessage(
+        processingCount > 0
+          ? `Đã gửi yêu cầu xuất ${exportRows.length} hóa đơn. Hệ thống đang xử lý.`
+          : `Xuất hóa đơn hàng loạt thành công cho ${issuedCount} hóa đơn.`
+      )
+    } finally {
+      bulkInvoiceActionRef.current = false
+      setBulkInvoiceActionLoading(false)
+      setPendingBulkExportInvoices([])
+      setPendingExportInvoice(null)
+    }
+  }
+
+  const handleUpdateMInvoiceFromList = async (
+    row: InvoiceApiRow,
+    options: InvoiceListActionOptions = {}
+  ): Promise<InvoiceListActionStatus> => {
+    const silent = Boolean(options.silent)
+
+    if (!options.bypassBusyGuard && isInvoiceActionBusy()) {
+      return null
+    }
+
+    if (!row?._id) {
+      if (!silent) {
+        showErrorMessage(
+          "Không tìm thấy ID giao dịch bán hàng để cập nhật hóa đơn."
+        )
+      }
+      return InvoiceStatus.FAILED
+    }
+
+    if (invoiceHelper.getInvoiceStatus(row) !== InvoiceStatus.ISSUED) {
+      if (!silent) {
+        showErrorMessage("Chỉ hóa đơn đã xuất thành công mới được cập nhật.")
+      }
+      return InvoiceStatus.FAILED
+    }
+
+    const { invInvoiceCreatedId, taxCode, invoiceSeries, invoiceIssuedDate } =
+      getInvoicePrintContext(row)
+    const invoiceNumber = Number(row.invoiceNumber)
+
+    if (!taxCode) {
+      if (!silent) {
+        showErrorMessage("Chưa có mã số thuế từ cấu hình hóa đơn.")
+      }
+      return InvoiceStatus.FAILED
+    }
+
+    if (!invoiceSeries) {
+      if (!silent) {
+        showErrorMessage("Chưa có ký hiệu hóa đơn từ cấu hình.")
+      }
+      return InvoiceStatus.FAILED
+    }
+
+    if (!invInvoiceCreatedId) {
+      if (!silent) {
+        showErrorMessage("Chưa có mã hóa đơn M-Invoice để cập nhật.")
+      }
+      return InvoiceStatus.FAILED
+    }
+
+    if (!Number.isFinite(invoiceNumber) || invoiceNumber <= 0) {
+      if (!silent) {
+        showErrorMessage("Chưa có số hóa đơn M-Invoice để cập nhật.")
+      }
+      return InvoiceStatus.FAILED
+    }
+
+    const fallbackRow: InvoiceApiRow = {
+      ...row,
+      inv_invoiceSeries: invoiceSeries,
+      inv_invoiceIssuedDate: invoiceIssuedDate,
+      inv_invoiceCreatedId: invInvoiceCreatedId,
+      invoiceStatus: InvoiceStatus.ISSUING,
+    }
+
+    try {
+      updatingMInvoiceRef.current = true
+      setUpdatingMInvoiceId(row._id)
+
+      const response = await APIUpdateMInvoiceReceiptPost(
+        {
+          saleTransactionId: row._id,
+          inv_invoiceSeries: invoiceSeries,
+          inv_invoiceIssuedDate: invoiceIssuedDate,
+          editmode: 2,
+          inv_invoiceNumber: invoiceNumber,
+          inv_invoiceAuth_id: invInvoiceCreatedId,
+        },
+        taxCode
+      )
+
+      const updateResult = await handleInvoiceExported(
+        row._id,
+        response,
+        fallbackRow,
+        {
+          openDetail: false,
+        }
+      )
+      const resultSource = updateResult?.source || response
+      const status =
+        updateResult?.status ||
+        invoiceHelper.normalizeInvoiceStatusValue(
+          response?.invoiceStatus || response?.content?.invoiceStatus
+        ) ||
+        (response?.jobId || response?.content?.jobId
+          ? InvoiceStatus.ISSUING
+          : null)
+      const resultMessage = String(
+        resultSource?.message || response?.message || ""
+      ).trim()
+
+      if (status === InvoiceStatus.FAILED) {
+        if (!silent) {
+          showErrorMessage(resultMessage || "Cập nhật hóa đơn thất bại.")
+        }
+        return InvoiceStatus.FAILED
+      }
+
+      if (status === InvoiceStatus.ISSUED) {
+        if (!silent) {
+          showSuccessMessage(resultMessage || "Cập nhật hóa đơn thành công.")
+        }
+        return InvoiceStatus.ISSUED
+      }
+
+      if (!silent) {
+        showSuccessMessage(
+          resultMessage ||
+            "Đã gửi yêu cầu cập nhật hóa đơn. Hệ thống đang xử lý."
+        )
+      }
+      return InvoiceStatus.ISSUING
+    } catch (error) {
+      console.error("UPDATE_M_INVOICE_FROM_LIST_ERROR", {
+        saleTransactionId: row._id,
+        invoiceSeries,
+        invoiceIssuedDate,
+        invoiceNumber,
+        taxCode,
+        error,
+      })
+
+      const errorMessage = getErrorMessage(error, "Cập nhật hóa đơn thất bại.")
+
+      await handleInvoiceExported(
+        row._id,
+        {
+          code: (error as any)?.response?.status || 500,
+          info: "FAIL",
+          message: errorMessage,
+          invoiceStatus: InvoiceStatus.FAILED,
+        },
+        {
+          ...fallbackRow,
+          invoiceStatus: InvoiceStatus.FAILED,
+        },
+        { openDetail: false }
+      )
+
+      if (!silent) {
+        showErrorMessage(errorMessage)
+      }
+      return InvoiceStatus.FAILED
+    } finally {
+      updatingMInvoiceRef.current = false
+      setUpdatingMInvoiceId(null)
+    }
+  }
+
+  const handleBulkUpdateMInvoiceFromList = async (rows: InvoiceApiRow[]) => {
+    if (isInvoiceActionBusy()) return
+
+    const updateRows = getUniqueInvoiceRows(rows).filter(canUpdateMInvoiceRow)
+
+    if (!updateRows.length) {
+      showErrorMessage(
+        "Vui lòng chọn hóa đơn đã xuất thành công để cập nhật hàng loạt."
+      )
+      return
+    }
+
+    let updatedCount = 0
+    let processingCount = 0
+    let failedCount = 0
+
+    try {
+      bulkInvoiceActionRef.current = true
+      setBulkInvoiceActionLoading(true)
+
+      for (const row of updateRows) {
+        const status = await handleUpdateMInvoiceFromList(row, {
+          silent: true,
+          bypassBusyGuard: true,
+        })
+
+        if (status === InvoiceStatus.ISSUED) {
+          updatedCount += 1
+        } else if (status === InvoiceStatus.ISSUING) {
+          processingCount += 1
+        } else {
+          failedCount += 1
+        }
+      }
+
+      setSelectedBulkInvoiceIds([])
+
+      if (failedCount > 0) {
+        showErrorMessage(
+          `Đã xử lý ${updatedCount + processingCount}/${updateRows.length} hóa đơn, ${failedCount} lỗi.`
+        )
+        return
+      }
+
+      showSuccessMessage(
+        processingCount > 0
+          ? `Đã gửi yêu cầu cập nhật ${updateRows.length} hóa đơn. Hệ thống đang xử lý.`
+          : `Cập nhật hóa đơn hàng loạt thành công cho ${updatedCount} hóa đơn.`
+      )
+    } finally {
+      bulkInvoiceActionRef.current = false
+      setBulkInvoiceActionLoading(false)
     }
   }
 
   const handleViewMInvoicePdf = async (row: InvoiceApiRow) => {
-    const invInvoiceCreatedId = invoiceHelper.getExportInvoiceId(row)
-    const matchedReceiptConfig =
-      receiptConfigs.find((config) =>
-        invoiceHelper.isInvoiceMatchedReceiptConfig(row, config)
-      ) ||
-      activeReceiptConfig ||
-      invoiceHelper.getFixedReceiptInvoiceConfig()
-
-    const taxCode =
-      matchedReceiptConfig?.tax_code ||
-      invoiceHelper.getInvoiceSellerTaxCode(row)
-
-    if (!taxCode) {
-      showErrorMessage("Chưa có mã số thuế từ cấu hình hóa đơn.")
-      return
-    }
-
-    if (!invInvoiceCreatedId) {
-      showErrorMessage("Hóa đơn chưa có mã khởi tạo trên M-Invoice.")
+    if (!row?._id) {
+      showErrorMessage("Không tìm thấy hóa đơn cần xem/in.")
       return
     }
 
     try {
+      const latestDetail = await dispatch(
+        fetchSaleTransactionByIdThunk(row._id)
+      ).unwrap()
+      const printableInvoice = latestDetail?._id
+        ? hydrateAndUpsertInvoice(latestDetail, null, row)
+        : row
+      const invoiceStatus = invoiceHelper.getInvoiceStatus(printableInvoice)
+      const invInvoiceCreatedId = String(
+        printableInvoice.inv_invoiceCreatedId || ""
+      ).trim()
+
+      if (invoiceStatus !== InvoiceStatus.ISSUED || !invInvoiceCreatedId) {
+        throw new Error("Hóa đơn chưa xuất thành công nên chưa thể xem/in.")
+      }
+
+      const { taxCode } = getInvoicePrintContext(printableInvoice)
+
+      if (!taxCode) {
+        throw new Error("Chưa có mã số thuế từ cấu hình hóa đơn.")
+      }
+
       setPdfViewerOpen(true)
       setPdfLoading(true)
       setPdfUrl("")
@@ -1706,29 +2083,22 @@ export default function InvoiceListPage() {
         res?.fileUrl ||
           res?.data?.fileUrl ||
           res?.content?.fileUrl ||
-          res?.filePath ||
-          res?.data?.filePath ||
-          res?.content?.filePath ||
           ""
       ).trim()
 
       if (!fileUrl) {
         closePdfViewer()
-        showErrorMessage(" không trả về đường dẫn file PDF.")
+        showErrorMessage("Dịch vụ xem/in không trả về đường dẫn file PDF.")
         return
       }
 
-      const nextPdfUrl = invoiceHelper.buildPdfFileUrl(fileUrl)
-
-      setPdfUrl(nextPdfUrl)
+      setPdfUrl(invoiceHelper.buildPdfFileUrl(fileUrl))
     } catch (error) {
       console.error("APIViewPrintInvoice error:", error)
 
       closePdfViewer()
 
-      showErrorMessage(
-        getErrorAlertMessage(error, "Không thể xem mẫu hóa đơn.")
-      )
+      showErrorMessage(getErrorMessage(error, "Không thể xem mẫu hóa đơn."))
     } finally {
       setPdfLoading(false)
     }
@@ -1781,10 +2151,18 @@ export default function InvoiceListPage() {
                 loading={loading}
                 onEdit={handleEdit}
                 onView={handleView}
+                onCopyInvoice={handleCopyInvoice}
                 onExportInvoice={handleExportInvoiceFromList}
                 exportingInvoiceId={exportingInvoiceId}
+                onUpdateMInvoice={handleUpdateMInvoiceFromList}
+                updatingMInvoiceId={updatingMInvoiceId}
                 onViewMInvoicePdf={handleViewMInvoicePdf}
                 onCollectPayment={handleOpenCollectPayment}
+                selectedRowIds={selectedBulkInvoiceIds}
+                onSelectedRowIdsChange={setSelectedBulkInvoiceIds}
+                onBulkExportInvoice={handleBulkExportInvoiceFromList}
+                onBulkUpdateMInvoice={handleBulkUpdateMInvoiceFromList}
+                bulkActionLoading={bulkInvoiceActionLoading}
                 pagination={{
                   currentPage: listPage,
                   pageSize: listLimit,
@@ -1802,6 +2180,7 @@ export default function InvoiceListPage() {
             receiptConfigs={receiptConfigs}
             onBack={() => {
               setSelectedInvoiceId(null)
+              setCopyInvoiceDraft(null)
               setMode("list")
             }}
             onInvoicesCreated={async () => {
@@ -1818,11 +2197,16 @@ export default function InvoiceListPage() {
             onReceiptConfigChange={setSelectedReceiptConfigValue}
             onBack={() => {
               setSelectedInvoiceId(null)
+              setCopyInvoiceDraft(null)
               setMode("list")
             }}
             onEdit={() => setMode("edit")}
             onSaved={handleSavedInvoice}
             onExported={handleInvoiceExported}
+            onUpdateMInvoice={handleUpdateMInvoiceFromList}
+            updateMInvoiceLoading={updatingMInvoiceId === selectedInvoice._id}
+            exportInvoiceMinDate={exportInvoiceMinDate}
+            exportInvoiceMaxDate={exportInvoiceMaxDate}
           />
         ) : mode === "edit" && selectedInvoice ? (
           <InvoiceCreateForm
@@ -1839,7 +2223,7 @@ export default function InvoiceListPage() {
         ) : (
           <InvoiceCreateForm
             mode="create"
-            initialInvoice={null}
+            initialInvoice={copyInvoiceDraft}
             receiptConfig={activeReceiptConfig}
             receiptConfigs={receiptConfigs}
             selectedReceiptConfigValue={selectedReceiptConfigValue}
@@ -1847,6 +2231,7 @@ export default function InvoiceListPage() {
             receiptConfigLocked
             onBack={() => {
               setSelectedInvoiceId(null)
+              setCopyInvoiceDraft(null)
               setMode("list")
             }}
             onSaved={handleSavedInvoice}
@@ -1854,16 +2239,90 @@ export default function InvoiceListPage() {
         )}
       </main>
 
+      {exportDateDialogOpen && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/50 p-4">
+          <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white shadow-xl">
+            <div className="border-b border-slate-100 px-5 py-4">
+              <h3 className="text-base font-bold text-slate-900">
+                {pendingBulkExportInvoices.length > 1
+                  ? `Chọn ngày xuất ${pendingBulkExportInvoices.length} hóa đơn`
+                  : "Chọn ngày xuất hóa đơn"}
+              </h3>
+            </div>
+
+            <div className="space-y-3 px-5 py-4">
+              <label
+                htmlFor="invoice-list-export-date"
+                className="block text-sm font-medium text-slate-700"
+              >
+                Ngày xuất hóa đơn
+              </label>
+              <input
+                id="invoice-list-export-date"
+                className="h-9 w-full rounded border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-indigo-500"
+                type="date"
+                value={selectedExportInvoiceDate}
+                min={exportInvoiceMinDate || undefined}
+                max={exportInvoiceMaxDate}
+                disabled={
+                  Boolean(exportingInvoiceId) || bulkInvoiceActionLoading
+                }
+                onChange={(event) =>
+                  setSelectedExportInvoiceDate(event.target.value)
+                }
+              />
+              <p className="text-xs text-slate-500">
+                Ngày hợp lệ: {exportInvoiceMinDate || "..."} -{" "}
+                {exportInvoiceMaxDate}
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setExportDateDialogOpen(false)
+                  setPendingExportInvoice(null)
+                  setPendingBulkExportInvoices([])
+                }}
+                disabled={
+                  Boolean(exportingInvoiceId) || bulkInvoiceActionLoading
+                }
+                className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleConfirmExportInvoiceFromList()}
+                disabled={
+                  Boolean(exportingInvoiceId) || bulkInvoiceActionLoading
+                }
+                className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {exportingInvoiceId || bulkInvoiceActionLoading
+                  ? "Đang xuất..."
+                  : pendingBulkExportInvoices.length > 1
+                    ? "Xuất hàng loạt"
+                    : "Xuất hóa đơn"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <InvoiceCollectPaymentDialog
         open={collectPaymentOpen}
         invoice={collectPaymentTarget}
         banks={collectPaymentBanks}
         bankId={collectPaymentBankId}
         amountValue={collectPaymentAmount}
+        paidDateValue={collectPaymentDate}
         loadingBanks={collectPaymentLoading}
         saving={collectPaymentSaving}
         onBankChange={setCollectPaymentBankId}
         onAmountChange={handleCollectPaymentAmountChange}
+        onPaidDateChange={setCollectPaymentDate}
         onClose={closeCollectPaymentDialog}
         onConfirm={handleConfirmCollectPayment}
       />

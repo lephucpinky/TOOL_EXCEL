@@ -36,8 +36,10 @@ import {
   getUrlPaginationParams,
   URL_PAGE_SIZE_OPTIONS,
 } from "@/utils/pagination"
+import { scheduleDelayedRefresh } from "@/utils/refresh"
 
 type AgencyFormValues = {
+  inv_agencyName: string
   agencyName: string
   agencyEmail: string
   employeeId: string
@@ -48,6 +50,7 @@ type AgencyFormValues = {
 const LIST_PARAMS = {}
 
 const emptyForm: AgencyFormValues = {
+  inv_agencyName: "",
   agencyName: "",
   agencyEmail: "",
   employeeId: "",
@@ -63,6 +66,7 @@ const STATUS_OPTIONS = [
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 type AgencyImportKey =
+  | "inv_agencyName"
   | "agencyName"
   | "agencyEmail"
   | "employee"
@@ -70,6 +74,7 @@ type AgencyImportKey =
   | "status"
 
 type AgencyImportPreview = {
+  inv_agencyName: string
   agencyName: string
   agencyEmail: string
   employee: string
@@ -79,6 +84,12 @@ type AgencyImportPreview = {
 
 const AGENCY_IMPORT_COLUMNS: readonly BulkImportColumnDefinition<AgencyImportKey>[] =
   [
+    {
+      key: "inv_agencyName",
+      label: "Mã đại lý",
+      aliases: ["Mã đại lý", "Mã NPP", "Agency Code", "Agency Number"],
+      required: true,
+    },
     {
       key: "agencyName",
       label: "Tên đại lý",
@@ -119,6 +130,7 @@ const AGENCY_IMPORT_PREVIEW_COLUMNS: readonly BulkImportPreviewColumn<
   AgencyPayload,
   AgencyImportPreview
 >[] = [
+  { key: "inv_agencyName", title: "Mã đại lý" },
   { key: "agencyName", title: "Tên đại lý" },
   { key: "agencyEmail", title: "Email" },
   { key: "employee", title: "Nhân viên phụ trách" },
@@ -134,6 +146,7 @@ type ModeType = "create" | "view" | "edit" | null
 
 function buildAgencyFormValues(detail: Agency | null): AgencyFormValues {
   return {
+    inv_agencyName: detail?.inv_agencyName || "",
     agencyName: detail?.agencyName || "",
     agencyEmail: detail?.agencyEmail || "",
     employeeId:
@@ -216,7 +229,7 @@ export default function Page() {
       .unwrap()
       .catch((error) => {
         showErrorMessage(
-          getErrorMessage(error) || "Không thể tải danh sách đại lý"
+          getErrorMessage(error, "Không thể tải danh sách đại lý")
         )
       })
 
@@ -224,7 +237,7 @@ export default function Page() {
       .unwrap()
       .catch((error) => {
         showErrorMessage(
-          getErrorMessage(error) || "Không thể tải danh sách nhân viên"
+          getErrorMessage(error, "Không thể tải danh sách nhân viên")
         )
       })
   }, [dispatch, listParams])
@@ -238,11 +251,11 @@ export default function Page() {
         render: (_item, index) => index + 1,
       },
       {
-        key: "agencyNumber",
+        key: "inv_agencyName",
         title: "Mã đại lý",
         render: (item) => (
           <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
-            {item.agencyNumber || "---"}
+            {item.inv_agencyName || "---"}
           </span>
         ),
       },
@@ -352,16 +365,6 @@ export default function Page() {
     await dispatch(agencyThunks.fetchPage(listParams)).unwrap()
   }
 
-  const refreshAgenciesAfterDelete = () => {
-    window.setTimeout(() => {
-      void handleRefreshAgencies().catch((error) => {
-        showErrorMessage(
-          getErrorMessage(error) || "Không thể tải lại danh sách đại lý"
-        )
-      })
-    }, 800)
-  }
-
   const onRefreshAgencies = async () => {
     try {
       await Promise.all([
@@ -370,7 +373,7 @@ export default function Page() {
       ])
     } catch (error) {
       showErrorMessage(
-        getErrorMessage(error) || "Không thể tải lại danh sách đại lý"
+        getErrorMessage(error, "Không thể tải lại danh sách đại lý")
       )
     }
   }
@@ -381,6 +384,7 @@ export default function Page() {
 
   const onSubmit = async (data: AgencyFormValues) => {
     const body: AgencyPayload = {
+      inv_agencyName: data.inv_agencyName.trim(),
       agencyName: data.agencyName.trim(),
       agencyEmail: data.agencyEmail.trim(),
       employeeId: data.employeeId,
@@ -406,7 +410,7 @@ export default function Page() {
         handleCloseDialog()
       }
     } catch (error) {
-      showErrorMessage(getErrorMessage(error) || "Lưu đại lý thất bại!")
+      showErrorMessage(getErrorMessage(error, "Lưu đại lý thất bại!"))
     }
   }
 
@@ -430,9 +434,7 @@ export default function Page() {
       setMode("view")
       setOpen(true)
     } catch (error) {
-      showErrorMessage(
-        getErrorMessage(error) || "Không thể tải chi tiết đại lý"
-      )
+      showErrorMessage(getErrorMessage(error, "Không thể tải chi tiết đại lý"))
     }
   }
 
@@ -456,7 +458,7 @@ export default function Page() {
       setMode("edit")
       setOpen(true)
     } catch (error) {
-      showErrorMessage(getErrorMessage(error) || "Không thể tải dữ liệu đại lý")
+      showErrorMessage(getErrorMessage(error, "Không thể tải dữ liệu đại lý"))
     }
   }
 
@@ -479,9 +481,13 @@ export default function Page() {
       if (selectedAgency?._id === id) {
         handleCloseDialog()
       }
-      refreshAgenciesAfterDelete()
+      scheduleDelayedRefresh(handleRefreshAgencies, (error) => {
+        showErrorMessage(
+          getErrorMessage(error, "Không thể tải lại danh sách đại lý")
+        )
+      })
     } catch (error) {
-      showErrorMessage(getErrorMessage(error) || "Xóa đại lý thất bại!")
+      showErrorMessage(getErrorMessage(error, "Xóa đại lý thất bại!"))
     }
   }
 
@@ -493,6 +499,7 @@ export default function Page() {
     getValue: (key: AgencyImportKey) => unknown
   }): BulkImportPreparedRow<AgencyPayload, AgencyImportPreview> => {
     const errors: string[] = []
+    const inv_agencyName = cleanImportText(getValue("inv_agencyName"))
     const agencyName = cleanImportText(getValue("agencyName"))
     const agencyEmail = cleanImportText(getValue("agencyEmail"))
     const employeeKeyword = cleanImportText(getValue("employee"))
@@ -508,6 +515,10 @@ export default function Page() {
           employee.employeePhone,
         ].some((value) => normalize(value) === normalize(employeeKeyword))
       ) || null
+
+    if (!inv_agencyName) {
+      errors.push("Thiếu mã đại lý.")
+    }
 
     if (!agencyName) {
       errors.push("Thiếu tên đại lý.")
@@ -530,11 +541,12 @@ export default function Page() {
     }
 
     return {
-      id: `agency-${rowNumber}-${agencyEmail || agencyName}`,
+      id: `agency-${rowNumber}-${inv_agencyName || agencyEmail || agencyName}`,
       rowNumber,
       payload:
         errors.length === 0 && matchedEmployee
           ? {
+              inv_agencyName,
               agencyName,
               agencyEmail,
               employeeId: matchedEmployee._id,
@@ -543,6 +555,7 @@ export default function Page() {
             }
           : null,
       preview: {
+        inv_agencyName,
         agencyName,
         agencyEmail,
         employee: matchedEmployee?.employeeName || employeeKeyword || "-",
@@ -680,6 +693,33 @@ export default function Page() {
             onSubmit={handleSubmit(onSubmit)}
             className="space-y-4"
           >
+            <div>
+              <label
+                htmlFor="dealer-inv-agency-name"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
+                Mã đại lý
+              </label>
+
+              <input
+                id="dealer-inv-agency-name"
+                disabled={isViewMode}
+                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
+                placeholder="Nhập mã đại lý"
+                {...register("inv_agencyName", {
+                  required: "Vui lòng nhập mã đại lý",
+                  validate: (value) =>
+                    value.trim().length > 0 || "Vui lòng nhập mã đại lý",
+                })}
+              />
+
+              {errors.inv_agencyName && !isViewMode && (
+                <p className="mt-1 text-xs font-medium text-red-600">
+                  {errors.inv_agencyName.message}
+                </p>
+              )}
+            </div>
+
             <div>
               <label
                 htmlFor="dealer-agency-name"
@@ -855,7 +895,7 @@ export default function Page() {
           void handleDeleteAgency(deleteTarget._id)
         }}
         title="Xác nhận thao tác"
-        description={`Hành động này sẽ xóa đại lý "${deleteTarget?.agencyName}" khỏi hệ thống và không thể hoàn tác. Bạn có chắc chắn tiếp tục?`}
+        description={`Hành động này sẽ xóa đại lý "${deleteTarget?.inv_agencyName || deleteTarget?.agencyName}" khỏi hệ thống và không thể hoàn tác. Bạn có chắc chắn tiếp tục?`}
         confirmText={deleteLoading ? "Đang xóa..." : "Xóa"}
         cancelText="Hủy"
         tone="destructive"

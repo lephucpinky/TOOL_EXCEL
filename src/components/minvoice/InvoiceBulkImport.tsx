@@ -2,249 +2,52 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import * as XLSX from "xlsx-js-style"
-import { ArrowLeft, FileSpreadsheet, Loader2, UploadCloud } from "lucide-react"
+import {
+  ArrowLeft,
+  Download,
+  FileSpreadsheet,
+  Loader2,
+  UploadCloud,
+} from "lucide-react"
 
 import AlertError from "@/components/alert/AlertError"
 import AlertSuccess from "@/components/alert/AlertSuccess"
 import { APIGetAgencies } from "@/services/agency"
 import { APIGetBanks } from "@/services/bank"
-import { APIGetProducts } from "@/services/product"
+import { APIGetAllProducts } from "@/services/product"
 import { APICreateSaleTransaction } from "@/services/saleTransaction"
+import { getErrorMessage } from "@/store/utils/crud"
 import type { Agency } from "@/types/agency"
 import type { Bank } from "@/types/bank"
-import type { Department } from "@/types/department"
-import type { Employee } from "@/types/employee"
-import type { Product } from "@/types/product"
 import type { ReceiptInvoiceConfig } from "@/types/receiptInvoice"
 import { normalize, toNumber as toExcelNumber } from "@/utils/excel"
 import {
   FIXED_RECEIPT_INVOICE_CONFIG,
   formatMoney,
   getId,
-  normalizeInvoiceTaxCode,
+  normalizeDateInput,
   roundInvoiceMoney,
 } from "@/utils/invoice"
 import { buildCreateInvoiceApiBody } from "@/utils/invoicePayload"
+import {
+  COLUMN_ALIASES,
+  REQUIRED_COLUMNS,
+  buildHeaderIndex,
+  cleanText,
+  findHeader,
+  findProductByExcelValue,
+  getAgencyEmployee,
+  getProductAccountingCode,
+  pickCellValue,
+  type BulkImportExcelRow,
+  type PreparedImportRow,
+  type ProductOption,
+} from "@/components/minvoice/invoiceBulkImportUtils"
 
 type Props = {
   receiptConfigs: ReceiptInvoiceConfig[]
   onBack: () => void
   onInvoicesCreated?: () => Promise<void> | void
-}
-
-type ProductOption = Product & {
-  accountingAccountCode?: string | number
-  accountCode?: string | number
-  inv_accountCode?: string | number
-}
-
-type BulkImportExcelRow = {
-  id: string
-  rowNumber: number
-  stt: string
-  lineCode: string
-  agencyCode: string
-  productCode: string
-  currency: string
-  exchangeRate: number
-  invoiceSeries: string
-  invoiceDate: string
-  buyerName: string
-  buyerCompany: string
-  buyerTaxCode: string
-  buyerAddress: string
-  buyerEmail: string
-  buyerBankAccount: string
-  buyerBankName: string
-  paymentMethod: string
-  discountAmount: number
-  totalBeforeTax: number
-  vatAmount: number
-  totalAmount: number
-  cccdan: string
-  passport: string
-  budgetUnitCode: string
-  storeCode: string
-  storeName: string
-  quantity: number
-}
-type PreparedImportRow = {
-  id: string
-  rowNumber: number
-  stt: string
-  lineCode: string
-  agencyCode: string
-  productCode: string
-  buyerCompany: string
-  buyerTaxCode: string
-  invoiceSeries: string
-  invoiceDate: string
-  totalAmount: number
-  quantity: number
-  agency: Agency | null
-  bank: Bank | null
-  product: ProductOption | null
-  warnings: string[]
-  errors: string[]
-  payload: Record<string, unknown> | null
-}
-
-const COLUMN_ALIASES = {
-  stt: ["STT"],
-  lineCode: ["Mã dòng", "Mã dòng hàng", "Mã đơn hàng"],
-  agencyCode: ["Mã đại lý", "Đại lý"],
-  productCode: [
-    "Mã sản phẩm",
-    "Sản phẩm",
-    "Tên sản phẩm",
-    "Mã hàng hóa",
-    "Tên hàng hóa",
-    "Mã dịch vụ",
-    "Tên dịch vụ",
-  ],
-  currency: ["Mã tiền tệ", "Tiền tệ"],
-  exchangeRate: ["Tỷ giá"],
-  invoiceSeries: ["Ký hiệu hóa đơn"],
-  invoiceDate: ["Ngày lập hóa đơn", "Ngày hóa đơn"],
-  buyerName: ["Tên người mua"],
-  buyerCompany: ["Tên đơn vị mua", "Tên công ty mua"],
-  buyerTaxCode: ["Mã số thuế người mua", "MST người mua", "Mã số thuế"],
-  buyerAddress: ["Địa chỉ người mua", "Địa chỉ"],
-  buyerEmail: ["Email người mua", "Email"],
-  buyerBankAccount: ["Số tài khoản người mua", "Số tài khoản"],
-  buyerBankName: ["Ngân hàng người mua", "Ngân hàng"],
-  paymentMethod: ["Phương thức thanh toán"],
-  discountAmount: ["Tiền chiết khấu"],
-  totalBeforeTax: ["Thành tiền chưa VAT", "Tiền trước VAT"],
-  vatAmount: ["Tiền thuế VAT", "Thuế VAT"],
-  totalAmount: ["Tổng tiền thanh toán", "Tổng tiền"],
-  cccdan: ["CCCD/Căn cước công dân", "CCCD", "Căn cước công dân"],
-  passport: ["Số hộ chiếu"],
-  budgetUnitCode: ["Mã đơn vị qua ngân sách"],
-  storeCode: ["Mã cửa hàng"],
-  storeName: ["Tên cửa hàng"],
-  quantity: ["Số lượng"],
-} as const
-
-const REQUIRED_COLUMNS: Array<keyof typeof COLUMN_ALIASES> = [
-  "agencyCode",
-  "productCode",
-  "invoiceDate",
-  "buyerCompany",
-  "buyerTaxCode",
-  "buyerAddress",
-  "totalBeforeTax",
-  "vatAmount",
-  "totalAmount",
-]
-
-function buildHeaderIndex(headers: string[]) {
-  const map = new Map<string, string>()
-
-  headers.forEach((header) => {
-    const key = normalize(header)
-    if (key && !map.has(key)) {
-      map.set(key, header)
-    }
-  })
-
-  return map
-}
-
-function findHeader(
-  headerIndex: Map<string, string>,
-  aliases: readonly string[]
-) {
-  for (const alias of aliases) {
-    const matchedHeader = headerIndex.get(normalize(alias))
-    if (matchedHeader) return matchedHeader
-  }
-
-  return ""
-}
-
-function pickCellValue(
-  row: Record<string, unknown>,
-  headerIndex: Map<string, string>,
-  aliases: readonly string[]
-) {
-  const header = findHeader(headerIndex, aliases)
-  return header ? row[header] : ""
-}
-
-function cleanText(value: unknown) {
-  return String(value ?? "").trim()
-}
-
-function getAgencyEmployee(agency: Agency | null) {
-  if (!agency?.employeeId || typeof agency.employeeId === "string") return null
-  return agency.employeeId as Employee
-}
-
-function getEmployeeDepartment(employee: Employee | null) {
-  if (!employee?.departmentId || typeof employee.departmentId === "string") {
-    return null
-  }
-
-  return employee.departmentId as Department
-}
-
-function getProductAccountingCode(product: ProductOption | null) {
-  if (!product) return 0
-
-  return Number(
-    product.accountingAccountCode ||
-      product.accountCode ||
-      product.inv_accountCode ||
-      0
-  )
-}
-function findProductByExcelValue(products: ProductOption[], value: string) {
-  const keyword = normalize(value)
-
-  if (!keyword) return null
-
-  return (
-    products.find((product) => {
-      const productId = normalize(product._id || "")
-      const itemCode = normalize(product.inv_itemCode || "")
-      const itemName = normalize(product.inv_itemName || "")
-      const itemProduct = normalize(product.inv_itemProduct || "")
-
-      return (
-        productId === keyword ||
-        itemCode === keyword ||
-        itemName === keyword ||
-        itemProduct === keyword
-      )
-    }) || null
-  )
-}
-
-function extractErrorMessage(error: unknown, fallback: string) {
-  if (error instanceof Error && error.message) {
-    return error.message
-  }
-
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "response" in error &&
-    typeof error.response === "object" &&
-    error.response !== null &&
-    "data" in error.response &&
-    typeof error.response.data === "object" &&
-    error.response.data !== null
-  ) {
-    const responseData = error.response.data as {
-      message?: string
-      error?: string
-    }
-
-    return responseData.message || responseData.error || fallback
-  }
-
-  return fallback
 }
 
 export default function InvoiceBulkImport({
@@ -265,6 +68,7 @@ export default function InvoiceBulkImport({
   const [parsing, setParsing] = useState(false)
   const [creating, setCreating] = useState(false)
   const [submitErrors, setSubmitErrors] = useState<Record<string, string>>({})
+  const [createdRowIds, setCreatedRowIds] = useState<Record<string, string>>({})
 
   const [showSuccess, setShowSuccess] = useState(false)
   const [showError, setShowError] = useState(false)
@@ -291,7 +95,7 @@ export default function InvoiceBulkImport({
 
         const [agencyRes, productRes, bankRes] = await Promise.all([
           APIGetAgencies(),
-          APIGetProducts(),
+          APIGetAllProducts(),
           APIGetBanks(),
         ])
 
@@ -322,8 +126,6 @@ export default function InvoiceBulkImport({
   }, [])
 
   const preparedRows = useMemo<PreparedImportRow[]>(() => {
-    const currentInvoiceDate = new Date().toISOString().slice(0, 10)
-
     return excelRows.map((row) => {
       const errors: string[] = []
       const warnings: string[] = []
@@ -332,8 +134,11 @@ export default function InvoiceBulkImport({
       const productCode = cleanText(row.productCode)
       const fixedReceiptConfig =
         receiptConfigs[0] || FIXED_RECEIPT_INVOICE_CONFIG
-      const invoiceSeries = cleanText(fixedReceiptConfig.inv_invoiceSeries)
-      const invoiceDate = currentInvoiceDate
+      const invoiceSeries =
+        cleanText(row.invoiceSeries) ||
+        cleanText(fixedReceiptConfig.inv_invoiceSeries)
+      const rawInvoiceDate = cleanText(row.invoiceDate)
+      const invoiceDate = normalizeDateInput(rawInvoiceDate)
       const buyerCompany = cleanText(row.buyerCompany)
       const buyerName = cleanText(row.buyerName)
       const buyerTaxCode = cleanText(row.buyerTaxCode)
@@ -344,10 +149,8 @@ export default function InvoiceBulkImport({
       const paymentMethod = cleanText(row.paymentMethod) || "CK"
       const currency = cleanText(row.currency) || "VND"
       const exchangeRate = toExcelNumber(row.exchangeRate) || 1
-      const quantity = Math.max(
-        1,
-        roundInvoiceMoney(toExcelNumber(row.quantity || 1))
-      )
+      const rawQuantity = cleanText(row.quantity)
+      const quantity = roundInvoiceMoney(toExcelNumber(row.quantity))
       const totalBeforeTax = roundInvoiceMoney(
         toExcelNumber(row.totalBeforeTax)
       )
@@ -358,12 +161,15 @@ export default function InvoiceBulkImport({
 
       const agency =
         agencies.find((item) => {
-          const numberMatch =
-            normalize(item.agencyNumber || "") === normalize(agencyCode)
+          const agencyNumberMatch =
+            normalize((item as any).agencyNumber || "") ===
+            normalize(agencyCode)
+          const codeMatch =
+            normalize(item.inv_agencyName || "") === normalize(agencyCode)
           const nameMatch =
             normalize(item.agencyName || "") === normalize(agencyCode)
 
-          return Boolean(numberMatch || nameMatch)
+          return Boolean(agencyNumberMatch || codeMatch || nameMatch)
         }) || null
 
       const bank =
@@ -374,7 +180,6 @@ export default function InvoiceBulkImport({
 
       const product = findProductByExcelValue(products, productCode)
       const agencyEmployee = getAgencyEmployee(agency)
-      const agencyDepartment = getEmployeeDepartment(agencyEmployee)
 
       if (!agencyCode) errors.push("Thiếu mã đại lý.")
       if (agencyCode && !agency) {
@@ -382,13 +187,25 @@ export default function InvoiceBulkImport({
       }
 
       if (!invoiceSeries) errors.push("Thiếu ký hiệu hóa đơn.")
+      if (!rawInvoiceDate) {
+        errors.push("Thiếu ngày kích hoạt.")
+      } else if (!invoiceDate) {
+        errors.push(`Ngày kích hoạt "${rawInvoiceDate}" không hợp lệ.`)
+      }
 
       if (!buyerCompany) errors.push("Thiếu tên đơn vị mua.")
       if (!buyerTaxCode) errors.push("Thiếu mã số thuế người mua.")
+      if (!buyerEmail) errors.push("Thiếu email người mua.")
       if (!buyerAddress) errors.push("Thiếu địa chỉ người mua.")
       if (!productCode) errors.push("Thiếu sản phẩm.")
       if (productCode && !product) {
         errors.push(`Không tìm thấy sản phẩm cho giá trị "${productCode}".`)
+      }
+
+      if (!rawQuantity) {
+        errors.push("Thiếu số lượng sản phẩm.")
+      } else if (quantity <= 0) {
+        errors.push("Số lượng sản phẩm phải lớn hơn 0.")
       }
 
       if (totalBeforeTax <= 0)
@@ -412,15 +229,14 @@ export default function InvoiceBulkImport({
         errors.length > 0 || !product || !agency
           ? null
           : {
-              orderNumber: cleanText(row.lineCode),
               inv_invoiceSeries: invoiceSeries,
-              inv_invoiceIssuedDate: invoiceDate,
+              activationDate: invoiceDate,
               inv_currencyCode: currency,
               inv_exchangeRate: exchangeRate,
               inv_paymentMethodName: paymentMethod,
               agencyId: agency._id,
               employeeId: getId(agencyEmployee) || undefined,
-              bankId: getId(bank) || undefined,
+              amountCollected: 0,
               inv_buyerTaxCode: buyerTaxCode,
               inv_buyerLegalName: buyerCompany,
               inv_buyerDisplayName: buyerName || buyerCompany,
@@ -445,27 +261,27 @@ export default function InvoiceBulkImport({
                 {
                   productId: product._id,
                   product,
+                  productCode: product.inv_itemCode,
+                  productName: product.inv_itemName,
+                  unit: product.inv_unitCode,
                   quantity,
                   inv_quantity: quantity,
-                  ma_thue: normalizeInvoiceTaxCode(product.ma_thue),
+                  price:
+                    roundInvoiceMoney(product.inv_unitPrice) ||
+                    roundInvoiceMoney(totalAmount / (quantity || 1)),
+                  unitPrice:
+                    roundInvoiceMoney(product.inv_unitPrice) ||
+                    roundInvoiceMoney(totalAmount / (quantity || 1)),
+                  inv_unitPrice: roundInvoiceMoney(product.inv_unitPrice),
+                  ma_thue: product.ma_thue,
+                  taxRate: product.ma_thue,
+                  discountPercentage: 0,
                   revenue: totalBeforeTax,
                   capitalPrice: 0,
                   totalSalary: totalBeforeTax,
                   accountingAccountCode: getProductAccountingCode(product),
                 },
               ],
-              __clientSnapshot: {
-                agency,
-                department: agencyDepartment,
-                employee: agencyEmployee,
-                bank,
-              },
-              __clientPayment: {
-                isPaid: false,
-                paidAmount: 0,
-                paidDate: "",
-                remainingAmount: totalAmount,
-              },
             }
 
       return {
@@ -477,8 +293,12 @@ export default function InvoiceBulkImport({
         productCode,
         buyerCompany,
         buyerTaxCode,
+        buyerEmail,
+        buyerAddress,
         invoiceSeries,
         invoiceDate,
+        totalBeforeTax,
+        vatAmount,
         totalAmount,
         quantity,
         agency,
@@ -493,15 +313,102 @@ export default function InvoiceBulkImport({
     })
   }, [agencies, banks, excelRows, products, receiptConfigs, submitErrors])
 
-  const validRows = preparedRows.filter((item) => item.errors.length === 0)
-  const invalidRows = preparedRows.length - validRows.length
+  const pendingRows = preparedRows.filter((item) => !createdRowIds[item.id])
+  const validRows = pendingRows.filter((item) => item.errors.length === 0)
+  const invalidRows = pendingRows.length - validRows.length
+  const createdRowsCount = preparedRows.length - pendingRows.length
+
+  const updateImportRow = <K extends keyof BulkImportExcelRow>(
+    rowId: string,
+    field: K,
+    value: BulkImportExcelRow[K]
+  ) => {
+    if (createdRowIds[rowId]) return
+
+    setExcelRows((currentRows) =>
+      currentRows.map((row) =>
+        row.id === rowId ? { ...row, [field]: value } : row
+      )
+    )
+
+    setSubmitErrors((currentErrors) => {
+      if (!currentErrors[rowId]) return currentErrors
+
+      const nextErrors = { ...currentErrors }
+      delete nextErrors[rowId]
+
+      return nextErrors
+    })
+  }
 
   const handleClearFile = () => {
     setSelectedFileName("")
     setExcelRows([])
     setSubmitErrors({})
+    setCreatedRowIds({})
     if (inputRef.current) {
       inputRef.current.value = ""
+    }
+  }
+
+  const handleDownloadTemplate = () => {
+    try {
+      const fields = REQUIRED_COLUMNS
+      const headers = fields.map((field) => COLUMN_ALIASES[field][0])
+      const workbook = XLSX.utils.book_new()
+      const importSheet = XLSX.utils.aoa_to_sheet([headers])
+
+      importSheet["!cols"] = fields.map((field) => ({
+        wch:
+          field === "buyerAddress"
+            ? 32
+            : field === "buyerCompany" || field === "productCode"
+              ? 26
+              : field === "buyerEmail" || field === "buyerBankName"
+                ? 24
+                : 18,
+      }))
+      importSheet["!autofilter"] = {
+        ref: XLSX.utils.encode_range({
+          s: { r: 0, c: 0 },
+          e: { r: 0, c: headers.length - 1 },
+        }),
+      }
+
+      fields.forEach((field, index) => {
+        const cellRef = XLSX.utils.encode_cell({ r: 0, c: index })
+        const cell = (importSheet as any)[cellRef]
+
+        if (!cell) return
+
+        cell.s = {
+          font: { bold: true, color: { rgb: "FFFFFF" } },
+          fill: {
+            fgColor: { rgb: "2563EB" },
+          },
+          alignment: {
+            horizontal: "center",
+            vertical: "center",
+            wrapText: true,
+          },
+          border: {
+            top: { style: "thin", color: { rgb: "CBD5E1" } },
+            bottom: { style: "thin", color: { rgb: "CBD5E1" } },
+            left: { style: "thin", color: { rgb: "CBD5E1" } },
+            right: { style: "thin", color: { rgb: "CBD5E1" } },
+          },
+        }
+      })
+
+      XLSX.utils.book_append_sheet(workbook, importSheet, "Import hoa don")
+
+      XLSX.writeFile(workbook, "mau-tao-hoa-don-hang-loat.xlsx", {
+        bookType: "xlsx",
+        cellStyles: true,
+      })
+    } catch (error) {
+      console.error("Download bulk import template error:", error)
+      showErrorMessage("Không thể tải mẫu Excel tạo hóa đơn hàng loạt.")
     }
   }
 
@@ -509,11 +416,13 @@ export default function InvoiceBulkImport({
     try {
       setParsing(true)
       setSubmitErrors({})
+      setCreatedRowIds({})
 
       const buffer = await file.arrayBuffer()
       const workbook = XLSX.read(buffer, {
         type: "array",
         cellDates: true,
+        dateNF: "yyyy-mm-dd",
       })
 
       const firstSheetName = workbook.SheetNames[0]
@@ -634,10 +543,9 @@ export default function InvoiceBulkImport({
         `Đã đọc file ${file.name}. Vui lòng kiểm tra lại trước khi tạo hóa đơn.`
       )
     } catch (error: unknown) {
-      console.error("Parse bulk invoice file error:", error)
       handleClearFile()
       showErrorMessage(
-        extractErrorMessage(error, "Không thể đọc file Excel import hóa đơn.")
+        getErrorMessage(error, "Không thể đọc file Excel import hóa đơn.")
       )
     } finally {
       setParsing(false)
@@ -658,6 +566,11 @@ export default function InvoiceBulkImport({
       return
     }
 
+    if (!pendingRows.length) {
+      showSuccessMessage("Tất cả dòng trong file đã được tạo hóa đơn.")
+      return
+    }
+
     if (invalidRows > 0) {
       showErrorMessage(
         "File import còn dòng lỗi. Vui lòng xử lý hết lỗi trước khi tạo hóa đơn."
@@ -670,6 +583,7 @@ export default function InvoiceBulkImport({
       setSubmitErrors({})
 
       const nextSubmitErrors: Record<string, string> = {}
+      const nextCreatedRowIds = { ...createdRowIds }
       let successCount = 0
 
       for (const row of validRows) {
@@ -678,10 +592,20 @@ export default function InvoiceBulkImport({
             throw new Error("Dòng import chưa build được payload hợp lệ.")
           }
 
-          await APICreateSaleTransaction(buildCreateInvoiceApiBody(row.payload))
+          const response = await APICreateSaleTransaction(
+            buildCreateInvoiceApiBody(row.payload)
+          )
+          const createdOrderNumber = String(
+            (response as any)?.data?.orderNumber ||
+              (response as any)?.content?.orderNumber ||
+              (response as any)?.orderNumber ||
+              ""
+          ).trim()
+
+          nextCreatedRowIds[row.id] = createdOrderNumber || "Đã tạo"
           successCount += 1
         } catch (error: unknown) {
-          nextSubmitErrors[row.id] = extractErrorMessage(
+          nextSubmitErrors[row.id] = getErrorMessage(
             error,
             "Không tạo được hóa đơn cho dòng này."
           )
@@ -689,6 +613,7 @@ export default function InvoiceBulkImport({
       }
 
       setSubmitErrors(nextSubmitErrors)
+      setCreatedRowIds(nextCreatedRowIds)
 
       if (successCount > 0) {
         await onInvoicesCreated?.()
@@ -704,12 +629,8 @@ export default function InvoiceBulkImport({
       }
 
       showSuccessMessage(
-        `Đã tạo thành công ${successCount} hóa đơn. Hệ thống sẽ quay về danh sách sau giây lát.`
+        `Đã tạo thành công ${successCount} hóa đơn. Các dòng đã tạo vẫn giữ đúng vị trí trong bảng.`
       )
-
-      setTimeout(() => {
-        onBack()
-      }, 1500)
     } finally {
       setCreating(false)
     }
@@ -762,6 +683,16 @@ export default function InvoiceBulkImport({
             <div className="mt-5 flex flex-wrap items-center gap-3">
               <button
                 type="button"
+                onClick={handleDownloadTemplate}
+                disabled={parsing || creating}
+                className="inline-flex h-10 items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-4 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Download size={16} />
+                Tải mẫu Excel
+              </button>
+
+              <button
+                type="button"
                 onClick={() => inputRef.current?.click()}
                 disabled={parsing || creating}
                 className="inline-flex h-10 items-center gap-2 rounded-xl border border-indigo-300 bg-indigo-50 px-4 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
@@ -797,7 +728,7 @@ export default function InvoiceBulkImport({
 
             <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <div className="text-sm font-semibold text-slate-800">
-                Cột tối thiểu hệ thống đang đọc
+                Cột bắt buộc trong mẫu import
               </div>
               <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-600">
                 {REQUIRED_COLUMNS.map((field) => (
@@ -848,7 +779,7 @@ export default function InvoiceBulkImport({
 
               <div className="rounded-2xl bg-emerald-50 p-4">
                 <div className="text-xs uppercase tracking-wide text-emerald-700">
-                  Hợp lệ
+                  Chờ tạo
                 </div>
                 <div className="mt-2 text-2xl font-bold text-emerald-700">
                   {validRows.length}
@@ -861,6 +792,15 @@ export default function InvoiceBulkImport({
                 </div>
                 <div className="mt-2 text-2xl font-bold text-rose-700">
                   {invalidRows}
+                </div>
+              </div>
+
+              <div className="rounded-2xl bg-blue-50 p-4">
+                <div className="text-xs uppercase tracking-wide text-blue-700">
+                  Đã tạo
+                </div>
+                <div className="mt-2 text-2xl font-bold text-blue-700">
+                  {createdRowsCount}
                 </div>
               </div>
 
@@ -887,6 +827,7 @@ export default function InvoiceBulkImport({
                 parsing ||
                 catalogLoading ||
                 !preparedRows.length ||
+                !validRows.length ||
                 invalidRows > 0
               }
               className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
@@ -896,6 +837,8 @@ export default function InvoiceBulkImport({
                   <Loader2 size={16} className="animate-spin" />
                   Đang tạo hóa đơn...
                 </>
+              ) : !pendingRows.length && preparedRows.length ? (
+                <>Đã tạo hết hóa đơn</>
               ) : (
                 <>Tạo hóa đơn hàng loạt</>
               )}
@@ -929,7 +872,7 @@ export default function InvoiceBulkImport({
             </div>
           ) : (
             <div className="mt-5 overflow-auto rounded-2xl border border-slate-200">
-              <table className="min-w-full text-sm">
+              <table className="min-w-[2050px] text-sm">
                 <thead className="bg-slate-50 text-slate-700">
                   <tr>
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-left font-semibold">
@@ -951,13 +894,25 @@ export default function InvoiceBulkImport({
                       MST
                     </th>
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-left font-semibold">
+                      Email
+                    </th>
+                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-left font-semibold">
+                      Địa chỉ
+                    </th>
+                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-left font-semibold">
                       Ký hiệu HĐ
                     </th>
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-left font-semibold">
-                      Ngày HĐ
+                      Ngày kích hoạt
                     </th>
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-right font-semibold">
                       Số lượng
+                    </th>
+                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-right font-semibold">
+                      Trước VAT
+                    </th>
+                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-right font-semibold">
+                      VAT
                     </th>
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-right font-semibold">
                       Tổng tiền
@@ -969,32 +924,77 @@ export default function InvoiceBulkImport({
                 </thead>
 
                 <tbody>
-                  {preparedRows.map((row) => {
+                  {preparedRows.map((row, index) => {
+                    const sourceRow = excelRows[index] || null
                     const isValid = row.errors.length === 0
+                    const createdLabel = createdRowIds[row.id]
+                    const isCreated = Boolean(createdLabel)
+                    const rowDisabled = creating || isCreated
 
                     return (
                       <tr
                         key={row.id}
-                        className={isValid ? "bg-white" : "bg-rose-50/50"}
+                        className={
+                          isCreated
+                            ? "bg-blue-50/40"
+                            : isValid
+                              ? "bg-white"
+                              : "bg-rose-50/50"
+                        }
                       >
                         <td className="border-b border-slate-100 px-3 py-3 align-top font-semibold text-slate-700">
                           {row.rowNumber}
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3 align-top text-slate-700">
-                          {row.lineCode || row.stt || "-"}
+                        <td className="border-b border-slate-100 px-3 py-3 align-top">
+                          <input
+                            value={cleanText(
+                              sourceRow?.lineCode || row.lineCode
+                            )}
+                            onChange={(event) =>
+                              updateImportRow(
+                                row.id,
+                                "lineCode",
+                                event.target.value
+                              )
+                            }
+                            disabled={rowDisabled}
+                            className="h-8 w-28 rounded border border-slate-300 bg-white px-2 text-xs text-slate-800 outline-none focus:border-indigo-500 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500"
+                          />
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3 align-top text-slate-700">
-                          <div className="font-semibold">
-                            {row.agencyCode || "-"}
-                          </div>
+                        <td className="border-b border-slate-100 px-3 py-3 align-top">
+                          <input
+                            value={cleanText(
+                              sourceRow?.agencyCode || row.agencyCode
+                            )}
+                            onChange={(event) =>
+                              updateImportRow(
+                                row.id,
+                                "agencyCode",
+                                event.target.value
+                              )
+                            }
+                            disabled={rowDisabled}
+                            className="h-8 w-32 rounded border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-800 outline-none focus:border-indigo-500 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500"
+                          />
                           <div className="mt-1 text-xs text-slate-500">
                             {row.agency?.agencyName || "Chưa map đại lý"}
                           </div>
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3 align-top text-slate-700">
-                          <div className="font-semibold">
-                            {row.productCode || "-"}
-                          </div>
+                        <td className="border-b border-slate-100 px-3 py-3 align-top">
+                          <input
+                            value={cleanText(
+                              sourceRow?.productCode || row.productCode
+                            )}
+                            onChange={(event) =>
+                              updateImportRow(
+                                row.id,
+                                "productCode",
+                                event.target.value
+                              )
+                            }
+                            disabled={rowDisabled}
+                            className="h-8 w-36 rounded border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-800 outline-none focus:border-indigo-500 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500"
+                          />
                           <div className="mt-1 text-xs text-slate-500">
                             {row.product
                               ? [
@@ -1007,33 +1007,192 @@ export default function InvoiceBulkImport({
                               : "Chưa map sản phẩm"}
                           </div>
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3 align-top text-slate-700">
-                          {row.buyerCompany || "-"}
+                        <td className="border-b border-slate-100 px-3 py-3 align-top">
+                          <input
+                            value={cleanText(
+                              sourceRow?.buyerCompany || row.buyerCompany
+                            )}
+                            onChange={(event) =>
+                              updateImportRow(
+                                row.id,
+                                "buyerCompany",
+                                event.target.value
+                              )
+                            }
+                            disabled={rowDisabled}
+                            className="h-8 w-52 rounded border border-slate-300 bg-white px-2 text-xs text-slate-800 outline-none focus:border-indigo-500 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500"
+                          />
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3 align-top text-slate-700">
-                          {row.buyerTaxCode || "-"}
+                        <td className="border-b border-slate-100 px-3 py-3 align-top">
+                          <input
+                            value={cleanText(
+                              sourceRow?.buyerTaxCode || row.buyerTaxCode
+                            )}
+                            onChange={(event) =>
+                              updateImportRow(
+                                row.id,
+                                "buyerTaxCode",
+                                event.target.value
+                              )
+                            }
+                            disabled={rowDisabled}
+                            className="h-8 w-36 rounded border border-slate-300 bg-white px-2 text-xs text-slate-800 outline-none focus:border-indigo-500 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500"
+                          />
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3 align-top text-slate-700">
-                          {row.invoiceSeries || "-"}
+                        <td className="border-b border-slate-100 px-3 py-3 align-top">
+                          <input
+                            value={cleanText(
+                              sourceRow?.buyerEmail || row.buyerEmail
+                            )}
+                            onChange={(event) =>
+                              updateImportRow(
+                                row.id,
+                                "buyerEmail",
+                                event.target.value
+                              )
+                            }
+                            disabled={rowDisabled}
+                            className="h-8 w-48 rounded border border-slate-300 bg-white px-2 text-xs text-slate-800 outline-none focus:border-indigo-500 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500"
+                          />
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3 align-top text-slate-700">
-                          {row.invoiceDate || "-"}
+                        <td className="border-b border-slate-100 px-3 py-3 align-top">
+                          <input
+                            value={cleanText(
+                              sourceRow?.buyerAddress || row.buyerAddress
+                            )}
+                            onChange={(event) =>
+                              updateImportRow(
+                                row.id,
+                                "buyerAddress",
+                                event.target.value
+                              )
+                            }
+                            disabled={rowDisabled}
+                            className="h-8 w-64 rounded border border-slate-300 bg-white px-2 text-xs text-slate-800 outline-none focus:border-indigo-500 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500"
+                          />
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3 text-right align-top font-semibold text-slate-700">
-                          {formatMoney(row.quantity)}
+                        <td className="border-b border-slate-100 px-3 py-3 align-top">
+                          <input
+                            value={cleanText(
+                              sourceRow?.invoiceSeries || row.invoiceSeries
+                            )}
+                            onChange={(event) =>
+                              updateImportRow(
+                                row.id,
+                                "invoiceSeries",
+                                event.target.value
+                              )
+                            }
+                            disabled={rowDisabled}
+                            className="h-8 w-32 rounded border border-slate-300 bg-white px-2 text-xs text-slate-800 outline-none focus:border-indigo-500 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500"
+                          />
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-3 text-right align-top font-semibold text-slate-900">
-                          {formatMoney(row.totalAmount)}
+                        <td className="border-b border-slate-100 px-3 py-3 align-top">
+                          <input
+                            type="date"
+                            value={
+                              normalizeDateInput(
+                                cleanText(
+                                  sourceRow?.invoiceDate || row.invoiceDate
+                                )
+                              ) || ""
+                            }
+                            onChange={(event) =>
+                              updateImportRow(
+                                row.id,
+                                "invoiceDate",
+                                event.target.value
+                              )
+                            }
+                            disabled={rowDisabled}
+                            className="h-8 w-36 rounded border border-slate-300 bg-white px-2 text-xs text-slate-800 outline-none focus:border-indigo-500 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500"
+                          />
+                        </td>
+                        <td className="border-b border-slate-100 px-3 py-3 align-top">
+                          <input
+                            value={cleanText(
+                              sourceRow?.quantity ?? row.quantity
+                            )}
+                            inputMode="decimal"
+                            onChange={(event) =>
+                              updateImportRow(
+                                row.id,
+                                "quantity",
+                                event.target.value
+                              )
+                            }
+                            disabled={rowDisabled}
+                            className="h-8 w-24 rounded border border-slate-300 bg-white px-2 text-right text-xs font-semibold text-slate-800 outline-none focus:border-indigo-500 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500"
+                          />
+                        </td>
+                        <td className="border-b border-slate-100 px-3 py-3 align-top">
+                          <input
+                            value={cleanText(
+                              sourceRow?.totalBeforeTax ?? row.totalBeforeTax
+                            )}
+                            inputMode="decimal"
+                            onChange={(event) =>
+                              updateImportRow(
+                                row.id,
+                                "totalBeforeTax",
+                                event.target.value
+                              )
+                            }
+                            disabled={rowDisabled}
+                            className="h-8 w-32 rounded border border-slate-300 bg-white px-2 text-right text-xs font-semibold text-slate-800 outline-none focus:border-indigo-500 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500"
+                          />
+                        </td>
+                        <td className="border-b border-slate-100 px-3 py-3 align-top">
+                          <input
+                            value={cleanText(
+                              sourceRow?.vatAmount ?? row.vatAmount
+                            )}
+                            inputMode="decimal"
+                            onChange={(event) =>
+                              updateImportRow(
+                                row.id,
+                                "vatAmount",
+                                event.target.value
+                              )
+                            }
+                            disabled={rowDisabled}
+                            className="h-8 w-28 rounded border border-slate-300 bg-white px-2 text-right text-xs font-semibold text-slate-800 outline-none focus:border-indigo-500 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500"
+                          />
+                        </td>
+                        <td className="border-b border-slate-100 px-3 py-3 align-top">
+                          <input
+                            value={cleanText(
+                              sourceRow?.totalAmount ?? row.totalAmount
+                            )}
+                            inputMode="decimal"
+                            onChange={(event) =>
+                              updateImportRow(
+                                row.id,
+                                "totalAmount",
+                                event.target.value
+                              )
+                            }
+                            disabled={rowDisabled}
+                            className="h-8 w-32 rounded border border-slate-300 bg-white px-2 text-right text-xs font-semibold text-slate-900 outline-none focus:border-indigo-500 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500"
+                          />
                         </td>
                         <td className="border-b border-slate-100 px-3 py-3 align-top">
                           <div
                             className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
-                              isValid
-                                ? "bg-emerald-100 text-emerald-700"
-                                : "bg-rose-100 text-rose-700"
+                              isCreated
+                                ? "bg-blue-100 text-blue-700"
+                                : isValid
+                                  ? "bg-emerald-100 text-emerald-700"
+                                  : "bg-rose-100 text-rose-700"
                             }`}
                           >
-                            {isValid ? "Hợp lệ" : "Có lỗi"}
+                            {isCreated
+                              ? createdLabel === "Đã tạo"
+                                ? "Đã tạo"
+                                : `Đã tạo ${createdLabel}`
+                              : isValid
+                                ? "Hợp lệ"
+                                : "Có lỗi"}
                           </div>
 
                           {row.errors.length > 0 && (

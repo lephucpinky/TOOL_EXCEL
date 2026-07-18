@@ -128,8 +128,20 @@ export const mergeRange = (
   ;(ws as any)["!merges"] = merges
 }
 
-export const setColumnWidthsHoaHong = (ws: XLSX.WorkSheet) => {
+export const setColumnWidthsHoaHong = (
+  ws: XLSX.WorkSheet,
+  rows?: { rA: number; rTOTAL: number }
+) => {
   ws["!cols"] = HOA_HONG_COL_WIDTHS.map((wch) => ({ wch }))
+
+  if (!rows) return
+
+  const headerRow0 = rows.rA - 1
+  for (let r0 = headerRow0; r0 <= rows.rTOTAL; r0++) {
+    for (let c0 = COL_HOA_HONG.GHI_CHU + 1; c0 <= 18; c0++) {
+      delete (ws as any)[addrRC(r0, c0)]
+    }
+  }
 }
 
 export const applyInnerThinBorders = (
@@ -266,9 +278,39 @@ const pickLoaiSanPhamHeader = (salesHeaders: string[], salesRows: any[]) => {
 
 const pickLoaiCodeHeader = (salesHeaders: string[], salesRows: any[]) => {
   const headers = (salesHeaders || []).filter(Boolean).map(String)
-  const candidates = headers.filter((h) =>
-    normalize(h).includes(normalize("tên sp"))
-  )
+  const productCodeAliases = [
+    "Mã sản phẩm",
+    "Ma san pham",
+    "Mã SP",
+    "Ma SP",
+    "Sản phẩm",
+    "San pham",
+    "Item Product",
+    "inv_itemProduct",
+    "Product Code",
+  ]
+  const productCodeKeys = new Set(productCodeAliases.map(normalize))
+  const explicitCodeHeader = headers.find((h) => {
+    const key = normalize(h)
+    return (
+      productCodeKeys.has(key) ||
+      key.includes(normalize("mã sản phẩm")) ||
+      key.includes(normalize("product code")) ||
+      key.includes(normalize("item product"))
+    )
+  })
+
+  if (explicitCodeHeader) return explicitCodeHeader
+
+  const candidates = headers.filter((h) => {
+    const key = normalize(h)
+    return (
+      key.includes(normalize("tên sp")) ||
+      key.includes(normalize("ten sp")) ||
+      key.includes(normalize("loại sp")) ||
+      key.includes(normalize("loai sp"))
+    )
+  })
   if (!candidates.length) return ""
 
   const sampleN = Math.min(200, salesRows.length)
@@ -378,12 +420,32 @@ export const buildHeaderMapHH = (
   const pick = (...aliases: string[]) => pickHeaderFromIndex(idx, ...aliases)
 
   const loaiCodeHeader = pickLoaiCodeHeader(salesHeaders, salesRows)
+  const productSectionHeader =
+    loaiCodeHeader ||
+    pickLoaiSanPhamHeader(salesHeaders, salesRows) ||
+    pick(
+      "Mã sản phẩm",
+      "Ma san pham",
+      "Mã SP",
+      "Ma SP",
+      "TÊN SP",
+      "LOẠI SP",
+      "Item Product",
+      "inv_itemProduct",
+      "Product Code"
+    )
 
   return {
-    LOAI:
-      pickLoaiSanPhamHeader(salesHeaders, salesRows) ||
-      pick("TÊN SP", "LOẠI SP"),
-    THANG: pick("THÁNG", "Tháng", "thang"),
+    LOAI: productSectionHeader,
+    PRODUCT_SECTION: productSectionHeader,
+    THANG: pick(
+      "NGAY PHAT SINH",
+      "NGAY KICH HOAT",
+      "THANG PHAT SINH",
+      "THÁNG",
+      "Tháng",
+      "thang"
+    ),
     MST: pick("MST", "Mã số thuế"),
     TEN: pick("TÊN CTY", "TÊN CÔNG TY", "TÊN ĐƠN VỊ", "Tên công ty"),
     LOAI_CODE: loaiCodeHeader,
@@ -396,6 +458,12 @@ export const buildHeaderMapHH = (
     SL_MOI: pick("SL MỚI", "SLMOI"),
     SL_GH: pick("SL GH", "SLGH"),
     SL_TANG: pick("SL TẶNG", "SL TANG", "SLTANG"),
+    SOLUONG: pick("SO LUONG", "SOLUONG", "SL"),
+    DOANH_THU_SAN_PHAM: pick(
+      "GIA SAN PHAM",
+      "DOANH THU SAN PHAM",
+      "GIA DOI SOAT"
+    ),
     DT_GOI_HD: pick("GÓI HÓA ĐƠN", "GOI HOA DON", "GÓI HĐ"),
     DT_KHAC: pick("KHÁC", "KHAC"),
     TRI_GIA_XUAT_HD: pick(
@@ -409,6 +477,9 @@ export const buildHeaderMapHH = (
       pickTienHoaHongHeader(salesHeaders) ||
       pick("TIỀN HOA HỒNG", "TIEN HOA HONG", "HH"),
     PHI_VIET_CHENH: pick(
+      "PHI VIET CHENH",
+      "VIET CHENH",
+      "VUOT GIA",
       "DT VIẾT CHÊNH",
       "DT VIET CHENH",
       "T VIẾT CHÊNH",
@@ -425,10 +496,26 @@ export const buildHeaderMapHH = (
       "SỐ TIỀN THU",
       "SO TIEN THU",
       "TIỀN THU",
-      "TIEN THU"
+      "TIEN THU",
+      "M-INV DA THU",
+      "M INV DA THU",
+      "MINV DA THU",
+      "M-INVOICE DA THU",
+      "M INVOICE DA THU",
+      "THU TIEN"
     ),
     GHI_CHU: pick("CHI CHÚ", "CHI CHU", "GHI CHÚ", "GHI CHU"),
-    DEALER: pick("Tên đại lý", "Đại lý", "Dealer"),
+    DEALER: pick(
+      "Tên đại lý",
+      "Đại lý",
+      "Danh mục đại lý",
+      "Ten Dai Ly",
+      "Dai Ly",
+      "Danh Muc Dai Ly",
+      "Dealer",
+      "Agency",
+      "CTV"
+    ),
     CATEGORY: pick("PHÒNG BAN", "Danh mục", "Category") || "",
   }
 }
@@ -437,20 +524,16 @@ export const validateHeaderMapHH = (H: ReturnType<typeof buildHeaderMapHH>) => {
   const missing: string[] = []
 
   ;[
-    ["TÊN SP", H.LOAI],
-    ["THÁNG KÍCH HOẠT", H.THANG],
+    ["MÃ SẢN PHẨM", H.PRODUCT_SECTION || H.LOAI_CODE || H.LOAI],
+    ["NGÀY KÍCH HOẠT", H.THANG],
     ["MST", H.MST],
     ["TÊN CTY", H.TEN],
-    ["BQ", H.BANQUYEN],
-    ["SL MỚI", H.SL_MOI],
-    ["SL GH", H.SL_GH],
-    ["SL TẶNG", H.SL_TANG],
-    ["GÓI HÓA ĐƠN", H.DT_GOI_HD],
-    ["KHÁC", H.DT_KHAC],
-    ["TỔNG XUẤT HĐ", H.TRI_GIA_XUAT_HD],
-    ["VIẾT CHÊNH", H.VUOT_GIA],
-    ["TIỀN HOA HỒNG", H.TIEN_HOA_HONG],
-    ["DT VIẾT CHÊNH", H.PHI_VIET_CHENH],
+    ["SỐ LƯỢNG", H.SOLUONG || H.SL_MOI || H.SL_GH || H.SL_TANG],
+    [
+      "GIÁ SẢN PHẨM",
+      H.DOANH_THU_SAN_PHAM || H.BANQUYEN || H.DT_GOI_HD || H.DT_KHAC,
+    ],
+    ["PHÍ VIẾT CHÊNH", H.PHI_VIET_CHENH || H.VUOT_GIA],
     ["SỐ TIỀN", H.DT_MINVOICE],
     ["Đại Lý", H.DEALER],
   ].forEach(([label, value]) => {
@@ -623,20 +706,16 @@ export const clearAllSectionBlocksHoaHong = (
 
   const numericCols = new Set<number>([
     COL_HOA_HONG.STT,
-    COL_HOA_HONG.BANQUYEN,
-    COL_HOA_HONG.SL_MOI,
-    COL_HOA_HONG.SL_GH,
-    COL_HOA_HONG.SL_TANG,
-    COL_HOA_HONG.DT_GOI_HD,
-    COL_HOA_HONG.DT_KHAC,
-    COL_HOA_HONG.TRI_GIA_XUAT_HD,
-    COL_HOA_HONG.GIA_DOI_SOAT,
-    COL_HOA_HONG.VUOT_GIA,
-    COL_HOA_HONG.TIEN_HOA_HONG,
+    COL_HOA_HONG.SOLUONG,
+    COL_HOA_HONG.DOANH_THU_SAN_PHAM,
     COL_HOA_HONG.PHI_VIET_CHENH,
-    COL_HOA_HONG.TONG_TRA_DOI_TAC,
-    COL_HOA_HONG.DT_MINVOICE,
-    COL_HOA_HONG.CHENH_LECH,
+    COL_HOA_HONG.GIA_TRI_XUAT_HOA_DON,
+    COL_HOA_HONG.GIA_DOI_SOAT,
+    COL_HOA_HONG.TIEN_HOA_HONG,
+    COL_HOA_HONG.CHENH_LECH_VIET_CHENH,
+    COL_HOA_HONG.TONG_TIEN_TRA_DOI_TAC,
+    COL_HOA_HONG.MINV_DA_THU,
+    COL_HOA_HONG.CHENH_LECH_THANH_TOAN,
   ])
 
   const isNumericCol = (c0: number) => numericCols.has(c0)
@@ -702,86 +781,75 @@ export const fillAllSectionsHoaHong = (
     for (let i = 0; i < rowsData.length; i++) {
       const r0 = start[sec] + i
       const row = rowsData[i] as any
-      const isCKS = classifyProductToSectionHoaHong(row[H.LOAI_CODE]) === "G"
 
       setCell(ws, r0, COL_HOA_HONG.STT, i + 1, { kind: "stt", force: true })
-      setCell(ws, r0, COL_HOA_HONG.THANG, row[H.THANG], {
+      setCell(ws, r0, COL_HOA_HONG.NGAYPHATSINH, row[H.THANG], {
         kind: "text",
         force: true,
       })
-      setCell(ws, r0, COL_HOA_HONG.MST, row[H.MST], {
+      setCell(ws, r0, COL_HOA_HONG.MASOTHUE, row[H.MST], {
         kind: "text",
         force: true,
       })
-      setCell(ws, r0, COL_HOA_HONG.TEN, row[H.TEN], {
+      setCell(ws, r0, COL_HOA_HONG.TENDONVI, row[H.TEN], {
         kind: "text",
         force: true,
       })
 
-      if (isCKS) {
-        unmergeInRange(ws, r0, r0)
-        setCell(ws, r0, COL_HOA_HONG.BANQUYEN, "", {
-          kind: "text",
-          force: true,
-        })
-        mergeCells(ws, r0, COL_HOA_HONG.BANQUYEN, COL_HOA_HONG.DT_KHAC)
+      const soLuong = H.SOLUONG
+        ? row[H.SOLUONG]
+        : toNumber(row[H.SL_MOI]) +
+          toNumber(row[H.SL_GH]) +
+          toNumber(row[H.SL_TANG])
+      const doanhThuSanPham = H.DOANH_THU_SAN_PHAM
+        ? row[H.DOANH_THU_SAN_PHAM]
+        : toNumber(row[H.BANQUYEN]) +
+          toNumber(row[H.DT_GOI_HD]) +
+          toNumber(row[H.DT_KHAC])
+      const phiVietChenh =
+        H.PHI_VIET_CHENH && !isEmptyValue(row[H.PHI_VIET_CHENH])
+          ? row[H.PHI_VIET_CHENH]
+          : row[H.VUOT_GIA]
 
-        const cksText = H.LOAI_CKS_TEXT && row[H.LOAI_CKS_TEXT]
-        setCell(ws, r0, COL_HOA_HONG.BANQUYEN, cksText, {
-          kind: "text",
-          force: true,
-        })
-        patchCellStyle(ws, r0, COL_HOA_HONG.BANQUYEN, {
-          alignment: {
-            horizontal: "center",
-            vertical: "center",
-            wrapText: true,
-          },
-        })
-
-        setNumKeepStyle(
-          r0,
-          COL_HOA_HONG.TRI_GIA_XUAT_HD,
-          row[H.TRI_GIA_XUAT_HD]
-        )
-        const giaDoiSoat =
-          toNumber(row[H.BANQUYEN]) + toNumber(row[H.DT_GOI_HD])
-        setNumKeepStyle(r0, COL_HOA_HONG.GIA_DOI_SOAT, giaDoiSoat)
-      } else {
-        setNumKeepStyle(r0, COL_HOA_HONG.BANQUYEN, row[H.BANQUYEN])
-        setNumKeepStyle(r0, COL_HOA_HONG.SL_MOI, row[H.SL_MOI])
-        setNumKeepStyle(r0, COL_HOA_HONG.SL_GH, row[H.SL_GH])
-        setNumKeepStyle(r0, COL_HOA_HONG.SL_TANG, row[H.SL_TANG])
-        setNumKeepStyle(r0, COL_HOA_HONG.DT_GOI_HD, row[H.DT_GOI_HD])
-        setNumKeepStyle(r0, COL_HOA_HONG.DT_KHAC, row[H.DT_KHAC])
-        setNumKeepStyle(
-          r0,
-          COL_HOA_HONG.TRI_GIA_XUAT_HD,
-          row[H.TRI_GIA_XUAT_HD]
-        )
-        setFormulaKeepStyle(
-          ws,
-          r0,
-          COL_HOA_HONG.GIA_DOI_SOAT,
-          `=${addrRC(r0, COL_HOA_HONG.BANQUYEN)}+${addrRC(r0, COL_HOA_HONG.DT_GOI_HD)}+${addrRC(r0, COL_HOA_HONG.DT_KHAC)}`
-        )
-      }
-
-      setNumKeepStyle(r0, COL_HOA_HONG.VUOT_GIA, row[H.VUOT_GIA])
-      setNumKeepStyle(r0, COL_HOA_HONG.TIEN_HOA_HONG, row[H.TIEN_HOA_HONG])
-      setNumKeepStyle(r0, COL_HOA_HONG.PHI_VIET_CHENH, row[H.PHI_VIET_CHENH])
+      setNumKeepStyle(r0, COL_HOA_HONG.SOLUONG, soLuong)
+      setNumKeepStyle(r0, COL_HOA_HONG.DOANH_THU_SAN_PHAM, doanhThuSanPham)
+      setNumKeepStyle(r0, COL_HOA_HONG.PHI_VIET_CHENH, phiVietChenh)
       setFormulaKeepStyle(
         ws,
         r0,
-        COL_HOA_HONG.TONG_TRA_DOI_TAC,
-        `=${addrRC(r0, COL_HOA_HONG.TIEN_HOA_HONG)}+${addrRC(r0, COL_HOA_HONG.VUOT_GIA)}-${addrRC(r0, COL_HOA_HONG.PHI_VIET_CHENH)}`
+        COL_HOA_HONG.GIA_TRI_XUAT_HOA_DON,
+        `=${addrRC(r0, COL_HOA_HONG.DOANH_THU_SAN_PHAM)}+${addrRC(r0, COL_HOA_HONG.PHI_VIET_CHENH)}`
       )
-      setNumKeepStyle(r0, COL_HOA_HONG.DT_MINVOICE, row[H.DT_MINVOICE])
       setFormulaKeepStyle(
         ws,
         r0,
-        COL_HOA_HONG.CHENH_LECH,
-        `=${addrRC(r0, COL_HOA_HONG.TRI_GIA_XUAT_HD)}-${addrRC(r0, COL_HOA_HONG.DT_MINVOICE)}`
+        COL_HOA_HONG.GIA_DOI_SOAT,
+        `=${addrRC(r0, COL_HOA_HONG.DOANH_THU_SAN_PHAM)}`
+      )
+      setFormulaKeepStyle(
+        ws,
+        r0,
+        COL_HOA_HONG.TIEN_HOA_HONG,
+        `=${addrRC(r0, COL_HOA_HONG.GIA_DOI_SOAT)}*50%`
+      )
+      setFormulaKeepStyle(
+        ws,
+        r0,
+        COL_HOA_HONG.CHENH_LECH_VIET_CHENH,
+        `=${addrRC(r0, COL_HOA_HONG.PHI_VIET_CHENH)}*85%`
+      )
+      setFormulaKeepStyle(
+        ws,
+        r0,
+        COL_HOA_HONG.TONG_TIEN_TRA_DOI_TAC,
+        `=${addrRC(r0, COL_HOA_HONG.TIEN_HOA_HONG)}+${addrRC(r0, COL_HOA_HONG.CHENH_LECH_VIET_CHENH)}`
+      )
+      setNumKeepStyle(r0, COL_HOA_HONG.MINV_DA_THU, row[H.DT_MINVOICE])
+      setFormulaKeepStyle(
+        ws,
+        r0,
+        COL_HOA_HONG.CHENH_LECH_THANH_TOAN,
+        `=${addrRC(r0, COL_HOA_HONG.GIA_TRI_XUAT_HOA_DON)}-${addrRC(r0, COL_HOA_HONG.MINV_DA_THU)}`
       )
 
       if (H.GHI_CHU) {

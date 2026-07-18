@@ -132,7 +132,7 @@ function normalizePageResult<TItem>(
   }
 }
 
-export function getErrorMessage(error: unknown) {
+export function getErrorMessage(error: unknown, fallback = "Có lỗi xảy ra.") {
   const candidate = error as
     | {
         response?: { data?: { message?: string | string[]; error?: string } }
@@ -143,22 +143,26 @@ export function getErrorMessage(error: unknown) {
   const responseMessage = candidate?.response?.data?.message
 
   if (Array.isArray(responseMessage)) {
-    return responseMessage.join(", ")
+    const message = responseMessage.join(", ")
+
+    if (message.trim()) return message
   }
 
   if (typeof responseMessage === "string" && responseMessage.trim()) {
     return responseMessage
   }
 
-  if (typeof candidate?.response?.data?.error === "string") {
-    return candidate.response.data.error
+  const responseError = candidate?.response?.data?.error
+
+  if (typeof responseError === "string" && responseError.trim()) {
+    return responseError
   }
 
-  if (typeof candidate?.message === "string") {
+  if (typeof candidate?.message === "string" && candidate.message.trim()) {
     return candidate.message
   }
 
-  return "Có lỗi xảy ra."
+  return fallback
 }
 
 function buildInitialState<TItem>(): CrudState<TItem> {

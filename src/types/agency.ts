@@ -2,7 +2,7 @@ import { Employee } from "./employee"
 
 export interface Agency {
   _id: string
-  agencyNumber?: string
+  inv_agencyName: string
   agencyName: string
   agencyEmail?: string
   commissionPercent: number
@@ -18,4 +18,5 @@ export interface AgencyPayload {
   employeeId: string
   commissionPercent: number
   isActive: boolean
+  inv_agencyName: string
 }

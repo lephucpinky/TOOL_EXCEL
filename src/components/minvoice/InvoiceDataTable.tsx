@@ -9,10 +9,12 @@ import {
 } from "@/types/invoice"
 import DataTable, { DataTableColumn } from "../common/Datatable"
 import {
+  Copy,
   FileText,
   HandCoins,
   Loader2,
   Printer,
+  RefreshCw,
   SlidersHorizontal,
   X,
 } from "lucide-react"
@@ -24,10 +26,18 @@ type Props = {
   loading?: boolean
   onEdit?: (row: InvoiceApiRow) => void
   onView?: (row: InvoiceApiRow) => void
-  onExportInvoice?: (row: InvoiceApiRow) => void | Promise<void>
+  onExportInvoice?: (row: InvoiceApiRow) => void | Promise<unknown>
   exportingInvoiceId?: string | null
+  onUpdateMInvoice?: (row: InvoiceApiRow) => void | Promise<unknown>
+  updatingMInvoiceId?: string | null
+  onCopyInvoice?: (row: InvoiceApiRow) => void | Promise<unknown>
   onViewMInvoicePdf?: (row: InvoiceApiRow) => void
   onCollectPayment?: (row: InvoiceApiRow) => void
+  selectedRowIds?: string[]
+  onSelectedRowIdsChange?: (ids: string[]) => void
+  onBulkExportInvoice?: (rows: InvoiceApiRow[]) => void | Promise<unknown>
+  onBulkUpdateMInvoice?: (rows: InvoiceApiRow[]) => void | Promise<unknown>
+  bulkActionLoading?: boolean
   pagination?: {
     currentPage: number
     pageSize: number
@@ -50,8 +60,16 @@ export default function InvoiceDataTable({
   onView,
   onExportInvoice,
   exportingInvoiceId = null,
+  onUpdateMInvoice,
+  updatingMInvoiceId = null,
+  onCopyInvoice,
   onViewMInvoicePdf,
   onCollectPayment,
+  selectedRowIds = [],
+  onSelectedRowIdsChange,
+  onBulkExportInvoice,
+  onBulkUpdateMInvoice,
+  bulkActionLoading = false,
   pagination,
 }: Props) {
   const [keyword, setKeyword] = useState("")
@@ -79,6 +97,39 @@ export default function InvoiceDataTable({
   const invoiceStatusClass = invoiceHelper.invoiceStatusClass
   const getInvoiceStatus = invoiceHelper.getInvoiceStatus
   const canStartInvoiceExport = invoiceHelper.canStartInvoiceExport
+  const getInvoiceStatusDisplayLabel = (invoice: InvoiceApiRow) => {
+    return (
+      String(invoice.invoiceStatusVi || "").trim() ||
+      invoiceStatusLabel[getInvoiceStatus(invoice)]
+    )
+  }
+  const getMInvoiceCreatedId = (invoice?: InvoiceApiRow | null) => {
+    return String(invoice?.inv_invoiceCreatedId || "").trim()
+  }
+
+  const canViewMInvoicePdf = (invoice: InvoiceApiRow) => {
+    return (
+      getInvoiceStatus(invoice) === InvoiceStatus.ISSUED &&
+      Boolean(getMInvoiceCreatedId(invoice))
+    )
+  }
+  const canUpdateMInvoice = (invoice: InvoiceApiRow) => {
+    const invoiceNumber = Number(invoice.invoiceNumber)
+
+    return (
+      canViewMInvoicePdf(invoice) &&
+      Number.isFinite(invoiceNumber) &&
+      invoiceNumber > 0
+    )
+  }
+  const canSelectInvoice = (invoice: InvoiceApiRow) => {
+    if (bulkActionLoading) return false
+
+    const status = getInvoiceStatus(invoice)
+
+    return canStartInvoiceExport(status) || canUpdateMInvoice(invoice)
+  }
+
   const getAgencyName = (value: InvoiceApiRow["agencyId"]) => {
     if (!value || typeof value === "string") return ""
     return String(value.agencyName || "")
@@ -96,6 +147,17 @@ export default function InvoiceDataTable({
 
   const hasDisplayValue = (value: unknown) => {
     return value !== undefined && value !== null && String(value).trim() !== ""
+  }
+
+  const formatDisplayDate = (value?: string | null) => {
+    const normalizedDate = invoiceHelper.normalizeDateInput(value || "")
+
+    if (normalizedDate) {
+      const [year, month, day] = normalizedDate.split("-")
+      return `${day}/${month}/${year}`
+    }
+
+    return "-"
   }
 
   const getPositivePercent = (value: unknown) => {
@@ -133,7 +195,7 @@ export default function InvoiceDataTable({
 
     if (invoice.agencyId && typeof invoice.agencyId === "object") {
       const agencyDiscountPercentage = getPositivePercent(
-        (invoice.agencyId as any).commissionPercent
+        invoice.agencyId.commissionPercent
       )
 
       if (agencyDiscountPercentage !== null) return agencyDiscountPercentage
@@ -333,7 +395,7 @@ export default function InvoiceDataTable({
         getProductCode(product),
         getProductName(product),
         invoice.inv_invoiceCreatedId,
-        invoiceStatusLabel[invoiceStatus],
+        getInvoiceStatusDisplayLabel(invoice),
         invoice.note,
       ]
         .filter(Boolean)
@@ -403,6 +465,24 @@ export default function InvoiceDataTable({
   const pageRows = isExternalPagination
     ? filteredRows
     : filteredRows.slice(startIndex, startIndex + effectivePageSize)
+  const selectedRowIdSet = useMemo(
+    () => new Set(selectedRowIds),
+    [selectedRowIds]
+  )
+  const selectedInvoices = useMemo(() => {
+    return rows.filter((invoice) => selectedRowIdSet.has(invoice._id))
+  }, [rows, selectedRowIdSet])
+  const selectedExportableInvoices = useMemo(() => {
+    return selectedInvoices.filter((invoice) =>
+      canStartInvoiceExport(getInvoiceStatus(invoice))
+    )
+  }, [selectedInvoices])
+  const selectedUpdatableInvoices = useMemo(() => {
+    return selectedInvoices.filter(canUpdateMInvoice)
+  }, [selectedInvoices])
+  const enableBulkSelection = Boolean(
+    onSelectedRowIdsChange && (onBulkExportInvoice || onBulkUpdateMInvoice)
+  )
 
   const summary = useMemo(() => {
     return filteredRows.reduce(
@@ -434,12 +514,12 @@ export default function InvoiceDataTable({
 
   const columns: DataTableColumn<InvoiceApiRow>[] = [
     {
-      key: "inv_invoiceIssuedDate",
-      title: "Ngày HĐ",
+      key: "createdAt",
+      title: "Ngày tạo",
       className: "whitespace-nowrap text-center",
       headerClassName: "text-center",
       render: (invoice) => {
-        const value = invoice.inv_invoiceIssuedDate
+        const value = invoice.createdAt
 
         if (!value) return "-"
 
@@ -462,31 +542,47 @@ export default function InvoiceDataTable({
       },
     },
     {
+      key: "activationDate",
+      title: "Ngày kích hoạt",
+      className: "whitespace-nowrap text-center min-w-[130px]",
+      headerClassName: "text-center",
+      render: (invoice) => {
+        return formatDisplayDate(invoice.activationDate)
+      },
+    },
+    {
       key: "invoiceNumber",
       title: "Số hoá đơn",
       className: "whitespace-nowrap text-center min-w-[130px] ",
       headerClassName: "text-center",
       render: (invoice) => invoice.invoiceNumber || "-",
     },
-    // {
-    //   key: "exportInvoiceStatus",
-    //   title: "Trạng thái xuất HĐ",
-    //   className: "whitespace-nowrap text-center",
-    //   headerClassName: "text-center",
-    //   render: (invoice) => {
-    //     const status = getInvoiceStatus(invoice)
+    {
+      key: "inv_invoiceIssuedDate",
+      title: "Ngày xuất HĐ",
+      className: "whitespace-nowrap text-center min-w-[130px]",
+      headerClassName: "text-center",
+      render: (invoice) => {
+        return formatDisplayDate(invoice.inv_invoiceIssuedDate)
+      },
+    },
+    {
+      key: "exportInvoiceStatus",
+      title: "Trạng thái",
+      className: "whitespace-nowrap text-center min-w-[140px]",
+      headerClassName: "text-center",
+      render: (invoice) => {
+        const status = getInvoiceStatus(invoice)
 
-    //     return (
-    //       <div className="flex flex-col items-center gap-1">
-    //         <span
-    //           className={`inline-flex min-w-[150px] justify-center rounded-full border px-2.5 py-1 text-xs font-semibold ${invoiceStatusClass[status]}`}
-    //         >
-    //           {invoiceStatusLabel[status]}
-    //         </span>
-    //       </div>
-    //     )
-    //   },
-    // },
+        return (
+          <span
+            className={`inline-flex min-w-[110px] justify-center rounded-full border px-2.5 py-1 text-xs font-semibold ${invoiceStatusClass[status]}`}
+          >
+            {getInvoiceStatusDisplayLabel(invoice)}
+          </span>
+        )
+      },
+    },
     {
       key: "agencyId",
       title: "Tên Đại lý",
@@ -573,6 +669,19 @@ export default function InvoiceDataTable({
       },
     },
     {
+      key: "paidDate",
+      title: "Ngày thu tiền",
+      className: "whitespace-nowrap text-center min-w-[130px]",
+      headerClassName: "text-center",
+      render: (invoice) => {
+        const { isCollected } = getInvoicePaymentState(invoice)
+
+        if (!isCollected) return "-"
+
+        return formatDisplayDate(invoice.paidDate || invoice.paymentDate)
+      },
+    },
+    {
       key: "amountCollected",
       title: "Số tiền thu",
       className: "whitespace-nowrap text-right min-w-[120px] ",
@@ -586,8 +695,7 @@ export default function InvoiceDataTable({
       className: "whitespace-nowrap text-center min-w-[150px] ",
       headerClassName: "text-right",
       render: (invoice) => {
-        const remainingAmount =
-          getInvoicePaymentState(invoice).remainingAmount
+        const remainingAmount = getInvoicePaymentState(invoice).remainingAmount
 
         return (
           <span className={remainingAmount < 0 ? "text-rose-600" : ""}>
@@ -615,10 +723,14 @@ export default function InvoiceDataTable({
               <div className="absolute left-0 top-[calc(100%+8px)] z-[999] w-[560px] max-w-[calc(100vw-32px)] rounded-lg border border-slate-200 bg-white p-6 shadow-xl">
                 <div className="grid gap-4">
                   <div className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-center">
-                    <label className="text-sm font-medium text-slate-700">
+                    <label
+                      htmlFor="invoice-filter-from-date"
+                      className="text-sm font-medium text-slate-700"
+                    >
                       Từ ngày
                     </label>
                     <input
+                      id="invoice-filter-from-date"
                       type="date"
                       value={draftFromDate}
                       onChange={(e) => setDraftFromDate(e.target.value)}
@@ -627,10 +739,14 @@ export default function InvoiceDataTable({
                   </div>
 
                   <div className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-center">
-                    <label className="text-sm font-medium text-slate-700">
+                    <label
+                      htmlFor="invoice-filter-to-date"
+                      className="text-sm font-medium text-slate-700"
+                    >
                       Đến ngày
                     </label>
                     <input
+                      id="invoice-filter-to-date"
                       type="date"
                       value={draftToDate}
                       onChange={(e) => setDraftToDate(e.target.value)}
@@ -639,10 +755,14 @@ export default function InvoiceDataTable({
                   </div>
 
                   <div className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-center">
-                    <label className="text-sm font-medium text-slate-700">
+                    <label
+                      htmlFor="invoice-filter-export-status"
+                      className="text-sm font-medium text-slate-700"
+                    >
                       Trạng thái xuất hóa đơn
                     </label>
                     <select
+                      id="invoice-filter-export-status"
                       value={draftExportStatusFilter}
                       onChange={(e) =>
                         setDraftExportStatusFilter(e.target.value)
@@ -665,10 +785,14 @@ export default function InvoiceDataTable({
                   </div>
 
                   <div className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-center">
-                    <label className="text-sm font-medium text-slate-700">
+                    <label
+                      htmlFor="invoice-filter-order-status"
+                      className="text-sm font-medium text-slate-700"
+                    >
                       Trạng thái tạo đơn hàng
                     </label>
                     <select
+                      id="invoice-filter-order-status"
                       value={draftOrderCreateFilter}
                       onChange={(e) =>
                         setDraftOrderCreateFilter(e.target.value)
@@ -682,10 +806,14 @@ export default function InvoiceDataTable({
                   </div>
 
                   <div className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-center">
-                    <label className="text-sm font-medium text-slate-700">
+                    <label
+                      htmlFor="invoice-filter-agency"
+                      className="text-sm font-medium text-slate-700"
+                    >
                       Đại lý
                     </label>
                     <select
+                      id="invoice-filter-agency"
                       value={draftAgencyFilter}
                       onChange={(e) => setDraftAgencyFilter(e.target.value)}
                       className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
@@ -759,27 +887,93 @@ export default function InvoiceDataTable({
         </div>
       </div>
 
+      {selectedInvoices.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-sm">
+          <span className="font-semibold text-blue-800">
+            Đã chọn {selectedInvoices.length} hóa đơn
+          </span>
+
+          <button
+            type="button"
+            onClick={() =>
+              void onBulkExportInvoice?.(selectedExportableInvoices)
+            }
+            disabled={
+              loading ||
+              bulkActionLoading ||
+              !onBulkExportInvoice ||
+              selectedExportableInvoices.length === 0
+            }
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-amber-200 bg-white px-3 text-sm font-semibold text-amber-700 shadow-sm transition hover:border-amber-400 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {bulkActionLoading ? (
+              <Loader2 size={15} className="animate-spin" />
+            ) : (
+              <FileText size={15} />
+            )}
+            Xuất HĐ ({selectedExportableInvoices.length})
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              void onBulkUpdateMInvoice?.(selectedUpdatableInvoices)
+            }
+            disabled={
+              loading ||
+              bulkActionLoading ||
+              !onBulkUpdateMInvoice ||
+              selectedUpdatableInvoices.length === 0
+            }
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-blue-200 bg-white px-3 text-sm font-semibold text-blue-700 shadow-sm transition hover:border-blue-400 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {bulkActionLoading ? (
+              <Loader2 size={15} className="animate-spin" />
+            ) : (
+              <RefreshCw size={15} />
+            )}
+            Cập nhật HĐ ({selectedUpdatableInvoices.length})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onSelectedRowIdsChange?.([])}
+            disabled={loading || bulkActionLoading}
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <X size={15} />
+            Bỏ chọn
+          </button>
+        </div>
+      )}
+
       <DataTable<InvoiceApiRow>
         data={pageRows}
         columns={columns}
         loading={loading}
         emptyText="Không có dữ liệu hóa đơn phù hợp."
         getRowKey={(invoice) => invoice._id}
+        selectable={enableBulkSelection}
+        selectedRowKeys={selectedRowIds}
+        onSelectedRowKeysChange={onSelectedRowIdsChange}
+        isRowSelectable={canSelectInvoice}
         onView={onView}
         onEdit={onEdit}
         canEdit={(invoice) => {
           const status = getInvoiceStatus(invoice)
 
-          return ![
-            InvoiceStatus.ISSUED,
-            InvoiceStatus.ISSUING,
-            InvoiceStatus.CANCELLED,
-          ].includes(status)
+          return ![InvoiceStatus.ISSUING, InvoiceStatus.CANCELLED].includes(
+            status
+          )
         }}
         renderActions={(invoice) => {
           const status = getInvoiceStatus(invoice)
           const isExporting = exportingInvoiceId === invoice._id
-          const isProcessing = status === InvoiceStatus.ISSUING || isExporting
+          const isUpdatingMInvoice = updatingMInvoiceId === invoice._id
+          const isProcessing =
+            status === InvoiceStatus.ISSUING ||
+            isExporting ||
+            isUpdatingMInvoice
           const canCollectPayment =
             status === InvoiceStatus.DRAFT || status === InvoiceStatus.ISSUED
 
@@ -798,6 +992,20 @@ export default function InvoiceDataTable({
 
           return (
             <>
+              {onCopyInvoice && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    void onCopyInvoice(invoice)
+                  }}
+                  title="Sao chép hóa đơn"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-violet-200 bg-violet-50 text-violet-700 shadow-sm transition hover:border-violet-400 hover:bg-violet-100 hover:text-violet-800"
+                >
+                  <Copy size={15} />
+                </button>
+              )}
+
               {canStartInvoiceExport(status) && onExportInvoice && (
                 <button
                   type="button"
@@ -826,7 +1034,21 @@ export default function InvoiceDataTable({
                 </button>
               )}
 
-              {status === InvoiceStatus.ISSUED && (
+              {canUpdateMInvoice(invoice) && onUpdateMInvoice && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    void onUpdateMInvoice(invoice)
+                  }}
+                  title="Cập nhật hóa đơn"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-blue-700 shadow-sm transition hover:border-blue-400 hover:bg-blue-100 hover:text-blue-800"
+                >
+                  <RefreshCw size={15} />
+                </button>
+              )}
+
+              {canViewMInvoicePdf(invoice) && (
                 <button
                   type="button"
                   onClick={(e) => {

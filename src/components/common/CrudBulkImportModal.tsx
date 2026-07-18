@@ -14,6 +14,7 @@ import {
 
 import AlertError from "@/components/alert/AlertError"
 import AlertSuccess from "@/components/alert/AlertSuccess"
+import { getErrorMessage } from "@/store/utils/crud"
 import { normalize, toNumber } from "@/utils/excel"
 import { mapWithConcurrency } from "@/utils/concurrency"
 import { useTransientAlert } from "@/hooks/useTransientAlert"
@@ -69,7 +70,6 @@ type Props<
   notes?: readonly string[]
   createButtonLabel?: string
   concurrency?: number
-  debugLabel?: string
   onClose: () => void
   onCompleted?: () => Promise<void> | void
   mapRow: (
@@ -105,36 +105,6 @@ function findHeader(headerIndex: HeaderIndex, aliases: readonly string[]) {
   }
 
   return ""
-}
-
-function extractErrorMessage(error: unknown, fallback: string) {
-  if (error instanceof Error && error.message) {
-    return error.message
-  }
-
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "response" in error &&
-    typeof error.response === "object" &&
-    error.response !== null &&
-    "data" in error.response &&
-    typeof error.response.data === "object" &&
-    error.response.data !== null
-  ) {
-    const responseData = error.response.data as {
-      message?: string | string[]
-      error?: string
-    }
-
-    if (Array.isArray(responseData.message)) {
-      return responseData.message.join(", ") || fallback
-    }
-
-    return responseData.message || responseData.error || fallback
-  }
-
-  return fallback
 }
 
 function toPreviewText(value: unknown) {
@@ -195,7 +165,6 @@ export default function CrudBulkImportModal<
   notes = [],
   createButtonLabel,
   concurrency = 5,
-  debugLabel,
   onClose,
   onCompleted,
   mapRow,
@@ -367,7 +336,7 @@ export default function CrudBulkImportModal<
       showSuccessMessage(`Đã đọc ${nextRows.length} dòng từ file ${file.name}.`)
     } catch (error) {
       showErrorMessage(
-        extractErrorMessage(error, "Không thể đọc file Excel để import.")
+        getErrorMessage(error, "Không thể đọc file Excel để import.")
       )
     } finally {
       setParsing(false)
@@ -405,15 +374,7 @@ export default function CrudBulkImportModal<
           successCount += 1
           nextCreatedRowIds[row.id] = true
         } catch (error) {
-          if (debugLabel) {
-            console.log(`[${debugLabel}] create row error`, {
-              entityLabel,
-              rowNumber: row.rowNumber,
-              payload: row.payload,
-              error,
-            })
-          }
-          nextSubmitErrors[row.id] = extractErrorMessage(
+          nextSubmitErrors[row.id] = getErrorMessage(
             error,
             `Không thể tạo ${entityLabel} ở dòng ${row.rowNumber}.`
           )
@@ -428,7 +389,7 @@ export default function CrudBulkImportModal<
           await onCompleted?.()
         } catch (refreshError) {
           showErrorMessage(
-            extractErrorMessage(
+            getErrorMessage(
               refreshError,
               `Đã tạo ${successCount} ${entityLabel} nhưng chưa thể làm mới danh sách.`
             )

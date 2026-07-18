@@ -1,40 +1,32 @@
 export const COL_HOA_HONG = {
   STT: 0, // A
-  THANG: 1, // B
-  MST: 2, // C
-  TEN: 3, // D
-  BANQUYEN: 4, // E  (BQ)
-  SL_MOI: 5, // F
-  SL_GH: 6, // G
-  SL_TANG: 7, // H
-  DT_GOI_HD: 8, // I (GÓI HÓA ĐƠN)
-  DT_KHAC: 9, // J (KHÁC)
-  TRI_GIA_XUAT_HD: 10, // K (TỔNG XUẤT HD)
-  GIA_DOI_SOAT: 11, // L (=E+I+J)
-  VUOT_GIA: 12, // M (VIẾT CHÊNH)
-  TIEN_HOA_HONG: 13, // N (HH)
-  PHI_VIET_CHENH: 14, // O (T VIẾT CHÊNH)
-  TONG_TRA_DOI_TAC: 15, // P ()
-  DT_MINVOICE: 16, // Q (DT MINVOICE)
-  CHENH_LECH: 17, // R (=P-Q)
-  GHI_CHU: 18, // S
+  NGAYPHATSINH: 1, // B   //NGÀY KÍCH HOẠT
+  MASOTHUE: 2, // C     MÃ SỐ THUẾ
+  TENDONVI: 3, // D    TÊN ĐẠI LÝ
+  SOLUONG: 4, // E Số lượng
+  DOANH_THU_SAN_PHAM: 5, // F   GIÁ SẢN PHẨM
+  PHI_VIET_CHENH: 6, // G    PHÍ VIẾT CHÊNH
+  GIA_TRI_XUAT_HOA_DON: 7, // H   = F+G
+  GIA_DOI_SOAT: 8, // I  = F
+  TIEN_HOA_HONG: 9, // J = I * 50%
+  CHENH_LECH_VIET_CHENH: 10, // K = G * 85%
+  TONG_TIEN_TRA_DOI_TAC: 11, // L =  J+K
+  MINV_DA_THU: 12, // M   THU TIỀN
+  CHENH_LECH_THANH_TOAN: 13, // N =H-M
+  GHI_CHU: 14, // O
 } as const
 
 export const sumTargets = [
-  COL_HOA_HONG.BANQUYEN,
-  COL_HOA_HONG.SL_MOI,
-  COL_HOA_HONG.SL_GH,
-  COL_HOA_HONG.SL_TANG,
-  COL_HOA_HONG.DT_GOI_HD,
-  COL_HOA_HONG.DT_KHAC,
-  COL_HOA_HONG.TRI_GIA_XUAT_HD,
-  COL_HOA_HONG.GIA_DOI_SOAT,
-  COL_HOA_HONG.VUOT_GIA,
-  COL_HOA_HONG.TIEN_HOA_HONG,
+  COL_HOA_HONG.SOLUONG,
+  COL_HOA_HONG.DOANH_THU_SAN_PHAM,
   COL_HOA_HONG.PHI_VIET_CHENH,
-  COL_HOA_HONG.TONG_TRA_DOI_TAC,
-  COL_HOA_HONG.DT_MINVOICE,
-  COL_HOA_HONG.CHENH_LECH,
+  COL_HOA_HONG.GIA_TRI_XUAT_HOA_DON,
+  COL_HOA_HONG.GIA_DOI_SOAT,
+  COL_HOA_HONG.TIEN_HOA_HONG,
+  COL_HOA_HONG.CHENH_LECH_VIET_CHENH,
+  COL_HOA_HONG.TONG_TIEN_TRA_DOI_TAC,
+  COL_HOA_HONG.MINV_DA_THU,
+  COL_HOA_HONG.CHENH_LECH_THANH_TOAN,
 ]
 
 export const FONT_TNR = { name: "Times New Roman" }
@@ -63,7 +55,7 @@ export const BORDER_THICK = {
   right: { style: "medium", color: { rgb: "000000" } },
 } as const
 
-// ✅ 19 cột A..S
+// 15 cot A..O
 export const HOA_HONG_COL_WIDTHS = [
-  4, 7, 10, 40, 14, 10, 11, 11, 11, 11, 12, 14, 10, 14, 10, 16, 14, 14, 10,
+  4, 14, 14, 40, 10, 16, 14, 16, 14, 14, 16, 18, 14, 18, 14,
 ]

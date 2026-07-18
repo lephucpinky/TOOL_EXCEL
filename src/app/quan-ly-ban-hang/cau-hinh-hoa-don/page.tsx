@@ -24,6 +24,7 @@ import { getId } from "@/utils/invoice"
 import PageHeader from "../../../components/header/PageHeader"
 import ActionModal from "@/components/modal/ActionModal"
 import { useTransientAlert } from "@/hooks/useTransientAlert"
+import { getErrorMessage } from "@/store/utils/crud"
 import { fetchAllPages } from "@/utils/pagination"
 
 const emptyForm: ReceiptInvoicePayload = {
@@ -76,15 +77,6 @@ function formatDateTime(value?: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date)
-}
-
-function getErrorMessage(error: any, fallback: string) {
-  return (
-    error?.response?.data?.message ||
-    error?.response?.data?.error ||
-    error?.message ||
-    fallback
-  )
 }
 
 export default function ReceiptInvoiceConfigPage() {
@@ -343,7 +335,6 @@ export default function ReceiptInvoiceConfigPage() {
                 />
                 Tải dữ liệu
               </button>
-
             </>
           }
         />

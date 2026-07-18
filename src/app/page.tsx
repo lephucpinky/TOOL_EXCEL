@@ -69,7 +69,7 @@ export default function LoginPage() {
       setSuccessMessage("")
 
       const status = error?.response?.status
-      const message = getErrorMessage(error) || "Đăng nhập thất bại"
+      const message = getErrorMessage(error, "Đăng nhập thất bại")
 
       if (status === 403) {
         setErrorMessage(

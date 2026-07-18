@@ -26,14 +26,9 @@ function normalizeResponse<T>(response: any): ApiResponse<T> {
 }
 
 const APICreateUser = async (data: { username: string; password: string }) => {
-  try {
-    const response = await axiosInstance.post("/users/create", data)
+  const response = await axiosInstance.post("/users/create", data)
 
-    return normalizeResponse<UserAccount>(response)
-  } catch (err) {
-    console.error("Error during create user:", err)
-    throw err
-  }
+  return normalizeResponse<UserAccount>(response)
 }
 
 const APIGetUsers = async (params?: {
@@ -42,25 +37,15 @@ const APIGetUsers = async (params?: {
   keyword?: string
   role?: UserRole
 }) => {
-  try {
-    const response = await axiosInstance.get("/users", { params })
+  const response = await axiosInstance.get("/users", { params })
 
-    return normalizeResponse<UserAccount[]>(response)
-  } catch (err) {
-    console.error("Error during get users:", err)
-    throw err
-  }
+  return normalizeResponse<UserAccount[]>(response)
 }
 
 const APIGetUserById = async (id: string) => {
-  try {
-    const response = await axiosInstance.get(`/users/${id}`)
+  const response = await axiosInstance.get(`/users/${id}`)
 
-    return normalizeResponse<UserAccount>(response)
-  } catch (err) {
-    console.error("Error during get user by id:", err)
-    throw err
-  }
+  return normalizeResponse<UserAccount>(response)
 }
 
 const APIUpdateUser = async (
@@ -72,25 +57,15 @@ const APIUpdateUser = async (
     isActive?: boolean
   }
 ) => {
-  try {
-    const response = await axiosInstance.patch(`/users/${id}`, data)
+  const response = await axiosInstance.patch(`/users/${id}`, data)
 
-    return normalizeResponse<UserAccount>(response)
-  } catch (err) {
-    console.error("Error during update user:", err)
-    throw err
-  }
+  return normalizeResponse<UserAccount>(response)
 }
 
 const APIDeleteUser = async (id: string) => {
-  try {
-    const response = await axiosInstance.delete(`/users/${id}`)
+  const response = await axiosInstance.delete(`/users/${id}`)
 
-    return normalizeResponse<unknown>(response)
-  } catch (err) {
-    console.error("Error during delete user:", err)
-    throw err
-  }
+  return normalizeResponse<unknown>(response)
 }
 
 export {

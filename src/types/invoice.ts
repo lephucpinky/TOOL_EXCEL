@@ -41,12 +41,13 @@ export type InvoiceApiRow = {
   _id: string
 
   invoiceStatus?: InvoiceStatus
-  bankId?: Bank | string | null
+  invoiceStatusVi?: string
+  bankId?: Bank | string
   invoiceNumber?: number
-  activationDate?: string | null
-  inv_invoiceCreatedId?: string | null
+  activationDate?: string | null // tạo và update được
+  inv_invoiceCreatedId?: string
   inv_invoiceSeries?: string
-  inv_invoiceIssuedDate?: string
+  inv_invoiceIssuedDate?: string //// xuất hoá đơn mới tạo
   inv_currencyCode?: string
   inv_exchangeRate?: number
 
@@ -86,7 +87,8 @@ export type InvoiceApiRow = {
   items?: InvoiceItem[]
 
   paidAmount?: number
-  paidDate?: string
+  paidDate?: string | null
+  invoiceFilePath?: string
   paymentDate?: string
   remainingAmount?: number
   minvoiceRevenue?: number
@@ -107,7 +109,6 @@ export type InvoiceApiRow = {
 
   note?: string
   isActive?: boolean
-  exportInvoiceData?: Record<string, unknown>
   jobId?: string | null
   invoiceErrorCode?: string
   invoiceErrorMessage?: string
