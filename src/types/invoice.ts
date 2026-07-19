@@ -65,7 +65,7 @@ export type InvoiceApiRow = {
   inv_buyerBankAccount?: string
   inv_buyerBankName?: string
   inv_paymentMethodName?: string
-
+  invReconciliation?: string
   inv_discountAmount?: number
   inv_TotalAmountWithoutVAT?: number
   inv_vatAmount?: number

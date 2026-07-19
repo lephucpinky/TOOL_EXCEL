@@ -236,6 +236,7 @@ const SALE_TRANSACTION_UPDATE_FIELDS = [
   "inv_buyerBankAccount",
   "inv_buyerBankName",
   "inv_paymentMethodName",
+  "invReconciliation",
   "inv_discountAmount",
   "inv_TotalAmountWithoutVAT",
   "inv_vatAmount",

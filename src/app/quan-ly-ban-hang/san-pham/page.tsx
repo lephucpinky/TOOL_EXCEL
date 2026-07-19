@@ -93,7 +93,15 @@ const PRODUCT_IMPORT_COLUMNS: readonly BulkImportColumnDefinition<ProductImportK
     {
       key: "unitPrice",
       label: "Đơn giá",
-      aliases: ["Đơn giá", "Giá bán", "Unit Price"],
+      aliases: [
+        "Đơn giá",
+        "Giá bán",
+        "Unit Price",
+        "unitPrice",
+        "inv_unitPrice",
+        "invUnitPrice",
+        "inv_unit_price",
+      ],
       required: true,
     },
     {
@@ -456,7 +464,12 @@ export default function ProductPage() {
     const itemName = cleanImportText(getValue("itemName"))
     const itemProduct = cleanImportText(getValue("itemProduct"))
     const unitCode = cleanImportText(getValue("unitCode"))
-    const unitPrice = parseImportNumber(getValue("unitPrice"))
+    const rawUnitPrice = getValue("unitPrice")
+    const unitPriceText = cleanImportText(rawUnitPrice)
+    const normalizedUnitPriceText = unitPriceText.replace(/[^\d.,-]/g, "")
+    const unitPrice = parseImportNumber(
+      typeof rawUnitPrice === "string" ? normalizedUnitPriceText : rawUnitPrice
+    )
     const quantity = parseImportNumber(getValue("quantity"))
     const discountAmount = parseImportNumber(getValue("discountAmount"))
     const tax = cleanImportText(getValue("tax"))
@@ -471,6 +484,14 @@ export default function ProductPage() {
 
     if (!unitCode) {
       errors.push("Thiếu đơn vị tính.")
+    }
+
+    if (!unitPriceText) {
+      errors.push("Thiếu đơn giá.")
+    }
+
+    if (unitPriceText && !normalizedUnitPriceText) {
+      errors.push("Đơn giá không hợp lệ.")
     }
 
     if (unitPrice < 0) {

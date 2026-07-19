@@ -2217,6 +2217,11 @@ export default function InvoiceListPage() {
             selectedReceiptConfigValue={selectedReceiptConfigValue}
             onReceiptConfigChange={setSelectedReceiptConfigValue}
             onBack={() => setMode("detail")}
+            onCancel={() => {
+              setSelectedInvoiceId(null)
+              setCopyInvoiceDraft(null)
+              setMode("list")
+            }}
             onEdit={() => setMode("edit")}
             onSaved={handleSavedInvoice}
           />

@@ -80,6 +80,7 @@ type InvoiceItemForm = {
   discountAmount: number
   discountPercentage: number
   taxRate: string
+  invReconciliation: number | null
   capitalPrice: number
   totalSalary: number
   accountingAccountCode: string
@@ -89,6 +90,7 @@ type InvoiceFieldErrors = Partial<Record<"taxCode" | "email", string>>
 
 type Props = {
   onBack: () => void
+  onCancel?: () => void
   onSaved?: (payload: any) => void
   onEdit?: () => void
   onExported?: (
@@ -111,11 +113,11 @@ type Props = {
 }
 const today = new Date().toISOString().slice(0, 10)
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-const taxCodePattern = /^\d{10,13}$/
+const taxCodePattern = /^\d{10,13}(?:-\d{1,3})?$/
 
 const taxCodeRequiredMessage = "Vui lòng nhập MST."
 const taxCodeInvalidMessage =
-  "Mã số thuế hoặc CMND/CCCD phải có từ 10 đến 13 ký tự số."
+  "Mã số thuế hoặc CMND/CCCD phải có 10 đến 13 ký tự số"
 const emailRequiredMessage = "Vui lòng nhập Email."
 const emailInvalidMessage = "Email không hợp lệ."
 
@@ -201,6 +203,7 @@ function resolveAgencyDiscountPercentage(
 
 export default function InvoiceCreateForm({
   onBack,
+  onCancel,
   onSaved,
   onEdit,
   onExported,
@@ -295,6 +298,7 @@ export default function InvoiceCreateForm({
       discountAmount: 0,
       discountPercentage: 0,
       taxRate: "0",
+      invReconciliation: null,
       capitalPrice: 0,
       totalSalary: 0,
       accountingAccountCode: "",
@@ -358,6 +362,11 @@ export default function InvoiceCreateForm({
     setMessage(text)
     setShowError(true)
     setTimeout(() => setShowError(false), 3000)
+  }
+
+  const handleCancelAction = () => {
+    const cancelAction = onCancel || onBack
+    cancelAction()
   }
 
   const getTaxCodeError = (value: string) => {
@@ -600,6 +609,20 @@ export default function InvoiceCreateForm({
 
     if (!apiItems.length) {
       if (resolvedProduct) {
+        const quantity = Number(
+          (initialInvoice as any).inv_quantity ||
+            resolvedProduct.inv_quantity ||
+            1
+        )
+        const unitPrice = Number(resolvedProduct.inv_unitPrice || 0)
+        const loadedDiscountAmount = Number(
+          (initialInvoice as any).inv_discountAmount || 0
+        )
+        const loadedDiscountPercentage = normalizePercent(
+          (initialInvoice as any).inv_discountPercentage
+        )
+        const totalPrice = unitPrice * quantity
+
         setItems([
           {
             id: createItemId(),
@@ -607,26 +630,26 @@ export default function InvoiceCreateForm({
             productCode: resolvedProduct.inv_itemCode || "",
             productName: resolvedProduct.inv_itemName || "",
             unit: resolvedProduct.inv_unitCode || "kg",
-            quantity: Number(
-              (initialInvoice as any).inv_quantity ||
-                resolvedProduct.inv_quantity ||
-                1
-            ),
+            quantity,
             type: "Mới",
-            unitPrice: Number(resolvedProduct.inv_unitPrice || 0),
-            discountAmount: Number(
-              (initialInvoice as any).inv_discountAmount || 0
-            ),
-            discountPercentage: Number(
-              (initialInvoice as any).inv_discountAmount || 0
-            )
-              ? 0
-              : resolveAgencyDiscountPercentage(
-                  (initialInvoice as any).inv_discountPercentage ??
-                    resolvedAgency?.commissionPercent,
-                  resolvedAgency
-                ),
+            unitPrice,
+            discountAmount: loadedDiscountAmount,
+            discountPercentage: loadedDiscountPercentage
+              ? loadedDiscountPercentage
+              : loadedDiscountAmount > 0 && totalPrice > 0
+                ? normalizePercent((loadedDiscountAmount / totalPrice) * 100)
+                : resolveAgencyDiscountPercentage(
+                    (initialInvoice as any).inv_discountPercentage ??
+                      resolvedAgency?.commissionPercent,
+                    resolvedAgency
+                  ),
             taxRate: normalizeInvoiceTaxCode(resolvedProduct.ma_thue),
+            invReconciliation:
+              (initialInvoice as any).invReconciliation !== undefined &&
+              (initialInvoice as any).invReconciliation !== null &&
+              String((initialInvoice as any).invReconciliation).trim() !== ""
+                ? toNumber((initialInvoice as any).invReconciliation)
+                : null,
             capitalPrice: 0,
             totalSalary: 0,
             accountingAccountCode: String(
@@ -691,6 +714,15 @@ export default function InvoiceCreateForm({
               ? (initialInvoice as any).inv_discountAmount
               : 0)
         )
+        const loadedDiscountPercentage = normalizePercent(
+          apiItem.discountPercentage ??
+            apiItem.commissionRate ??
+            (initialInvoice as any).inv_discountPercentage
+        )
+        const totalPrice = unitPrice * (quantity || 1)
+        const loadedInvReconciliation =
+          (apiItem as any).invReconciliation ??
+          (index === 0 ? (initialInvoice as any).invReconciliation : undefined)
 
         return {
           id: apiItem._id || `${index}-${createItemId()}`,
@@ -714,9 +746,10 @@ export default function InvoiceCreateForm({
           type: apiItem.type || apiItem.itemType || "Mới",
           unitPrice,
           discountAmount: loadedDiscountAmount,
-          discountPercentage:
-            loadedDiscountAmount > 0
-              ? 0
+          discountPercentage: loadedDiscountPercentage
+            ? loadedDiscountPercentage
+            : loadedDiscountAmount > 0 && totalPrice > 0
+              ? normalizePercent((loadedDiscountAmount / totalPrice) * 100)
               : resolveAgencyDiscountPercentage(
                   apiItem.discountPercentage ??
                     apiItem.commissionRate ??
@@ -724,6 +757,12 @@ export default function InvoiceCreateForm({
                   resolvedAgency
                 ),
           taxRate,
+          invReconciliation:
+            loadedInvReconciliation !== undefined &&
+            loadedInvReconciliation !== null &&
+            String(loadedInvReconciliation).trim() !== ""
+              ? toNumber(loadedInvReconciliation)
+              : null,
           capitalPrice: Number(apiItem.capitalPrice || 0),
           totalSalary: Number(apiItem.totalSalary || 0),
           accountingAccountCode: String(
@@ -811,10 +850,20 @@ export default function InvoiceCreateForm({
   const productCodeSelectOptions = useMemo(
     () => [
       { value: "", label: "Chọn mã hàng" },
-      ...productOptions.map((product) => ({
-        value: getId(product),
-        label: product.inv_itemCode || getId(product),
-      })),
+      ...productOptions.flatMap((product) => {
+        const productCode = String(
+          product.inv_itemProduct || product.inv_itemCode || ""
+        ).trim()
+
+        return productCode
+          ? [
+              {
+                value: getId(product),
+                label: productCode,
+              },
+            ]
+          : []
+      }),
     ],
     [productOptions]
   )
@@ -849,13 +898,21 @@ export default function InvoiceCreateForm({
       )
 
       const totalPrice = price * quantity
-      const discountAmount = roundInvoiceMoney(
+      const manualDiscountAmount = roundInvoiceMoney(
         Math.max(0, Number(item.discountAmount || 0))
       )
-      const hasDiscountAmount = discountAmount > 0
-      const discountPercentage = hasDiscountAmount
-        ? 0
-        : normalizePercent(item.discountPercentage)
+      const discountPercentage = normalizePercent(item.discountPercentage)
+      const discountAmount =
+        manualDiscountAmount > 0
+          ? manualDiscountAmount
+          : roundInvoiceMoney((totalPrice * discountPercentage) / 100)
+      const revenue = roundInvoiceMoney(
+        Math.max(totalPrice - discountAmount, 0)
+      )
+      const invReconciliation =
+        item.invReconciliation === null || item.invReconciliation === undefined
+          ? roundInvoiceMoney(totalPrice)
+          : roundInvoiceMoney(Math.max(0, Number(item.invReconciliation || 0)))
 
       // Khớp BE: totalAmountWithVat = totalPrice / (1 + tax)
       const totalAmountWithoutVat = totalPrice / (1 + taxRate)
@@ -868,9 +925,6 @@ export default function InvoiceCreateForm({
 
       // Khớp BE: unitPrice = totalBeforeDiscount / quantity
       const invUnitPrice = quantity > 0 ? totalBeforeDiscount / quantity : 0
-      const revenue = hasDiscountAmount
-        ? roundInvoiceMoney(Math.max(price - discountAmount, 0))
-        : roundInvoiceMoney((totalPrice * discountPercentage) / 100)
 
       return {
         ...item,
@@ -883,16 +937,17 @@ export default function InvoiceCreateForm({
         // Cột Tổng tiền hàng trên UI đang hiển thị tổng tiền thanh toán đã gồm VAT.
         amount: roundInvoiceMoney(totalPrice),
 
-        // Hoa hồng đại lý không tham gia công thức BE, chỉ giữ lại nếu UI cần dùng.
+        // Ưu tiên tiền chiết khấu nhập tay, nếu không có thì tính theo %.
         discountAmount,
         discountPercentage: roundInvoiceMoney(discountPercentage),
 
         taxRate: displayTaxCode,
         taxAmount: roundInvoiceMoney(vatAmount),
 
-        // netAmount keeps invoice total-before-tax; revenue is M-Invoice commission amount.
+        // netAmount keeps invoice total-before-tax; revenue is total goods amount minus discount.
         netAmount: roundInvoiceMoney(totalAmountWithoutVat),
         revenue,
+        invReconciliation,
 
         // Tổng thanh toán = inv_TotalAmount theo BE.
         totalAmount: roundInvoiceMoney(totalPrice),
@@ -931,6 +986,10 @@ export default function InvoiceCreateForm({
   )
   const totalRevenue = computedItems.reduce(
     (sum, item) => sum + Number(item.revenue || 0),
+    0
+  )
+  const totalInvReconciliation = computedItems.reduce(
+    (sum, item) => sum + Number(item.invReconciliation || 0),
     0
   )
   const effectivePaidAmount = general.isPaid
@@ -1149,6 +1208,7 @@ export default function InvoiceCreateForm({
         discountAmount: 0,
         discountPercentage: getAgencyDiscountPercentage(selectedAgency),
         taxRate: "0",
+        invReconciliation: null,
         capitalPrice: 0,
         totalSalary: 0,
         accountingAccountCode: "",
@@ -1261,6 +1321,7 @@ export default function InvoiceCreateForm({
       inv_currencyCode: general.currency,
       inv_exchangeRate: Number(general.exchangeRate || 1),
       inv_paymentMethodName: general.paymentMethod,
+      invReconciliation: String(roundInvoiceMoney(totalInvReconciliation)),
 
       agencyId,
       employeeId: employeeId || undefined,
@@ -1711,9 +1772,18 @@ export default function InvoiceCreateForm({
                     }
                   }}
                   onChange={(e) => {
-                    const nextTaxCode = e.target.value
+                    const rawTaxCode = e.target.value
+                      .replace(/[^\d-]/g, "")
+                      .slice(0, 17)
+                    const [mainTaxCode, ...branchTaxCodeParts] =
+                      rawTaxCode.split("-")
+                    const branchTaxCode = branchTaxCodeParts
+                      .join("")
                       .replace(/\D/g, "")
-                      .slice(0, 13)
+                      .slice(0, 3)
+                    const nextTaxCode = branchTaxCodeParts.length
+                      ? `${mainTaxCode.slice(0, 13)}-${branchTaxCode}`
+                      : mainTaxCode.slice(0, 13)
 
                     updateGeneral("taxCode", nextTaxCode)
 
@@ -1730,8 +1800,8 @@ export default function InvoiceCreateForm({
                     void handleLookupCompanyInfo()
                   }}
                   placeholder="Nhập MST"
-                  inputMode="numeric"
-                  maxLength={13}
+                  inputMode="text"
+                  maxLength={17}
                   required
                   aria-required="true"
                   aria-invalid={Boolean(fieldErrors.taxCode)}
@@ -1983,7 +2053,7 @@ export default function InvoiceCreateForm({
                   Tiền chiết khấu
                 </th>
                 <th className="min-w-[150px] border-b border-r border-slate-300 px-2 py-2 text-right">
-                  Doanh thu
+                  Giá đối soát
                 </th>
                 {!mainFieldsDisabled && (
                   <th className="min-w-[90px] border-b border-slate-300 px-2 py-2 text-center">
@@ -2115,7 +2185,7 @@ export default function InvoiceCreateForm({
                     <input
                       className={`${inputClass} text-right`}
                       value={item.discountAmount}
-                      disabled={mainFieldsDisabled}
+                      disabled={mainFieldsDisabled || mode !== "create"}
                       onChange={(e) =>
                         updateItem(
                           item.id,
@@ -2126,8 +2196,20 @@ export default function InvoiceCreateForm({
                       placeholder="0"
                     />
                   </td>
-                  <td className="border-b border-r border-slate-200 px-2 py-2 text-right font-semibold text-blue-700">
-                    {formatMoney(item.revenue)}
+                  <td className="border-b border-r border-slate-200 px-2 py-2">
+                    <input
+                      className={`${inputClass} text-right`}
+                      value={item.invReconciliation}
+                      disabled={mainFieldsDisabled}
+                      onChange={(e) =>
+                        updateItem(
+                          item.id,
+                          "invReconciliation",
+                          toNumber(e.target.value)
+                        )
+                      }
+                      placeholder="0"
+                    />
                   </td>
 
                   {!mainFieldsDisabled && (
@@ -2249,7 +2331,7 @@ export default function InvoiceCreateForm({
         ) : mode === "edit" ? (
           <>
             <button
-              onClick={onBack}
+              onClick={handleCancelAction}
               disabled={saveLoading}
               className="rounded border border-slate-400 bg-white px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
@@ -2344,7 +2426,7 @@ export default function InvoiceCreateForm({
         onOpenChange={setCancelDialogOpen}
         onConfirm={() => {
           setCancelDialogOpen(false)
-          onBack()
+          handleCancelAction()
         }}
         title="Xác nhận hủy thao tác"
         description={

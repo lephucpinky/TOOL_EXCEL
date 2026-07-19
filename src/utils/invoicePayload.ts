@@ -35,6 +35,11 @@ export function buildCreateInvoiceApiBody(
     inv_buyerBankAccount: payload.inv_buyerBankAccount || "",
     inv_buyerBankName: payload.inv_buyerBankName || "",
     inv_paymentMethodName: payload.inv_paymentMethodName || "CK",
+    invReconciliation:
+      payload.invReconciliation === undefined ||
+      String(payload.invReconciliation).trim() === ""
+        ? String(toNumber(payload.inv_TotalAmount))
+        : String(payload.invReconciliation).trim(),
     inv_discountAmount: toNumber(payload.inv_discountAmount),
     inv_TotalAmountWithoutVAT: toNumber(payload.inv_TotalAmountWithoutVAT),
     inv_vatAmount: toNumber(payload.inv_vatAmount),

@@ -247,7 +247,7 @@ export default function Page() {
       {
         key: "index",
         title: "STT",
-        className: "w-[10px] text-slate-500",
+        className: " min-w-[10px] text-slate-500",
         render: (_item, index) => index + 1,
       },
       {
@@ -262,7 +262,7 @@ export default function Page() {
       {
         key: "agencyName",
         title: "Tên đại lý",
-        className: "min-w-[150px]",
+        className: "min-w-[300px]",
         render: (item) => (
           <p className="font-semibold text-slate-900">{item.agencyName}</p>
         ),
@@ -279,6 +279,7 @@ export default function Page() {
       {
         key: "employeeId",
         title: "Nhân viên phụ trách",
+        className: "min-w-[200px]",
         render: (item) => (
           <span className="text-sm font-medium text-slate-700">
             {typeof item.employeeId === "string"
@@ -293,6 +294,7 @@ export default function Page() {
       {
         key: "department",
         title: "Phòng ban",
+        className: "min-w-[150px]",
         render: (item) => {
           const employee =
             typeof item.employeeId === "string"
@@ -327,7 +329,7 @@ export default function Page() {
       {
         key: "isActive",
         title: "Trạng thái",
-        className: "w-[160px] text-center",
+        className: "min-w-[160px] text-center",
         render: (item) => (
           <span
             className={[

@@ -454,41 +454,19 @@ export const buildHeaderMapHH = (
       salesRows,
       loaiCodeHeader
     ),
-    BANQUYEN: pick("BQ", "BẢN QUYỀN"),
-    SL_MOI: pick("SL MỚI", "SLMOI"),
-    SL_GH: pick("SL GH", "SLGH"),
-    SL_TANG: pick("SL TẶNG", "SL TANG", "SLTANG"),
-    SOLUONG: pick("SO LUONG", "SOLUONG", "SL"),
+
+    SOLUONG: pick("SỐ LƯỢNG", "SO LUONG", "SOLUONG", "SL"),
     DOANH_THU_SAN_PHAM: pick(
+      "GIÁ SẢN PHẨM",
       "GIA SAN PHAM",
-      "DOANH THU SAN PHAM",
-      "GIA DOI SOAT"
+      "DOANH THU SAN PHAM"
     ),
-    DT_GOI_HD: pick("GÓI HÓA ĐƠN", "GOI HOA DON", "GÓI HĐ"),
-    DT_KHAC: pick("KHÁC", "KHAC"),
-    TRI_GIA_XUAT_HD: pick(
-      "TỔNG XUẤT HD",
-      "TONG XUAT HD",
-      "TỔNG XUẤT HĐ",
-      "tổng suất hd"
-    ),
-    VUOT_GIA: pick("VIẾT CHÊNH", "VIET CHENH", "VƯỢT GIÁ"),
+    GIA_DOI_SOAT: pick("Giá đối soát", "GIÁ ĐỐI SOÁT", "GIA DOI SOAT"),
+
     TIEN_HOA_HONG:
       pickTienHoaHongHeader(salesHeaders) ||
       pick("TIỀN HOA HỒNG", "TIEN HOA HONG", "HH"),
-    PHI_VIET_CHENH: pick(
-      "PHI VIET CHENH",
-      "VIET CHENH",
-      "VUOT GIA",
-      "DT VIẾT CHÊNH",
-      "DT VIET CHENH",
-      "T VIẾT CHÊNH",
-      "T VIET CHENH",
-      "PHÍ VIẾT CHÊNH",
-      "PHI VIET CHENH",
-      "PHAIRTRA CHÊNH",
-      "PHAI TRA CHENH"
-    ),
+    PHI_VIET_CHENH: pick("PHÍ VIẾT CHÊNH", "PHI VIET CHENH"),
     DT_MINVOICE: pick(
       "SỐ TIỀN",
       "SO TIEN",
@@ -528,12 +506,10 @@ export const validateHeaderMapHH = (H: ReturnType<typeof buildHeaderMapHH>) => {
     ["NGÀY KÍCH HOẠT", H.THANG],
     ["MST", H.MST],
     ["TÊN CTY", H.TEN],
-    ["SỐ LƯỢNG", H.SOLUONG || H.SL_MOI || H.SL_GH || H.SL_TANG],
-    [
-      "GIÁ SẢN PHẨM",
-      H.DOANH_THU_SAN_PHAM || H.BANQUYEN || H.DT_GOI_HD || H.DT_KHAC,
-    ],
-    ["PHÍ VIẾT CHÊNH", H.PHI_VIET_CHENH || H.VUOT_GIA],
+    ["SỐ LƯỢNG", H.SOLUONG],
+    ["GIÁ SẢN PHẨM", H.DOANH_THU_SAN_PHAM],
+    ["GIÁ ĐỐI SOÁT", H.GIA_DOI_SOAT],
+    ["PHÍ VIẾT CHÊNH", H.PHI_VIET_CHENH],
     ["SỐ TIỀN", H.DT_MINVOICE],
     ["Đại Lý", H.DEALER],
   ].forEach(([label, value]) => {
@@ -553,6 +529,7 @@ export const classifyProductToSectionHoaHong = (v: any): Sec => {
 
   if (
     s === normalize("HD") ||
+    s === normalize("HD2") ||
     s.includes("hddt") ||
     s.includes("hoadondientu") ||
     (s.includes("hoadon") && s.includes("dientu"))
@@ -796,20 +773,12 @@ export const fillAllSectionsHoaHong = (
         force: true,
       })
 
-      const soLuong = H.SOLUONG
-        ? row[H.SOLUONG]
-        : toNumber(row[H.SL_MOI]) +
-          toNumber(row[H.SL_GH]) +
-          toNumber(row[H.SL_TANG])
+      const soLuong = H.SOLUONG ? row[H.SOLUONG] : 0
       const doanhThuSanPham = H.DOANH_THU_SAN_PHAM
         ? row[H.DOANH_THU_SAN_PHAM]
-        : toNumber(row[H.BANQUYEN]) +
-          toNumber(row[H.DT_GOI_HD]) +
-          toNumber(row[H.DT_KHAC])
-      const phiVietChenh =
-        H.PHI_VIET_CHENH && !isEmptyValue(row[H.PHI_VIET_CHENH])
-          ? row[H.PHI_VIET_CHENH]
-          : row[H.VUOT_GIA]
+        : 0
+      const giadoisoat = H.GIA_DOI_SOAT ? row[H.GIA_DOI_SOAT] : 0
+      const phiVietChenh = H.PHI_VIET_CHENH ? row[H.PHI_VIET_CHENH] : 0
 
       setNumKeepStyle(r0, COL_HOA_HONG.SOLUONG, soLuong)
       setNumKeepStyle(r0, COL_HOA_HONG.DOANH_THU_SAN_PHAM, doanhThuSanPham)
@@ -820,12 +789,8 @@ export const fillAllSectionsHoaHong = (
         COL_HOA_HONG.GIA_TRI_XUAT_HOA_DON,
         `=${addrRC(r0, COL_HOA_HONG.DOANH_THU_SAN_PHAM)}+${addrRC(r0, COL_HOA_HONG.PHI_VIET_CHENH)}`
       )
-      setFormulaKeepStyle(
-        ws,
-        r0,
-        COL_HOA_HONG.GIA_DOI_SOAT,
-        `=${addrRC(r0, COL_HOA_HONG.DOANH_THU_SAN_PHAM)}`
-      )
+
+      setNumKeepStyle(r0, COL_HOA_HONG.GIA_DOI_SOAT, giadoisoat)
       setFormulaKeepStyle(
         ws,
         r0,

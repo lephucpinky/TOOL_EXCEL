@@ -254,6 +254,11 @@ export function hydrateSaleTransactionDetail(
       fallback?.inv_buyerBankName ||
       payload?.inv_buyerBankName ||
       "",
+    invReconciliation:
+      detail.invReconciliation ??
+      payload?.invReconciliation ??
+      fallback?.invReconciliation ??
+      "",
     inv_quantity: toNumber(
       detail.inv_quantity ??
         payload?.inv_quantity ??
