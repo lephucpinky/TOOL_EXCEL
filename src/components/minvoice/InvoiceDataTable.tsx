@@ -193,6 +193,10 @@ export default function InvoiceDataTable({
       return invoiceDiscountPercentage
     }
 
+    if (hasDisplayValue(invoice.inv_discountPercentage)) {
+      return invoiceHelper.toNumber(invoice.inv_discountPercentage)
+    }
+
     if (invoice.agencyId && typeof invoice.agencyId === "object") {
       const agencyDiscountPercentage = getPositivePercent(
         invoice.agencyId.commissionPercent
@@ -207,10 +211,6 @@ export default function InvoiceDataTable({
 
     if (hasDisplayValue(firstItemDiscountPercentage)) {
       return invoiceHelper.toNumber(firstItemDiscountPercentage)
-    }
-
-    if (hasDisplayValue(invoice.inv_discountPercentage)) {
-      return invoiceHelper.toNumber(invoice.inv_discountPercentage)
     }
 
     return 0
@@ -606,7 +606,7 @@ export default function InvoiceDataTable({
     {
       key: "companyName",
       title: "Tên công ty",
-      className: "min-w-[220px]",
+      className: "min-w-[400px] text-left",
       render: (invoice) =>
         invoice.inv_buyerLegalName || invoice.inv_buyerDisplayName || "-",
     },

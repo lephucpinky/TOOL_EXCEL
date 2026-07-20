@@ -194,11 +194,11 @@ function resolveAgencyDiscountPercentage(
   value: unknown,
   agency?: Agency | null
 ) {
-  const discountPercentage = normalizePercent(value)
+  if (value === undefined || value === null || value === "") {
+    return getAgencyDiscountPercentage(agency)
+  }
 
-  return discountPercentage > 0
-    ? discountPercentage
-    : getAgencyDiscountPercentage(agency)
+  return normalizePercent(value)
 }
 
 export default function InvoiceCreateForm({
