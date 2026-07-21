@@ -23,7 +23,7 @@ import {
   RefreshCcw,
   UploadCloud,
 } from "lucide-react"
-import { useSearchParams } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import PageHeader from "../../../components/header/PageHeader"
@@ -181,6 +181,8 @@ function buildProductFormValues(detail: Product | null): ProductPayload {
 
 export default function ProductPage() {
   const searchParams = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
   const dispatch = useAppDispatch()
   const {
     items: products,
@@ -443,11 +445,25 @@ export default function ProductPage() {
       if (selectedProduct?._id === id) {
         handleCloseDialog()
       }
-      scheduleDelayedRefresh(handleRefreshProducts, (error) => {
-        showErrorMessage(
-          getErrorMessage(error, "Không thể tải lại danh sách sản phẩm")
-        )
-      })
+      const nextTotal = Math.max(productPagination.total - 1, 0)
+      const nextTotalPages = Math.max(Math.ceil(nextTotal / listLimit), 1)
+      const nextPage = Math.min(listPage, nextTotalPages)
+      const nextParams = { page: nextPage, limit: listLimit }
+
+      if (nextPage !== listPage) {
+        router.replace(`${pathname}?page=${nextPage}&limit=${listLimit}`)
+      }
+
+      scheduleDelayedRefresh(
+        async () => {
+          await dispatch(productThunks.fetchPage(nextParams)).unwrap()
+        },
+        (error) => {
+          showErrorMessage(
+            getErrorMessage(error, "Không thể tải lại danh sách sản phẩm")
+          )
+        }
+      )
     } catch (error) {
       showErrorMessage(getErrorMessage(error, "Xóa sản phẩm thất bại!"))
     }

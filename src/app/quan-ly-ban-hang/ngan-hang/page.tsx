@@ -16,7 +16,7 @@ import { bankActions, bankThunks } from "@/store/slices"
 import { getErrorMessage } from "@/store/utils/crud"
 import { Bank, BankPayload } from "@/types/bank"
 import { Landmark, Loader2, Plus, RefreshCcw, UploadCloud } from "lucide-react"
-import { useSearchParams } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import PageHeader from "../../../components/header/PageHeader"
@@ -26,6 +26,7 @@ import {
   getUrlPaginationParams,
   URL_PAGE_SIZE_OPTIONS,
 } from "@/utils/pagination"
+import { scheduleDelayedRefresh } from "@/utils/refresh"
 
 const emptyForm: BankPayload = {
   inv_buyerBankName: "",
@@ -73,6 +74,8 @@ function buildBankFormValues(detail: Bank | null): BankPayload {
 
 export default function BankPage() {
   const searchParams = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
   const dispatch = useAppDispatch()
   const {
     items: banks,
@@ -185,6 +188,7 @@ export default function BankPage() {
   const handleRefreshBanks = async () => {
     await dispatch(bankThunks.fetchPage(listParams)).unwrap()
   }
+
   const onRefreshBanks = async () => {
     try {
       await handleRefreshBanks()
@@ -288,13 +292,31 @@ export default function BankPage() {
   const handleDeleteBank = async (id: string) => {
     try {
       await dispatch(bankThunks.deleteItem(id)).unwrap()
-      await handleRefreshBanks()
       showSuccessMessage("Xóa ngân hàng thành công!")
       setDeleteDialogOpen(false)
       setDeleteTarget(null)
       if (selectedBank?._id === id) {
         handleCloseDialog()
       }
+      const nextTotal = Math.max(bankPagination.total - 1, 0)
+      const nextTotalPages = Math.max(Math.ceil(nextTotal / listLimit), 1)
+      const nextPage = Math.min(listPage, nextTotalPages)
+      const nextParams = { page: nextPage, limit: listLimit }
+
+      if (nextPage !== listPage) {
+        router.replace(`${pathname}?page=${nextPage}&limit=${listLimit}`)
+      }
+
+      scheduleDelayedRefresh(
+        async () => {
+          await dispatch(bankThunks.fetchPage(nextParams)).unwrap()
+        },
+        (error) => {
+          showErrorMessage(
+            getErrorMessage(error, "Không thể tải danh sách ngân hàng")
+          )
+        }
+      )
     } catch (error) {
       showErrorMessage(getErrorMessage(error, "Xóa ngân hàng thất bại!"))
     }

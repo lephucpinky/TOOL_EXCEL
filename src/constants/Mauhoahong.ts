@@ -4,7 +4,7 @@ export const COL_HOA_HONG = {
   MASOTHUE: 2, // C     MÃ SỐ THUẾ
   TENDONVI: 3, // D    TÊN ĐẠI LÝ
   SOLUONG: 4, // E Số lượng
-  DOANH_THU_SAN_PHAM: 5, // F   GIÁ SẢN PHẨM
+  DOANH_THU_SAN_PHAM: 5, // F  TỔNG TIỀN SAU THUẾ
   PHI_VIET_CHENH: 6, // G    PHÍ VIẾT CHÊNH
   GIA_TRI_XUAT_HOA_DON: 7, // H   = F+G
   GIA_DOI_SOAT: 8, // I  = F

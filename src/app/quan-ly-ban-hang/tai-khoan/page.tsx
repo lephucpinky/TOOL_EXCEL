@@ -24,13 +24,14 @@ import {
   UsersRound,
 } from "lucide-react"
 import Link from "next/link"
-import { useSearchParams } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import ActionModal from "@/components/modal/ActionModal"
 import {
   getUrlPaginationParams,
   URL_PAGE_SIZE_OPTIONS,
 } from "@/utils/pagination"
+import { scheduleDelayedRefresh } from "@/utils/refresh"
 
 const ROLE_OPTIONS: Array<{
   value: UserRole
@@ -57,7 +58,9 @@ function normalizeUserList(value: unknown): UserAccount[] {
 
   if (Array.isArray(candidate.items)) return candidate.items as UserAccount[]
   if (Array.isArray(candidate.docs)) return candidate.docs as UserAccount[]
-  if (Array.isArray(candidate.results)) return candidate.results as UserAccount[]
+  if (Array.isArray(candidate.results)) {
+    return candidate.results as UserAccount[]
+  }
   if (Array.isArray(candidate.data)) return candidate.data as UserAccount[]
 
   return []
@@ -65,6 +68,8 @@ function normalizeUserList(value: unknown): UserAccount[] {
 
 export default function AccountManagementPage() {
   const searchParams = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
   const [users, setUsers] = useState<UserAccount[]>([])
   const [userPagination, setUserPagination] = useState({
     total: 0,
@@ -151,37 +156,45 @@ export default function AccountManagementPage() {
     }, 3000)
   }, [])
 
-  const fetchUsers = useCallback(async () => {
-    setLoading(true)
+  const fetchUsers = useCallback(
+    async (params = listParams) => {
+      setLoading(true)
 
-    try {
-      const response = await APIGetUsers(listParams)
-      const nextUsers = normalizeUserList(response.data)
-
-      setUsers(nextUsers)
-      setUserPagination({
-        total: Math.max(Number(response.total ?? nextUsers.length), 0),
-        page: Math.max(Number(response.page ?? listPage), 1),
-        limit: Math.max(Number(response.limit ?? listLimit), 1),
-        totalPages: Math.max(
-          Number(
-            response.totalPages ??
-              Math.ceil(
-                Number(response.total ?? nextUsers.length) /
-                  Math.max(Number(response.limit ?? listLimit), 1)
-              )
-          ),
+      try {
+        const response = await APIGetUsers(params)
+        const nextUsers = normalizeUserList(response.data)
+        const requestedPage = Math.max(Number(params.page ?? 1), 1)
+        const requestedLimit = Math.max(Number(params.limit ?? 10), 1)
+        const responseLimit = Math.max(
+          Number(response.limit ?? requestedLimit),
           1
-        ),
-      })
-    } catch (error) {
-      showErrorMessage(
-        getErrorMessage(error, "Không thể tải danh sách tài khoản")
-      )
-    } finally {
-      setLoading(false)
-    }
-  }, [listLimit, listPage, listParams, showErrorMessage])
+        )
+
+        setUsers(nextUsers)
+        setUserPagination({
+          total: Math.max(Number(response.total ?? nextUsers.length), 0),
+          page: Math.max(Number(response.page ?? requestedPage), 1),
+          limit: responseLimit,
+          totalPages: Math.max(
+            Number(
+              response.totalPages ??
+                Math.ceil(
+                  Number(response.total ?? nextUsers.length) / responseLimit
+                )
+            ),
+            1
+          ),
+        })
+      } catch (error) {
+        showErrorMessage(
+          getErrorMessage(error, "Không thể tải danh sách tài khoản")
+        )
+      } finally {
+        setLoading(false)
+      }
+    },
+    [listParams, showErrorMessage]
+  )
 
   useEffect(() => {
     void fetchUsers()
@@ -427,12 +440,42 @@ export default function AccountManagementPage() {
     setDeleteLoading(true)
 
     try {
-      await APIDeleteUser(deleteTarget._id)
+      const deletedUserId = deleteTarget._id
+      await APIDeleteUser(deletedUserId)
 
-      setUsers((prev) => prev.filter((item) => item._id !== deleteTarget._id))
+      setUsers((prev) => prev.filter((item) => item._id !== deletedUserId))
       showSuccessMessage("Xóa tài khoản thành công!")
       setDeleteDialogOpen(false)
       setDeleteTarget(null)
+      if (selectedUser?._id === deletedUserId) {
+        resetDialog()
+      }
+
+      const nextTotal = Math.max(userPagination.total - 1, 0)
+      const nextTotalPages = Math.max(Math.ceil(nextTotal / listLimit), 1)
+      const nextPage = Math.min(listPage, nextTotalPages)
+      const nextParams = { ...listParams, page: nextPage, limit: listLimit }
+      setUserPagination((prev) => ({
+        ...prev,
+        total: nextTotal,
+        totalPages: nextTotalPages,
+        page: nextPage,
+      }))
+
+      if (nextPage !== listPage) {
+        router.replace(`${pathname}?page=${nextPage}&limit=${listLimit}`)
+      }
+
+      scheduleDelayedRefresh(
+        async () => {
+          await fetchUsers(nextParams)
+        },
+        (error) => {
+          showErrorMessage(
+            getErrorMessage(error, "Không thể tải lại danh sách tài khoản")
+          )
+        }
+      )
     } catch (error) {
       showErrorMessage(getErrorMessage(error, "Xóa tài khoản thất bại!"))
     } finally {

@@ -16,7 +16,7 @@ import { departmentActions, departmentThunks } from "@/store/slices"
 import { getErrorMessage } from "@/store/utils/crud"
 import { Department, DepartmentPayload } from "@/types/department"
 import { Building2, Loader2, Plus, RefreshCcw, UploadCloud } from "lucide-react"
-import { useSearchParams } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import PageHeader from "../../../components/header/PageHeader"
@@ -85,6 +85,8 @@ function buildDepartmentFormValues(
 
 export default function DepartmentPage() {
   const searchParams = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
   const dispatch = useAppDispatch()
   const {
     items: departments,
@@ -317,11 +319,25 @@ export default function DepartmentPage() {
       if (selectedDepartment?._id === id) {
         handleCloseDialog()
       }
-      scheduleDelayedRefresh(handleRefreshDepartments, (error) => {
-        showErrorMessage(
-          getErrorMessage(error, "Không thể tải lại danh sách phòng ban")
-        )
-      })
+      const nextTotal = Math.max(departmentPagination.total - 1, 0)
+      const nextTotalPages = Math.max(Math.ceil(nextTotal / listLimit), 1)
+      const nextPage = Math.min(listPage, nextTotalPages)
+      const nextParams = { page: nextPage, limit: listLimit }
+
+      if (nextPage !== listPage) {
+        router.replace(`${pathname}?page=${nextPage}&limit=${listLimit}`)
+      }
+
+      scheduleDelayedRefresh(
+        async () => {
+          await dispatch(departmentThunks.fetchPage(nextParams)).unwrap()
+        },
+        (error) => {
+          showErrorMessage(
+            getErrorMessage(error, "Không thể tải lại danh sách phòng ban")
+          )
+        }
+      )
     } catch (error) {
       showErrorMessage(getErrorMessage(error, "Xóa phòng ban thất bại!"))
     }

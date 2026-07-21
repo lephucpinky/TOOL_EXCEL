@@ -406,6 +406,14 @@ function buildCrudReducers<TItem>(
         action.payload,
         config.selectId
       ) as any
+      const nextTotal = Math.max(state.pagination.total - 1, 0)
+      const nextTotalPages = Math.max(
+        Math.ceil(nextTotal / state.pagination.limit),
+        1
+      )
+      state.pagination.total = nextTotal
+      state.pagination.totalPages = nextTotalPages
+      state.pagination.page = Math.min(state.pagination.page, nextTotalPages)
       if (
         state.current &&
         config.selectId(state.current as any) === action.payload

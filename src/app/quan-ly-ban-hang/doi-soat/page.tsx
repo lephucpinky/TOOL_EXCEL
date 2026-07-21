@@ -12,6 +12,7 @@ import {
   type SaleTransactionReportExportParams,
 } from "@/services/saleTransaction"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
+import { InvoiceStatus } from "@/types/invoice"
 import {
   agencyThunks,
   bankThunks,
@@ -34,15 +35,47 @@ const ALL_VALUE = "__ALL__"
 const LIST_PARAMS = {}
 const EXCEL_MIME_TYPE =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+const REPORT_HEADER_FILL = "2F5597"
+const REPORT_BORDER_COLOR = "D9E2F3"
 
 const INVOICE_STATUS_OPTIONS = [
   { value: "", label: "Tất cả trạng thái" },
-  { value: "DRAFT", label: "Nháp" },
-  { value: "ISSUING", label: "Đang xuất hóa đơn" },
-  { value: "ISSUED", label: "Đã xuất hóa đơn" },
-  { value: "FAILED", label: "Xuất thất bại" },
-  { value: "CANCELLED", label: "Đã hủy" },
+  { value: InvoiceStatus.DRAFT, label: "Nháp" },
+  { value: InvoiceStatus.ISSUING, label: "Đang xuất hóa đơn" },
+  { value: InvoiceStatus.ISSUED, label: "Đã xuất hóa đơn" },
+  { value: InvoiceStatus.FAILED, label: "Xuất thất bại" },
+  { value: InvoiceStatus.CANCELLED, label: "Đã hủy" },
 ]
+
+const REPORT_INVOICE_STATUSES = [
+  InvoiceStatus.DRAFT,
+  InvoiceStatus.ISSUING,
+  InvoiceStatus.ISSUED,
+  InvoiceStatus.FAILED,
+  InvoiceStatus.CANCELLED,
+]
+
+const REPORT_HEADER_STYLE = {
+  fill: {
+    patternType: "solid",
+    fgColor: { rgb: REPORT_HEADER_FILL },
+  },
+  font: {
+    bold: true,
+    color: { rgb: "FFFFFF" },
+  },
+  alignment: {
+    horizontal: "center",
+    vertical: "center",
+    wrapText: true,
+  },
+  border: {
+    top: { style: "thin", color: { rgb: REPORT_BORDER_COLOR } },
+    right: { style: "thin", color: { rgb: REPORT_BORDER_COLOR } },
+    bottom: { style: "thin", color: { rgb: REPORT_BORDER_COLOR } },
+    left: { style: "thin", color: { rgb: REPORT_BORDER_COLOR } },
+  },
+}
 
 const PAYMENT_STATUS_OPTIONS = [
   { value: "", label: "Tất cả thanh toán" },
@@ -141,6 +174,144 @@ function downloadBlob(blob: Blob, fileName: string) {
   link.click()
   link.remove()
   window.setTimeout(() => window.URL.revokeObjectURL(url), 0)
+}
+
+function getReportResponseBlob(
+  response: Awaited<ReturnType<typeof APIExportSaleTransactionReport>>
+) {
+  return response.data instanceof Blob
+    ? response.data
+    : new Blob([response.data], {
+        type: EXCEL_MIME_TYPE,
+      })
+}
+
+async function readReportWorkbook(
+  response: Awaited<ReturnType<typeof APIExportSaleTransactionReport>>
+) {
+  const blob = getReportResponseBlob(response)
+
+  if (!blob.size) return null
+
+  return XLSX.read(await blob.arrayBuffer(), {
+    type: "array",
+    cellStyles: true,
+  })
+}
+
+function hasExcelCellValue(value: unknown) {
+  return value !== undefined && value !== null && String(value).trim() !== ""
+}
+
+function readSheetRows(workbook: XLSX.WorkBook, sheetName: string) {
+  const sheet = workbook.Sheets[sheetName]
+
+  if (!sheet) return []
+
+  return XLSX.utils.sheet_to_json(sheet, {
+    header: 1,
+    defval: "",
+    blankrows: false,
+  }) as unknown[][]
+}
+
+function appendReportWorkbook(target: XLSX.WorkBook, source: XLSX.WorkBook) {
+  for (const sheetName of source.SheetNames) {
+    const sourceRows = readSheetRows(source, sheetName)
+
+    if (!sourceRows.length) continue
+
+    const targetSheet = target.Sheets[sheetName]
+    const rowsToAppend = (
+      targetSheet ? sourceRows.slice(1) : sourceRows
+    ).filter((row) => row.some(hasExcelCellValue))
+
+    if (!rowsToAppend.length) continue
+
+    if (targetSheet) {
+      XLSX.utils.sheet_add_aoa(targetSheet, rowsToAppend, { origin: -1 })
+    } else {
+      target.SheetNames.push(sheetName)
+      target.Sheets[sheetName] = XLSX.utils.aoa_to_sheet(rowsToAppend)
+    }
+  }
+}
+
+function getReportColumnWidth(header: unknown) {
+  const label = String(header || "").trim()
+
+  if (!label) return 12
+
+  return Math.min(Math.max(label.length + 4, 12), 32)
+}
+
+function applyReportSheetStyle(sheet: XLSX.WorkSheet) {
+  if (!sheet["!ref"]) return
+
+  const range = XLSX.utils.decode_range(sheet["!ref"])
+  const headerEndColumn = range.e.c
+
+  sheet["!rows"] = sheet["!rows"] || []
+  sheet["!rows"][0] = {
+    ...(sheet["!rows"][0] || {}),
+    hpt: 24,
+  }
+  sheet["!cols"] = Array.from({ length: headerEndColumn + 1 }, (_, column) => {
+    const cellAddress = XLSX.utils.encode_cell({ r: 0, c: column })
+    const headerCell = sheet[cellAddress]
+
+    return {
+      ...(sheet["!cols"]?.[column] || {}),
+      wch: getReportColumnWidth(headerCell?.v),
+    }
+  })
+  sheet["!autofilter"] = {
+    ref: XLSX.utils.encode_range({
+      s: { r: 0, c: 0 },
+      e: { r: range.e.r, c: headerEndColumn },
+    }),
+  }
+
+  for (let column = 0; column <= headerEndColumn; column += 1) {
+    const cellAddress = XLSX.utils.encode_cell({ r: 0, c: column })
+    const cell = sheet[cellAddress] || { t: "s", v: "" }
+
+    cell.s = REPORT_HEADER_STYLE
+    sheet[cellAddress] = cell
+  }
+}
+
+function applyReportWorkbookStyle(workbook: XLSX.WorkBook) {
+  for (const sheetName of workbook.SheetNames) {
+    const sheet = workbook.Sheets[sheetName]
+
+    if (sheet) {
+      applyReportSheetStyle(sheet)
+    }
+  }
+}
+
+function mergeReportWorkbooks(workbooks: XLSX.WorkBook[]) {
+  const [target, ...sources] = workbooks
+
+  if (!target) {
+    throw new Error("API không trả về dữ liệu file báo cáo.")
+  }
+
+  for (const source of sources) {
+    appendReportWorkbook(target, source)
+  }
+
+  applyReportWorkbookStyle(target)
+
+  const output = XLSX.write(target, {
+    bookType: "xlsx",
+    type: "array",
+  })
+
+  return new Blob([output], {
+    type: EXCEL_MIME_TYPE,
+  })
 }
 
 function pickKeyFromRow(row: Record<string, any>, aliases: string[]) {
@@ -475,13 +646,28 @@ export default function HomePage() {
     setReportExporting(true)
 
     try {
-      const response = await APIExportSaleTransactionReport(buildReportParams())
-      const blob =
-        response.data instanceof Blob
-          ? response.data
-          : new Blob([response.data], {
-              type: EXCEL_MIME_TYPE,
+      const params = buildReportParams()
+
+      if (!reportFilters.invoiceStatus) {
+        const responses = await Promise.all(
+          REPORT_INVOICE_STATUSES.map((invoiceStatus) =>
+            APIExportSaleTransactionReport({
+              ...params,
+              invoiceStatus,
             })
+          )
+        )
+        const workbooks = (
+          await Promise.all(responses.map(readReportWorkbook))
+        ).filter((workbook): workbook is XLSX.WorkBook => Boolean(workbook))
+        const blob = mergeReportWorkbooks(workbooks)
+
+        downloadBlob(blob, buildDefaultReportFileName(reportFilters))
+        return
+      }
+
+      const response = await APIExportSaleTransactionReport(params)
+      const blob = getReportResponseBlob(response)
 
       if (!blob.size) {
         throw new Error("API không trả về dữ liệu file báo cáo.")

@@ -26,7 +26,7 @@ import {
   UploadCloud,
   UsersRound,
 } from "lucide-react"
-import { useSearchParams } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
 import { Controller, useForm } from "react-hook-form"
 import PageHeader from "../../../components/header/PageHeader"
@@ -168,6 +168,8 @@ function getAgencyEmployeeId(value: Agency["employeeId"] | string | undefined) {
 
 export default function Page() {
   const searchParams = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
   const dispatch = useAppDispatch()
   const {
     items: agencies,
@@ -255,7 +257,7 @@ export default function Page() {
         title: "Mã đại lý",
         render: (item) => (
           <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
-            {item.inv_agencyName || "---"}
+            {item.inv_agencyName || "-"}
           </span>
         ),
       },
@@ -483,11 +485,25 @@ export default function Page() {
       if (selectedAgency?._id === id) {
         handleCloseDialog()
       }
-      scheduleDelayedRefresh(handleRefreshAgencies, (error) => {
-        showErrorMessage(
-          getErrorMessage(error, "Không thể tải lại danh sách đại lý")
-        )
-      })
+      const nextTotal = Math.max(agencyPagination.total - 1, 0)
+      const nextTotalPages = Math.max(Math.ceil(nextTotal / listLimit), 1)
+      const nextPage = Math.min(listPage, nextTotalPages)
+      const nextParams = { page: nextPage, limit: listLimit }
+
+      if (nextPage !== listPage) {
+        router.replace(`${pathname}?page=${nextPage}&limit=${listLimit}`)
+      }
+
+      scheduleDelayedRefresh(
+        async () => {
+          await dispatch(agencyThunks.fetchPage(nextParams)).unwrap()
+        },
+        (error) => {
+          showErrorMessage(
+            getErrorMessage(error, "Không thể tải lại danh sách đại lý")
+          )
+        }
+      )
     } catch (error) {
       showErrorMessage(getErrorMessage(error, "Xóa đại lý thất bại!"))
     }

@@ -340,12 +340,12 @@ export default function Page() {
       color: "bg-cyan-500",
       badgeClass: "bg-cyan-50 text-cyan-700",
     },
-    {
-      label: "Thu một phần",
-      value: dashboard.summary.partial,
-      color: "bg-violet-500",
-      badgeClass: "bg-violet-50 text-violet-700",
-    },
+    // {
+    //   label: "Thu một phần",
+    //   value: dashboard.summary.partial,
+    //   color: "bg-violet-500",
+    //   badgeClass: "bg-violet-50 text-violet-700",
+    // },
     {
       label: "Chưa thu",
       value: dashboard.summary.unpaid,

@@ -457,16 +457,24 @@ export const buildHeaderMapHH = (
 
     SOLUONG: pick("SỐ LƯỢNG", "SO LUONG", "SOLUONG", "SL"),
     DOANH_THU_SAN_PHAM: pick(
-      "GIÁ SẢN PHẨM",
-      "GIA SAN PHAM",
-      "DOANH THU SAN PHAM"
+      "TỔNG TIỀN SAU THUẾ",
+      "TONG TIEN SAU THUE",
+      "TIỀN SAU THUẾ",
+      "TIEN SAU THUE"
     ),
     GIA_DOI_SOAT: pick("Giá đối soát", "GIÁ ĐỐI SOÁT", "GIA DOI SOAT"),
 
     TIEN_HOA_HONG:
       pickTienHoaHongHeader(salesHeaders) ||
       pick("TIỀN HOA HỒNG", "TIEN HOA HONG", "HH"),
-    PHI_VIET_CHENH: pick("PHÍ VIẾT CHÊNH", "PHI VIET CHENH"),
+    PHI_VIET_CHENH: pick(
+      "PHÍ VIẾT CHÊNH",
+      "PHI VIET CHENH",
+      "Phí viết chênh",
+      "Phi viet chenh",
+      "PRICE DIFFERENCE",
+      "priceDifference"
+    ),
     DT_MINVOICE: pick(
       "SỐ TIỀN",
       "SO TIEN",
@@ -507,7 +515,7 @@ export const validateHeaderMapHH = (H: ReturnType<typeof buildHeaderMapHH>) => {
     ["MST", H.MST],
     ["TÊN CTY", H.TEN],
     ["SỐ LƯỢNG", H.SOLUONG],
-    ["GIÁ SẢN PHẨM", H.DOANH_THU_SAN_PHAM],
+    ["TỔNG TIỀN SAU THUẾ", H.DOANH_THU_SAN_PHAM],
     ["GIÁ ĐỐI SOÁT", H.GIA_DOI_SOAT],
     ["PHÍ VIẾT CHÊNH", H.PHI_VIET_CHENH],
     ["SỐ TIỀN", H.DT_MINVOICE],
@@ -778,7 +786,10 @@ export const fillAllSectionsHoaHong = (
         ? row[H.DOANH_THU_SAN_PHAM]
         : 0
       const giadoisoat = H.GIA_DOI_SOAT ? row[H.GIA_DOI_SOAT] : 0
-      const phiVietChenh = H.PHI_VIET_CHENH ? row[H.PHI_VIET_CHENH] : 0
+      const phiVietChenhRaw = H.PHI_VIET_CHENH ? row[H.PHI_VIET_CHENH] : ""
+      const phiVietChenh = isEmptyValue(phiVietChenhRaw)
+        ? (toNumber(doanhThuSanPham) - toNumber(giadoisoat)) * 0.15
+        : phiVietChenhRaw
 
       setNumKeepStyle(r0, COL_HOA_HONG.SOLUONG, soLuong)
       setNumKeepStyle(r0, COL_HOA_HONG.DOANH_THU_SAN_PHAM, doanhThuSanPham)

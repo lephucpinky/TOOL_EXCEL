@@ -18,7 +18,11 @@ const APICreateProduct = async (data: any) => {
     }
   }
 
-  return response
+  throw new Error(
+    response.data?.message ||
+      response.data?.error ||
+      "Tạo sản phẩm thất bại."
+  )
 }
 
 const APIGetProducts = async (params?: any) => {
