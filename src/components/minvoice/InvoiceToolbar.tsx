@@ -2,29 +2,27 @@
 
 import type { ReactNode } from "react"
 import {
+  FileText,
   FileSpreadsheet,
-  ListFilter,
+  Loader2,
   Plus,
   RefreshCw,
-  Trash2,
+  X,
 } from "lucide-react"
 
 type Props = {
   onReload: () => void
   onAdd: () => void
   onBulkImport?: () => void
-  onDelete: () => void
-
-  onStats?: () => void
-  onSearchDateRange?: () => void
-  onFilterEmployee?: () => void
-  onFilterAgency?: () => void
-  onFilterDepartment?: () => void
-  onViewAll?: () => void
-  onSendReceipt?: () => void
+  onBulkExportInvoice?: () => void
+  onBulkUpdateMInvoice?: () => void
+  onClearSelection?: () => void
 
   loading?: boolean
-  disableDelete?: boolean
+  bulkActionLoading?: boolean
+  selectedCount?: number
+  exportableCount?: number
+  updatableCount?: number
 }
 
 type ToolbarButtonVariant =
@@ -76,14 +74,26 @@ export default function InvoiceToolbar({
   onReload,
   onAdd,
   onBulkImport,
-  onDelete,
-  onViewAll,
+  onBulkExportInvoice,
+  onBulkUpdateMInvoice,
+  onClearSelection,
   loading = false,
-  disableDelete = false,
+  bulkActionLoading = false,
+  selectedCount = 0,
+  exportableCount = 0,
+  updatableCount = 0,
 }: Props) {
   return (
-    <div className="mx-4 flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-4 py-3">
-      <div id="invoice-order-filter-toolbar-slot" className="relative" />
+    <div className="mx-4 flex flex-nowrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-3 shadow-sm">
+      <ToolbarButton onClick={onReload} disabled={loading}>
+        <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
+        Tải dữ liệu
+      </ToolbarButton>
+
+      <div
+        id="invoice-order-filter-toolbar-slot"
+        className="relative shrink-0"
+      />
 
       <ToolbarButton onClick={onAdd} variant="primary" disabled={loading}>
         <Plus size={15} />
@@ -98,75 +108,52 @@ export default function InvoiceToolbar({
         <FileSpreadsheet size={15} />
         Tạo HĐ hàng loạt
       </ToolbarButton>
-      <ToolbarButton onClick={onReload} disabled={loading}>
-        <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
-        Tải dữ liệu
-      </ToolbarButton>
 
-      {/* <ToolbarButton
-        onClick={onDelete}
-        variant="danger"
-        disabled={loading || disableDelete}
+      <ToolbarButton
+        onClick={onBulkExportInvoice}
+        variant="warning"
+        disabled={
+          loading ||
+          bulkActionLoading ||
+          !onBulkExportInvoice ||
+          exportableCount === 0
+        }
       >
-        <Trash2 size={15} />
-        Xóa
-      </ToolbarButton> */}
-
-      {/* <ToolbarButton onClick={onStats} disabled={loading || !onStats}>
-        <BarChart3 size={15} />
-        Thống kê
+        {bulkActionLoading ? (
+          <Loader2 size={15} className="animate-spin" />
+        ) : (
+          <FileText size={15} />
+        )}
+        Xuất HĐ ({exportableCount})
       </ToolbarButton>
 
       <ToolbarButton
-        onClick={onSearchDateRange}
-        disabled={loading || !onSearchDateRange}
+        onClick={onBulkUpdateMInvoice}
+        variant="primary"
+        disabled={
+          loading ||
+          bulkActionLoading ||
+          !onBulkUpdateMInvoice ||
+          updatableCount === 0
+        }
       >
-        <CalendarRange size={15} />
-        Theo khoảng ngày
+        {bulkActionLoading ? (
+          <Loader2 size={15} className="animate-spin" />
+        ) : (
+          <RefreshCw size={15} />
+        )}
+        Cập nhật HĐ ({updatableCount})
       </ToolbarButton>
 
-      <ToolbarButton
-        onClick={onFilterEmployee}
-        disabled={loading || !onFilterEmployee}
-      >
-        <UserRound size={15} />
-        Theo nhân viên
-      </ToolbarButton>
-
-      <ToolbarButton
-        onClick={onFilterAgency}
-        disabled={loading || !onFilterAgency}
-      >
-        <Landmark size={15} />
-        Theo đại lý
-      </ToolbarButton>
-
-      <ToolbarButton
-        onClick={onFilterDepartment}
-        disabled={loading || !onFilterDepartment}
-      >
-        <Building2 size={15} />
-        Theo phòng ban
-      </ToolbarButton> */}
-
-      {/* <ToolbarButton onClick={onViewAll} disabled={loading || !onViewAll}>
-        <ListFilter size={15} />
-        Xem toàn bộ HĐ
-      </ToolbarButton> */}
-
-      {/* <ToolbarButton
-        onClick={onSendReceipt}
-        variant="success"
-        disabled={loading || !onSendReceipt}
-      >
-        <Send size={15} />
-        Gửi biên nhận
-      </ToolbarButton> */}
-
-      {/* <ToolbarButton variant="warning" disabled={loading}>
-        <FileText size={15} />
-        Nghiệp vụ
-      </ToolbarButton> */}
+      {selectedCount > 0 && (
+        <ToolbarButton
+          onClick={onClearSelection}
+          disabled={loading || bulkActionLoading || !onClearSelection}
+        >
+          <X size={15} />
+          Bỏ chọn ({selectedCount})
+        </ToolbarButton>
+      )}
     </div>
   )
 }

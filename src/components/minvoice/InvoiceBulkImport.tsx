@@ -26,6 +26,7 @@ import {
   formatMoney,
   getId,
   normalizeDateInput,
+  resolveInvoiceTaxCodeAndRate,
   roundInvoiceMoney,
 } from "@/utils/invoice"
 import { buildCreateInvoiceApiBody } from "@/utils/invoicePayload"
@@ -67,6 +68,10 @@ export default function InvoiceBulkImport({
   const [excelRows, setExcelRows] = useState<BulkImportExcelRow[]>([])
   const [parsing, setParsing] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [createProgress, setCreateProgress] = useState({
+    completed: 0,
+    total: 0,
+  })
   const [submitErrors, setSubmitErrors] = useState<Record<string, string>>({})
   const [createdRowIds, setCreatedRowIds] = useState<Record<string, string>>({})
 
@@ -151,6 +156,11 @@ export default function InvoiceBulkImport({
       const exchangeRate = toExcelNumber(row.exchangeRate) || 1
       const rawQuantity = cleanText(row.quantity)
       const quantity = roundInvoiceMoney(toExcelNumber(row.quantity))
+      const rawDiscountPercentage = cleanText(row.discountPercentage)
+      const excelDiscountPercentage = toExcelNumber(row.discountPercentage)
+      const discountAmount = roundInvoiceMoney(
+        toExcelNumber(row.discountAmount)
+      )
       const totalBeforeTax = roundInvoiceMoney(
         toExcelNumber(row.totalBeforeTax)
       )
@@ -180,6 +190,36 @@ export default function InvoiceBulkImport({
 
       const product = findProductByExcelValue(products, productCode)
       const agencyEmployee = getAgencyEmployee(agency)
+      const itemPrice =
+        roundInvoiceMoney(product?.inv_unitPrice) ||
+        roundInvoiceMoney(totalAmount / (quantity || 1))
+      const { taxRate } = resolveInvoiceTaxCodeAndRate(product?.ma_thue)
+      const invoiceTotalAmount = roundInvoiceMoney(itemPrice * quantity)
+      const invoiceTotalBeforeTax = roundInvoiceMoney(
+        invoiceTotalAmount / (1 + taxRate)
+      )
+      const invoiceVatAmount = roundInvoiceMoney(
+        invoiceTotalAmount - invoiceTotalBeforeTax
+      )
+      const agencyDiscountPercentage = Math.min(
+        Math.max(Number(agency?.commissionPercent || 0), 0),
+        100
+      )
+      const invoiceDiscountPercentage =
+        discountAmount > 0
+          ? 0
+          : rawDiscountPercentage
+            ? Math.min(Math.max(excelDiscountPercentage, 0), 100)
+            : agencyDiscountPercentage
+      const invoiceDiscountAmount =
+        discountAmount > 0
+          ? discountAmount
+          : roundInvoiceMoney(
+              (invoiceTotalAmount * invoiceDiscountPercentage) / 100
+            )
+      const invoiceRevenue = roundInvoiceMoney(
+        Math.max(invoiceTotalAmount - invoiceDiscountAmount, 0)
+      )
 
       if (!agencyCode) errors.push("Thiếu mã đại lý.")
       if (agencyCode && !agency) {
@@ -212,10 +252,22 @@ export default function InvoiceBulkImport({
         errors.push("Thành tiền chưa VAT phải lớn hơn 0.")
       if (vatAmount < 0) errors.push("Tiền thuế VAT không hợp lệ.")
       if (totalAmount <= 0) errors.push("Tổng tiền thanh toán phải lớn hơn 0.")
+      if (
+        rawDiscountPercentage &&
+        (excelDiscountPercentage < 0 || excelDiscountPercentage > 100)
+      ) {
+        errors.push("Phần trăm chiết khấu phải từ 0 đến 100.")
+      }
 
-      if (Math.abs(totalBeforeTax + vatAmount - totalAmount) > 1) {
-        errors.push(
-          "Tổng tiền thanh toán không khớp với tiền trước VAT và VAT."
+      const amountDifferences = [
+        Math.abs(totalBeforeTax - invoiceTotalBeforeTax),
+        Math.abs(vatAmount - invoiceVatAmount),
+        Math.abs(totalAmount - invoiceTotalAmount),
+      ]
+
+      if (amountDifferences.some((difference) => difference > 1)) {
+        warnings.push(
+          "Số tiền trong file chênh với đơn giá hoặc thuế suất của sản phẩm. Hệ thống sẽ tính lại tiền trước VAT, VAT và tổng thanh toán theo danh mục sản phẩm."
         )
       }
 
@@ -251,34 +303,30 @@ export default function InvoiceBulkImport({
               mdvqhnsach_nmua: cleanText(row.budgetUnitCode),
               ma_ch: cleanText(row.storeCode),
               ten_ch: cleanText(row.storeName),
-              inv_discountAmount: roundInvoiceMoney(row.discountAmount),
-              inv_TotalAmountWithoutVAT: totalBeforeTax,
-              inv_vatAmount: vatAmount,
-              inv_TotalAmount: totalAmount,
+              inv_discountAmount: invoiceDiscountAmount,
+              inv_TotalAmountWithoutVAT: invoiceTotalBeforeTax,
+              inv_vatAmount: invoiceVatAmount,
+              inv_TotalAmount: invoiceTotalAmount,
               inv_quantity: quantity,
-              inv_discountPercentage: 0,
+              inv_discountPercentage: invoiceDiscountPercentage,
               items: [
                 {
                   productId: product._id,
                   product,
-                  productCode: product.inv_itemCode,
+                  productCode: product.inv_itemProduct,
                   productName: product.inv_itemName,
                   unit: product.inv_unitCode,
                   quantity,
                   inv_quantity: quantity,
-                  price:
-                    roundInvoiceMoney(product.inv_unitPrice) ||
-                    roundInvoiceMoney(totalAmount / (quantity || 1)),
-                  unitPrice:
-                    roundInvoiceMoney(product.inv_unitPrice) ||
-                    roundInvoiceMoney(totalAmount / (quantity || 1)),
-                  inv_unitPrice: roundInvoiceMoney(product.inv_unitPrice),
+                  price: itemPrice,
+                  unitPrice: itemPrice,
+                  inv_unitPrice: roundInvoiceMoney(itemPrice / (1 + taxRate)),
                   ma_thue: product.ma_thue,
                   taxRate: product.ma_thue,
-                  discountPercentage: 0,
-                  revenue: totalBeforeTax,
+                  discountPercentage: invoiceDiscountPercentage,
+                  revenue: invoiceRevenue,
                   capitalPrice: 0,
-                  totalSalary: totalBeforeTax,
+                  totalSalary: invoiceRevenue,
                   accountingAccountCode: getProductAccountingCode(product),
                 },
               ],
@@ -305,17 +353,18 @@ export default function InvoiceBulkImport({
         bank,
         product,
         warnings,
-        errors: submitErrors[row.id]
-          ? [...errors, `Lỗi tạo hóa đơn: ${submitErrors[row.id]}`]
-          : errors,
+        errors,
         payload,
       }
     })
-  }, [agencies, banks, excelRows, products, receiptConfigs, submitErrors])
+  }, [agencies, banks, excelRows, products, receiptConfigs])
 
   const pendingRows = preparedRows.filter((item) => !createdRowIds[item.id])
   const validRows = pendingRows.filter((item) => item.errors.length === 0)
   const invalidRows = pendingRows.length - validRows.length
+  const submitFailedRowsCount = pendingRows.filter((item) =>
+    Boolean(submitErrors[item.id])
+  ).length
   const createdRowsCount = preparedRows.length - pendingRows.length
 
   const updateImportRow = <K extends keyof BulkImportExcelRow>(
@@ -346,6 +395,7 @@ export default function InvoiceBulkImport({
     setExcelRows([])
     setSubmitErrors({})
     setCreatedRowIds({})
+    setCreateProgress({ completed: 0, total: 0 })
     if (inputRef.current) {
       inputRef.current.value = ""
     }
@@ -353,7 +403,11 @@ export default function InvoiceBulkImport({
 
   const handleDownloadTemplate = () => {
     try {
-      const fields = REQUIRED_COLUMNS
+      const fields: Array<keyof typeof COLUMN_ALIASES> = [
+        ...REQUIRED_COLUMNS,
+        "discountPercentage",
+        "discountAmount",
+      ]
       const headers = fields.map((field) => COLUMN_ALIASES[field][0])
       const workbook = XLSX.utils.book_new()
       const importSheet = XLSX.utils.aoa_to_sheet([headers])
@@ -505,6 +559,9 @@ export default function InvoiceBulkImport({
         paymentMethod: cleanText(
           pickCellValue(row, headerIndex, COLUMN_ALIASES.paymentMethod)
         ),
+        discountPercentage: cleanText(
+          pickCellValue(row, headerIndex, COLUMN_ALIASES.discountPercentage)
+        ),
         discountAmount: toExcelNumber(
           pickCellValue(row, headerIndex, COLUMN_ALIASES.discountAmount)
         ),
@@ -561,6 +618,8 @@ export default function InvoiceBulkImport({
   }
 
   const handleCreateInvoices = async () => {
+    if (creating || parsing) return
+
     if (!preparedRows.length) {
       showErrorMessage("Vui lòng chọn file Excel trước khi tạo hóa đơn.")
       return
@@ -580,11 +639,13 @@ export default function InvoiceBulkImport({
 
     try {
       setCreating(true)
+      setCreateProgress({ completed: 0, total: validRows.length })
       setSubmitErrors({})
 
       const nextSubmitErrors: Record<string, string> = {}
       const nextCreatedRowIds = { ...createdRowIds }
       let successCount = 0
+      let completedCount = 0
 
       for (const row of validRows) {
         try {
@@ -609,6 +670,12 @@ export default function InvoiceBulkImport({
             error,
             "Không tạo được hóa đơn cho dòng này."
           )
+        } finally {
+          completedCount += 1
+          setCreateProgress({
+            completed: completedCount,
+            total: validRows.length,
+          })
         }
       }
 
@@ -631,8 +698,16 @@ export default function InvoiceBulkImport({
       showSuccessMessage(
         `Đã tạo thành công ${successCount} hóa đơn. Các dòng đã tạo vẫn giữ đúng vị trí trong bảng.`
       )
+    } catch (error: unknown) {
+      showErrorMessage(
+        getErrorMessage(
+          error,
+          "Có lỗi khi xử lý tạo hóa đơn hàng loạt. Vui lòng thử lại."
+        )
+      )
     } finally {
       setCreating(false)
+      setCreateProgress({ completed: 0, total: 0 })
     }
   }
 
@@ -646,7 +721,8 @@ export default function InvoiceBulkImport({
         <button
           type="button"
           onClick={onBack}
-          className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+          disabled={parsing || creating}
+          className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <ArrowLeft size={16} />
           Quay lại danh sách
@@ -788,10 +864,19 @@ export default function InvoiceBulkImport({
 
               <div className="rounded-2xl bg-rose-50 p-4">
                 <div className="text-xs uppercase tracking-wide text-rose-700">
-                  Có lỗi
+                  Lỗi dữ liệu
                 </div>
                 <div className="mt-2 text-2xl font-bold text-rose-700">
                   {invalidRows}
+                </div>
+              </div>
+
+              <div className="rounded-2xl bg-amber-50 p-4">
+                <div className="text-xs uppercase tracking-wide text-amber-700">
+                  Tạo thất bại
+                </div>
+                <div className="mt-2 text-2xl font-bold text-amber-700">
+                  {submitFailedRowsCount}
                 </div>
               </div>
 
@@ -835,14 +920,29 @@ export default function InvoiceBulkImport({
               {creating ? (
                 <>
                   <Loader2 size={16} className="animate-spin" />
-                  Đang tạo hóa đơn...
+                  Đang xử lý {createProgress.completed}/{createProgress.total}
                 </>
               ) : !pendingRows.length && preparedRows.length ? (
                 <>Đã tạo hết hóa đơn</>
+              ) : submitFailedRowsCount > 0 ? (
+                <>Thử lại {submitFailedRowsCount} hóa đơn lỗi</>
               ) : (
                 <>Tạo hóa đơn hàng loạt</>
               )}
             </button>
+
+            {creating && createProgress.total > 0 && (
+              <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
+                <div
+                  className="h-full rounded-full bg-emerald-500 transition-[width] duration-300 ease-out"
+                  style={{
+                    width: `${Math.round(
+                      (createProgress.completed / createProgress.total) * 100
+                    )}%`,
+                  }}
+                />
+              </div>
+            )}
 
             {invalidRows > 0 && (
               <div className="mt-3 text-sm text-rose-600">
@@ -917,7 +1017,7 @@ export default function InvoiceBulkImport({
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-right font-semibold">
                       Tổng tiền
                     </th>
-                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-left font-semibold">
+                    <th className="min-w-[100px] whitespace-nowrap border-b border-slate-200 px-3 py-3 text-left font-semibold">
                       Trạng thái
                     </th>
                   </tr>
@@ -929,6 +1029,7 @@ export default function InvoiceBulkImport({
                     const isValid = row.errors.length === 0
                     const createdLabel = createdRowIds[row.id]
                     const isCreated = Boolean(createdLabel)
+                    const submitError = submitErrors[row.id] || ""
                     const rowDisabled = creating || isCreated
 
                     return (
@@ -937,9 +1038,11 @@ export default function InvoiceBulkImport({
                         className={
                           isCreated
                             ? "bg-blue-50/40"
-                            : isValid
-                              ? "bg-white"
-                              : "bg-rose-50/50"
+                            : submitError
+                              ? "bg-amber-50/50"
+                              : isValid
+                                ? "bg-white"
+                                : "bg-rose-50/50"
                         }
                       >
                         <td className="border-b border-slate-100 px-3 py-3 align-top font-semibold text-slate-700">
@@ -998,7 +1101,6 @@ export default function InvoiceBulkImport({
                           <div className="mt-1 text-xs text-slate-500">
                             {row.product
                               ? [
-                                  row.product.inv_itemCode,
                                   row.product.inv_itemProduct,
                                   row.product.inv_itemName,
                                 ]
@@ -1181,18 +1283,22 @@ export default function InvoiceBulkImport({
                             className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
                               isCreated
                                 ? "bg-blue-100 text-blue-700"
-                                : isValid
-                                  ? "bg-emerald-100 text-emerald-700"
-                                  : "bg-rose-100 text-rose-700"
+                                : submitError
+                                  ? "bg-amber-100 text-amber-700"
+                                  : isValid
+                                    ? "bg-emerald-100 text-emerald-700"
+                                    : "bg-rose-100 text-rose-700"
                             }`}
                           >
                             {isCreated
                               ? createdLabel === "Đã tạo"
                                 ? "Đã tạo"
                                 : `Đã tạo ${createdLabel}`
-                              : isValid
-                                ? "Hợp lệ"
-                                : "Có lỗi"}
+                              : submitError
+                                ? "Tạo thất bại"
+                                : isValid
+                                  ? "Hợp lệ"
+                                  : "Có lỗi"}
                           </div>
 
                           {row.errors.length > 0 && (
@@ -1200,6 +1306,12 @@ export default function InvoiceBulkImport({
                               {row.errors.map((error) => (
                                 <div key={error}>{error}</div>
                               ))}
+                            </div>
+                          )}
+
+                          {submitError && (
+                            <div className="mt-2 text-xs text-amber-700">
+                              Lỗi tạo hóa đơn: {submitError}
                             </div>
                           )}
 

@@ -29,6 +29,7 @@ export type BulkImportExcelRow = {
   buyerBankAccount: string
   buyerBankName: string
   paymentMethod: string
+  discountPercentage: string | number
   discountAmount: string | number
   totalBeforeTax: string | number
   vatAmount: string | number
@@ -90,6 +91,11 @@ export const COLUMN_ALIASES = {
   buyerBankAccount: ["Số tài khoản người mua", "Số tài khoản"],
   buyerBankName: ["Ngân hàng người mua", "Ngân hàng"],
   paymentMethod: ["Phương thức thanh toán"],
+  discountPercentage: [
+    "Phần trăm chiết khấu",
+    "% chiết khấu",
+    "Tỷ lệ chiết khấu",
+  ],
   discountAmount: ["Tiền chiết khấu"],
   totalBeforeTax: ["Thành tiền chưa VAT", "Tiền trước VAT"],
   vatAmount: ["Tiền thuế VAT", "Thuế VAT"],
@@ -179,9 +185,9 @@ export function findProductByExcelValue(
 
   return (
     products.find((product) => {
-      const itemCode = normalize(product.inv_itemCode || "")
+      const itemProduct = normalize(product.inv_itemProduct || "")
 
-      return itemCode === keyword
+      return itemProduct === keyword
     }) || null
   )
 }

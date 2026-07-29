@@ -592,7 +592,7 @@ export default function Page() {
           icon={<UsersRound size={24} />}
           eyebrow="Danh mục bán hàng"
           title="Quản lý đại lý"
-          description="Quản lý thông tin đại lý, nhân viên phụ trách và tỷ lệ hoa hồng."
+          description=""
           tone="emerald"
           actions={
             <>

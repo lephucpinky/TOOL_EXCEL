@@ -535,7 +535,7 @@ export default function EmployeePage() {
           icon={<UserRound size={24} />}
           eyebrow="Nhân sự bán hàng"
           title="Quản lý nhân viên"
-          description="Quản lý nhân viên phụ trách, phòng ban và trạng thái hoạt động."
+          description=""
           tone="cyan"
           actions={
             <>

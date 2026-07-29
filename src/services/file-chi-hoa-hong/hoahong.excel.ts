@@ -262,7 +262,7 @@ const pickLoaiSanPhamHeader = (salesHeaders: string[], salesRows: any[]) => {
         s === normalize("BHXH") ||
         s === normalize("SMI") ||
         s === normalize("CKS") ||
-        s.startsWith(normalize("ICA")) ||
+        s.includes(normalize("ICA")) ||
         s.includes("hddt") ||
         (s.includes("hoadon") && s.includes("dientu")) ||
         s.includes("maytinhtien")
@@ -330,7 +330,7 @@ const pickLoaiCodeHeader = (salesHeaders: string[], salesRows: any[]) => {
       if (s.length <= 4) sc += 1
 
       if (
-        s.startsWith(normalize("ICA")) ||
+        s.includes(normalize("ICA")) ||
         s.startsWith(normalize("INT")) ||
         s.includes("KIOT") ||
         s === normalize("MTT")
@@ -365,7 +365,7 @@ const pickLoaiCksTextHeader = (
       if (!s) continue
 
       if (
-        s.startsWith(normalize("ICA")) ||
+        s.includes(normalize("ICA")) ||
         s.startsWith(normalize("INT")) ||
         s.startsWith(normalize("TOKEN")) ||
         s.includes("KIOT") ||
@@ -534,10 +534,10 @@ export const validateHeaderMapHH = (H: ReturnType<typeof buildHeaderMapHH>) => {
 
 export const classifyProductToSectionHoaHong = (v: any): Sec => {
   const s = normalize(v)
+  const productCode = s.replace(/\d+$/, "")
 
   if (
-    s === normalize("HD") ||
-    s === normalize("HD2") ||
+    productCode === normalize("HD") ||
     s.includes("hddt") ||
     s.includes("hoadondientu") ||
     (s.includes("hoadon") && s.includes("dientu"))
@@ -545,14 +545,14 @@ export const classifyProductToSectionHoaHong = (v: any): Sec => {
     return "A"
 
   if (
-    s === normalize("MTT") ||
+    productCode === normalize("MTT") ||
     s.includes("maytinhtien") ||
     s.includes("may tinh tien")
   )
     return "B"
 
   if (
-    s === normalize("TNCN") ||
+    productCode === normalize("TNCN") ||
     s.includes("tncn") ||
     s.includes("khautru") ||
     s.includes("khau tru") ||
@@ -561,12 +561,12 @@ export const classifyProductToSectionHoaHong = (v: any): Sec => {
   )
     return "C"
 
-  if (s === normalize("BHXH") || s.includes("bhxh")) return "D"
-  if (s === normalize("SMI") || s.includes("smi")) return "E"
-  if (s === normalize("XANG") || s.includes("xang")) return "F"
+  if (productCode === normalize("BHXH") || s.includes("bhxh")) return "D"
+  if (productCode === normalize("SMI") || s.includes("smi")) return "E"
+  if (productCode === normalize("XANG") || s.includes("xang")) return "F"
 
   if (
-    s.startsWith(normalize("ICA")) ||
+    s.includes(normalize("ICA")) ||
     s.startsWith(normalize("INT")) ||
     s.startsWith(normalize("EAS")) ||
     s.startsWith(normalize("TOKEN")) ||

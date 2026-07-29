@@ -389,7 +389,7 @@ export default function DepartmentPage() {
           icon={<Building2 size={24} />}
           eyebrow="Tổ chức dữ liệu"
           title="Quản lý phòng ban"
-          description="Tạo và cập nhật phòng ban để phân loại dữ liệu bán hàng."
+          description=""
           tone="violet"
           actions={
             <>

@@ -97,7 +97,7 @@ type Props = {
     saleTransactionId: string,
     response: any,
     fallbackRow?: InvoiceApiRow | null,
-    options?: { openDetail?: boolean }
+    options?: { openDetail?: boolean; successMessage?: string }
   ) => void | Promise<unknown>
   onUpdateMInvoice?: (row: InvoiceApiRow) => void | Promise<unknown>
   updateMInvoiceLoading?: boolean
@@ -1396,7 +1396,7 @@ export default function InvoiceCreateForm({
       await onSaved?.(payload)
 
       showSuccessMessage(
-        mode === "edit" ? "Cập nhật thành công." : "Tạo thành công."
+        mode === "edit" ? "Cập nhật hoá đơn thành công." : "Tạo hoá đơn thành công."
       )
 
       setTimeout(() => {
@@ -1548,13 +1548,11 @@ export default function InvoiceCreateForm({
       }
 
       if (status === InvoiceStatus.ISSUED) {
-        showSuccessMessage(responseMessage || "Xuất hóa đơn thành công.")
+        showSuccessMessage("Đã xuất hóa đơn thành công.")
         return
       }
 
-      showSuccessMessage(
-        responseMessage || "Đã gửi yêu cầu xuất hóa đơn. Hệ thống đang xử lý."
-      )
+      return
     } catch (err: any) {
       console.error("EXPORT_M_INVOICE_ERROR", {
         saleTransactionId: initialInvoice._id,
@@ -1595,9 +1593,6 @@ export default function InvoiceCreateForm({
         }
       )
       if (errorStatus === InvoiceStatus.ISSUING) {
-        showSuccessMessage(
-          errorMessage || "Đã gửi yêu cầu xuất hóa đơn. Hệ thống đang xử lý."
-        )
         return
       }
 
@@ -2298,33 +2293,49 @@ export default function InvoiceCreateForm({
               Sửa
             </button>
 
-            {alreadyExported && initialInvoice && onUpdateMInvoice ? (
+            {(alreadyExported ||
+              (isIssuingInvoice &&
+                Boolean(initialInvoice?.inv_invoiceCreatedId))) &&
+            initialInvoice &&
+            onUpdateMInvoice ? (
               <button
                 onClick={() => {
                   void onUpdateMInvoice(initialInvoice)
                 }}
-                disabled={updateMInvoiceLoading}
-                className="rounded border border-blue-500 bg-blue-50 px-5 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={updateMInvoiceLoading || isIssuingInvoice}
+                className="inline-flex items-center justify-center gap-2 rounded border border-blue-500 bg-blue-50 px-5 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {updateMInvoiceLoading
-                  ? "Đang cập nhật..."
-                  : "Cập nhật hóa đơn"}
+                {updateMInvoiceLoading || isIssuingInvoice ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    Đang cập nhật...
+                  </>
+                ) : (
+                  "Cập nhật hóa đơn"
+                )}
               </button>
             ) : (
               <button
                 onClick={openExportInvoiceDateDialog}
-                disabled={exportInvoiceLoading || !canExportInvoice}
-                className="rounded border border-emerald-500 bg-emerald-50 px-5 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={
+                  exportInvoiceLoading || isIssuingInvoice || !canExportInvoice
+                }
+                className="inline-flex items-center justify-center gap-2 rounded border border-emerald-500 bg-emerald-50 px-5 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isCancelledInvoice
-                  ? "Hóa đơn đã hủy"
-                  : alreadyExported
-                    ? "Đã xuất hóa đơn"
-                    : exportInvoiceLoading || isIssuingInvoice
-                      ? "Đang xuất..."
-                      : invoiceStatus === InvoiceStatus.FAILED
-                        ? "Xuất lại hóa đơn"
-                        : "Xuất hóa đơn"}
+                {isCancelledInvoice ? (
+                  "Hóa đơn đã hủy"
+                ) : alreadyExported ? (
+                  "Đã xuất hóa đơn"
+                ) : exportInvoiceLoading || isIssuingInvoice ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    Đang xuất...
+                  </>
+                ) : invoiceStatus === InvoiceStatus.FAILED ? (
+                  "Xuất lại hóa đơn"
+                ) : (
+                  "Xuất hóa đơn"
+                )}
               </button>
             )}
           </>
@@ -2341,9 +2352,16 @@ export default function InvoiceCreateForm({
             <button
               onClick={handleSave}
               disabled={saveLoading}
-              className="rounded bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex min-w-[76px] items-center justify-center rounded bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {saveLoading ? "Đang lưu..." : "Lưu"}
+              {saveLoading ? (
+                <>
+                  <Loader2 size={17} className="animate-spin" />
+                  <span className="sr-only">Đang lưu</span>
+                </>
+              ) : (
+                "Lưu"
+              )}
             </button>
           </>
         ) : (
@@ -2359,9 +2377,16 @@ export default function InvoiceCreateForm({
             <button
               onClick={handleSave}
               disabled={saveLoading}
-              className="rounded bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex min-w-[76px] items-center justify-center rounded bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {saveLoading ? "Đang lưu..." : "Lưu"}
+              {saveLoading ? (
+                <>
+                  <Loader2 size={17} className="animate-spin" />
+                  <span className="sr-only">Đang lưu</span>
+                </>
+              ) : (
+                "Lưu"
+              )}
             </button>
           </>
         )}

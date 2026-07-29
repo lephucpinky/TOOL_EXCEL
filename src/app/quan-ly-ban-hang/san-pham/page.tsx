@@ -562,7 +562,7 @@ export default function ProductPage() {
           icon={<PackageSearch size={24} />}
           eyebrow="Danh mục bán hàng"
           title="Quản lý sản phẩm"
-          description="Quản lý mã sản phẩm, đơn vị tính, số lượng và thông tin thuế."
+          description=""
           tone="amber"
           actions={
             <>

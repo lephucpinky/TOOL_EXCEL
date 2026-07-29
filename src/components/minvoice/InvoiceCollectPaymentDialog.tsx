@@ -1,6 +1,6 @@
 "use client"
 
-import { Banknote, CheckCircle2, X } from "lucide-react"
+import { Banknote, CheckCircle2, Loader2, X } from "lucide-react"
 
 import type { Bank } from "@/types/bank"
 import type { InvoiceApiRow } from "@/types/invoice"
@@ -185,8 +185,17 @@ export default function InvoiceCollectPaymentDialog({
             disabled={saving || loadingBanks || !amountValue || !paidDateValue}
             className="inline-flex h-10 min-w-[120px] items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <CheckCircle2 size={17} />
-            {saving ? "Đang lưu..." : "Xác nhận"}
+            {saving ? (
+              <>
+                <Loader2 size={18} className="animate-spin" />
+                <span className="sr-only">Đang lưu</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 size={17} />
+                Xác nhận
+              </>
+            )}
           </button>
         </div>
       </div>

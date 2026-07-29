@@ -363,7 +363,7 @@ export default function BankPage() {
           icon={<Landmark size={24} />}
           eyebrow="Thanh toán"
           title="Quản lý ngân hàng"
-          description="Quản lý danh sách ngân hàng dùng cho giao dịch và hóa đơn."
+          description=""
           tone="blue"
           actions={
             <>

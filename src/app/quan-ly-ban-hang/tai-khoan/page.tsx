@@ -490,7 +490,7 @@ export default function AccountManagementPage() {
           icon={<UsersRound size={24} />}
           eyebrow="Quản trị hệ thống"
           title="Quản lý tài khoản"
-          description="Theo dõi, cập nhật vai trò và quản lý danh sách tài khoản đăng nhập."
+          description=""
           tone="cyan"
           actions={
             <>

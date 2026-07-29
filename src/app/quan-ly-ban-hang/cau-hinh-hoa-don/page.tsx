@@ -312,7 +312,7 @@ export default function ReceiptInvoiceConfigPage() {
           icon={<Settings2 size={24} />}
           eyebrow="Cấu hình hóa đơn"
           title="Quản lý cấu hình hóa đơn"
-          description="Thiết lập ký hiệu hóa đơn và mã số thuế để áp dụng cho quy trình xuất hóa đơn."
+          description=""
           tone="violet"
           actions={
             <>

@@ -13,7 +13,7 @@ import { jwtDecode } from "jwt-decode"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import type { FormEvent, ReactNode } from "react"
-import { useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import {
   Dialog,
@@ -86,6 +86,7 @@ export default function SalesShell({ children }: { children: ReactNode }) {
     null
   )
   const categoryHoverLockedRef = useRef(false)
+  const categoryMenuListRef = useRef<HTMLDivElement>(null)
 
   const clearCategoryCloseTimer = () => {
     if (categoryCloseTimerRef.current) {
@@ -113,7 +114,7 @@ export default function SalesShell({ children }: { children: ReactNode }) {
 
     categoryCloseTimerRef.current = setTimeout(() => {
       setCategoryMenuOpen(false)
-    }, 180)
+    }, 260)
   }
 
   const closeCategoryMenuImmediately = () => {
@@ -201,6 +202,18 @@ export default function SalesShell({ children }: { children: ReactNode }) {
   }
 
   const categoryActive = categoryNavItems.some(isNavItemActive)
+
+  useEffect(() => {
+    if (!categoryMenuOpen) return
+
+    const scrollTimer = window.setTimeout(() => {
+      categoryMenuListRef.current
+        ?.querySelector<HTMLElement>('[aria-current="page"]')
+        ?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+    }, 80)
+
+    return () => window.clearTimeout(scrollTimer)
+  }, [categoryMenuOpen, pathname])
 
   const resetChangePasswordForm = () => {
     setOldPassword("")
@@ -348,7 +361,7 @@ export default function SalesShell({ children }: { children: ReactNode }) {
                     <ChevronDown
                       size={16}
                       className={cn(
-                        "transition duration-200",
+                        "transition duration-300 ease-out",
                         categoryMenuOpen ? "rotate-180" : "rotate-0"
                       )}
                     />
@@ -361,9 +374,12 @@ export default function SalesShell({ children }: { children: ReactNode }) {
                   onMouseEnter={openCategoryMenu}
                   onMouseLeave={closeCategoryMenu}
                   onCloseAutoFocus={(event) => event.preventDefault()}
-                  className="w-56 overflow-hidden rounded-xl border border-slate-200 bg-white p-2 text-slate-900 shadow-xl shadow-slate-200/70"
+                  className="w-56 overflow-hidden rounded-xl border border-slate-200 bg-white p-2 text-slate-900 shadow-xl shadow-slate-200/70 will-change-transform data-[state=closed]:duration-300 data-[state=open]:duration-200"
                 >
-                  <div className="space-y-1">
+                  <div
+                    ref={categoryMenuListRef}
+                    className="max-h-[calc(100vh-120px)] space-y-1 overflow-y-auto scroll-smooth"
+                  >
                     {categoryNavItems.map((item) => {
                       const active = isNavItemActive(item)
 
@@ -371,10 +387,9 @@ export default function SalesShell({ children }: { children: ReactNode }) {
                         <Link
                           key={item.href}
                           href={item.href}
-                          onPointerDownCapture={closeCategoryMenuImmediately}
                           onClick={closeCategoryMenuImmediately}
                           className={cn(
-                            "flex h-10 items-center rounded-lg px-3 text-sm font-semibold transition",
+                            "flex h-10 items-center rounded-lg px-3 text-sm font-semibold transition duration-200 ease-out",
                             active
                               ? "bg-blue-50 text-blue-700"
                               : "text-slate-700 hover:bg-slate-100 hover:text-slate-950"

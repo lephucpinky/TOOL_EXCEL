@@ -113,7 +113,7 @@ export default function RegisterPage() {
           icon={<UserRoundPlus size={24} />}
           eyebrow="Quản trị hệ thống"
           title="Tạo tài khoản"
-          description="Admin tạo tài khoản đăng nhập mới và phân quyền theo vai trò."
+          description=""
           tone="cyan"
           actions={
             <Link

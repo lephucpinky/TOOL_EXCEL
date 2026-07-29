@@ -96,18 +96,12 @@ export default function InvoiceListPage() {
   const {
     items: apiRows,
     loading: listLoading,
-    detailLoading,
     submitLoading,
     deleteLoading,
   } = useAppSelector((state) => state.saleTransactions)
 
   const [pageLoading, setPageLoading] = useState(false)
-  const loading =
-    pageLoading ||
-    listLoading ||
-    detailLoading ||
-    submitLoading ||
-    deleteLoading
+  const loading = pageLoading || listLoading || submitLoading || deleteLoading
 
   const { page: listPage, limit: listLimit } =
     getUrlPaginationParams(searchParams)
@@ -299,6 +293,22 @@ export default function InvoiceListPage() {
     return apiRows
   }, [apiRows])
 
+  const selectedBulkInvoices = useMemo(() => {
+    const selectedIdSet = new Set(selectedBulkInvoiceIds)
+
+    return listRows.filter((invoice) => selectedIdSet.has(invoice._id))
+  }, [listRows, selectedBulkInvoiceIds])
+  const selectedBulkExportableInvoices = useMemo(() => {
+    return selectedBulkInvoices.filter((invoice) =>
+      invoiceHelper.canStartInvoiceExport(
+        invoiceHelper.getInvoiceStatus(invoice)
+      )
+    )
+  }, [selectedBulkInvoices])
+  const selectedBulkUpdatableInvoices = useMemo(() => {
+    return selectedBulkInvoices.filter(canUpdateMInvoiceRow)
+  }, [selectedBulkInvoices])
+
   useEffect(() => {
     apiRowsRef.current = listRows
   }, [listRows])
@@ -460,7 +470,8 @@ export default function InvoiceListPage() {
   const scheduleInvoiceRefresh = (
     saleTransactionId: string,
     fallback?: InvoiceApiRow | null,
-    jobId?: string
+    jobId?: string,
+    successMessage = "Đã xuất hóa đơn thành công."
   ) => {
     const scheduledIds = issuingSyncQueueRef.current
 
@@ -475,7 +486,7 @@ export default function InvoiceListPage() {
     const isCurrentRefresh = () =>
       issuingSyncVersionRef.current.get(saleTransactionId) === syncVersion
 
-    const refreshIntervals = [3000, 5000, 7000]
+    const refreshIntervals = [3000, 5000, 7000, 10000]
 
     const stopRefresh = () => {
       issuingSyncQueueRef.current.delete(saleTransactionId)
@@ -490,7 +501,7 @@ export default function InvoiceListPage() {
       const status = invoiceHelper.getInvoiceStatus(row)
 
       if (status === InvoiceStatus.ISSUED) {
-        showSuccessMessage(message || "Xuất hóa đơn thành công.")
+        showSuccessMessage(successMessage)
         void syncInvoiceListAfterExport().catch((error) => {
           console.error("FETCH_LIST_AFTER_EXPORT_SUCCESS_ERROR", {
             saleTransactionId,
@@ -503,67 +514,120 @@ export default function InvoiceListPage() {
     }
 
     const runRefresh = (index: number) => {
-      if (index >= refreshIntervals.length) {
-        const currentRow =
-          apiRowsRef.current.find((item) => item._id === saleTransactionId) ||
-          fallback ||
-          null
-        const failedRow = mergeInvoicePaymentState(
-          applyDepartmentOverride({
-            ...(currentRow || ({} as InvoiceApiRow)),
-            _id: saleTransactionId,
-            invoiceStatus: InvoiceStatus.FAILED,
-            invoiceErrorMessage: NO_INVOICE_EXPORT_RESULT_MESSAGE,
-            rawFailedReason: NO_INVOICE_EXPORT_RESULT_MESSAGE,
-            isActive: true,
-            updatedAt: new Date().toISOString(),
-          }),
-          currentRow ? applyDepartmentOverride(currentRow) : currentRow
-        )
-
-        upsertInvoiceRow(failedRow)
-        finish(failedRow, NO_INVOICE_EXPORT_RESULT_MESSAGE)
-        return
-      }
+      const refreshInterval =
+        refreshIntervals[Math.min(index, refreshIntervals.length - 1)]
 
       const timeoutId = setTimeout(() => {
         issuingSyncTimeoutRef.current.delete(saleTransactionId)
 
         if (!isCurrentRefresh()) return
 
-        const statusPromise = jobId
-          ? APIGetMInvoiceReceiptJobStatus(jobId).catch((error) => error)
-          : Promise.resolve(null)
+        const refreshPromise = jobId
+          ? APIGetMInvoiceReceiptJobStatus(jobId).then((jobStatus) => {
+              if (!isCurrentRefresh()) return
 
-        void statusPromise
-          .then(async (jobStatus) => {
-            if (!isCurrentRefresh()) return
+              const jobInvoiceStatus = jobStatus.isSuccess
+                ? InvoiceStatus.ISSUED
+                : jobStatus.isFailed
+                  ? InvoiceStatus.FAILED
+                  : jobStatus.isProcessing
+                    ? InvoiceStatus.ISSUING
+                    : invoiceHelper.normalizeInvoiceStatusValue(
+                        jobStatus.invoiceStatus || jobStatus.jobState
+                      )
 
-            const detailResult = await fetchSaleTransactionDetail(
-              saleTransactionId,
-              fallback
+              if (
+                jobInvoiceStatus !== InvoiceStatus.ISSUED &&
+                jobInvoiceStatus !== InvoiceStatus.FAILED
+              ) {
+                runRefresh(index + 1)
+                return
+              }
+
+              const currentRow =
+                apiRowsRef.current.find(
+                  (item) => item._id === saleTransactionId
+                ) ||
+                fallback ||
+                null
+              const jobErrorMessage = String(
+                jobStatus.invoiceErrorMessage ||
+                  jobStatus.rawFailedReason ||
+                  jobStatus.failedReason ||
+                  ""
+              ).trim()
+              const terminalRow = mergeInvoicePaymentState(
+                applyDepartmentOverride({
+                  ...(currentRow || ({} as InvoiceApiRow)),
+                  _id: saleTransactionId,
+                  jobId: jobStatus.jobId || jobId,
+                  invoiceStatus: jobInvoiceStatus,
+                  inv_invoiceCreatedId:
+                    jobStatus.inv_invoiceCreatedId ||
+                    currentRow?.inv_invoiceCreatedId,
+                  inv_invoiceSeries:
+                    jobStatus.inv_invoiceSeries ||
+                    currentRow?.inv_invoiceSeries,
+                  inv_invoiceIssuedDate:
+                    jobStatus.inv_invoiceIssuedDate ||
+                    currentRow?.inv_invoiceIssuedDate,
+                  orderNumber: jobStatus.orderNumber || currentRow?.orderNumber,
+                  invoiceNumber:
+                    jobStatus.invoiceNumber || currentRow?.invoiceNumber,
+                  invoiceErrorCode:
+                    jobInvoiceStatus === InvoiceStatus.FAILED
+                      ? jobStatus.invoiceErrorCode ||
+                        currentRow?.invoiceErrorCode
+                      : undefined,
+                  invoiceErrorMessage:
+                    jobInvoiceStatus === InvoiceStatus.FAILED
+                      ? jobErrorMessage || NO_INVOICE_EXPORT_RESULT_MESSAGE
+                      : undefined,
+                  rawFailedReason:
+                    jobInvoiceStatus === InvoiceStatus.FAILED
+                      ? jobErrorMessage || NO_INVOICE_EXPORT_RESULT_MESSAGE
+                      : undefined,
+                  isActive: true,
+                  updatedAt: new Date().toISOString(),
+                }),
+                currentRow ? applyDepartmentOverride(currentRow) : currentRow
+              )
+
+              upsertInvoiceRow(terminalRow)
+              finish(
+                terminalRow,
+                jobInvoiceStatus === InvoiceStatus.FAILED
+                  ? jobErrorMessage
+                  : undefined
+              )
+            })
+          : fetchSaleTransactionDetail(saleTransactionId, fallback).then(
+              (detailResult) => {
+                if (!isCurrentRefresh()) return
+
+                const detail = detailResult.detail
+
+                if (!detail) {
+                  runRefresh(index + 1)
+                  return
+                }
+
+                const status = invoiceHelper.getInvoiceStatus(detail)
+
+                if (status !== InvoiceStatus.ISSUING) {
+                  finish(detail)
+                  return
+                }
+
+                runRefresh(index + 1)
+              }
             )
-            const detail = detailResult.detail
 
-            if (!detail) {
-              runRefresh(index + 1)
-              return
-            }
-
-            const status = invoiceHelper.getInvoiceStatus(detail)
-
-            if (status !== InvoiceStatus.ISSUING) {
-              finish(detail, String(jobStatus?.message || "").trim())
-              return
-            }
-
-            runRefresh(index + 1)
-          })
-          .catch(() => {
-            if (!isCurrentRefresh()) return
-            runRefresh(index + 1)
-          })
-      }, refreshIntervals[index])
+        void refreshPromise.catch(() => {
+          if (!isCurrentRefresh()) return
+          runRefresh(index + 1)
+        })
+      }, refreshInterval)
 
       issuingSyncTimeoutRef.current.set(saleTransactionId, timeoutId)
     }
@@ -717,7 +781,14 @@ export default function InvoiceListPage() {
         return
       }
 
-      scheduleInvoiceRefresh(invoice._id, invoice)
+      scheduleInvoiceRefresh(
+        invoice._id,
+        invoice,
+        undefined,
+        invoice.inv_invoiceCreatedId
+          ? "Đã cập nhật hóa đơn thành công."
+          : "Đã xuất hóa đơn thành công."
+      )
     })
   }, [listRows])
 
@@ -885,9 +956,6 @@ export default function InvoiceListPage() {
       setSelectedBulkInvoiceIds([])
       setCopyInvoiceDraft(draft)
       setMode("create")
-      showSuccessMessage(
-        "Đã sao chép dữ liệu hóa đơn. Vui lòng kiểm tra và lưu hóa đơn mới."
-      )
     } catch (error) {
       console.error("APIGetSaleTransactionById copy error:", error)
       showErrorMessage(getErrorMessage(error, "Không thể sao chép hóa đơn."))
@@ -1350,7 +1418,7 @@ export default function InvoiceListPage() {
     saleTransactionId: string,
     response: any,
     fallbackRow?: InvoiceApiRow | null,
-    options?: { openDetail?: boolean }
+    options?: { openDetail?: boolean; successMessage?: string }
   ) => {
     const previousRow =
       fallbackRow ||
@@ -1442,7 +1510,12 @@ export default function InvoiceListPage() {
       )
 
       upsertInvoiceRow(issuingRow)
-      scheduleInvoiceRefresh(saleTransactionId, issuingRow, jobId || undefined)
+      scheduleInvoiceRefresh(
+        saleTransactionId,
+        issuingRow,
+        jobId || undefined,
+        options?.successMessage
+      )
 
       if (options?.openDetail !== false) {
         setSelectedInvoiceId(saleTransactionId)
@@ -1466,7 +1539,12 @@ export default function InvoiceListPage() {
         const status = invoiceHelper.getInvoiceStatus(result.detail)
 
         if (status === InvoiceStatus.ISSUING) {
-          scheduleInvoiceRefresh(saleTransactionId, result.detail, jobId)
+          scheduleInvoiceRefresh(
+            saleTransactionId,
+            result.detail,
+            jobId,
+            options?.successMessage
+          )
 
           if (options?.openDetail !== false) {
             setSelectedInvoiceId(saleTransactionId)
@@ -1691,6 +1769,7 @@ export default function InvoiceListPage() {
         fallbackRow,
         {
           openDetail: false,
+          successMessage: "Đã xuất hóa đơn thành công.",
         }
       )
       const resultSource = exportResult?.source || response
@@ -1715,16 +1794,11 @@ export default function InvoiceListPage() {
 
       if (status === InvoiceStatus.ISSUED) {
         if (!silent) {
-          showSuccessMessage(resultMessage || "Xuất hóa đơn thành công.")
+          showSuccessMessage("Đã xuất hóa đơn thành công.")
         }
         return InvoiceStatus.ISSUED
       }
 
-      if (!silent) {
-        showSuccessMessage(
-          resultMessage || "Đã gửi yêu cầu xuất hóa đơn. Hệ thống đang xử lý."
-        )
-      }
       return InvoiceStatus.ISSUING
     } catch (error) {
       console.error("EXPORT_M_INVOICE_FROM_LIST_ERROR", {
@@ -1812,11 +1886,9 @@ export default function InvoiceListPage() {
         return
       }
 
-      showSuccessMessage(
-        processingCount > 0
-          ? `Đã gửi yêu cầu xuất ${exportRows.length} hóa đơn. Hệ thống đang xử lý.`
-          : `Xuất hóa đơn hàng loạt thành công cho ${issuedCount} hóa đơn.`
-      )
+      if (processingCount === 0) {
+        showSuccessMessage("Đã xuất hóa đơn thành công.")
+      }
     } finally {
       bulkInvoiceActionRef.current = false
       setBulkInvoiceActionLoading(false)
@@ -1913,6 +1985,7 @@ export default function InvoiceListPage() {
         fallbackRow,
         {
           openDetail: false,
+          successMessage: "Đã cập nhật hóa đơn thành công.",
         }
       )
       const resultSource = updateResult?.source || response
@@ -1937,17 +2010,11 @@ export default function InvoiceListPage() {
 
       if (status === InvoiceStatus.ISSUED) {
         if (!silent) {
-          showSuccessMessage(resultMessage || "Cập nhật hóa đơn thành công.")
+          showSuccessMessage("Đã cập nhật hóa đơn thành công.")
         }
         return InvoiceStatus.ISSUED
       }
 
-      if (!silent) {
-        showSuccessMessage(
-          resultMessage ||
-            "Đã gửi yêu cầu cập nhật hóa đơn. Hệ thống đang xử lý."
-        )
-      }
       return InvoiceStatus.ISSUING
     } catch (error) {
       console.error("UPDATE_M_INVOICE_FROM_LIST_ERROR", {
@@ -2030,11 +2097,9 @@ export default function InvoiceListPage() {
         return
       }
 
-      showSuccessMessage(
-        processingCount > 0
-          ? `Đã gửi yêu cầu cập nhật ${updateRows.length} hóa đơn. Hệ thống đang xử lý.`
-          : `Cập nhật hóa đơn hàng loạt thành công cho ${updatedCount} hóa đơn.`
-      )
+      if (processingCount === 0) {
+        showSuccessMessage("Đã cập nhật hóa đơn thành công.")
+      }
     } finally {
       bulkInvoiceActionRef.current = false
       setBulkInvoiceActionLoading(false)
@@ -2080,10 +2145,7 @@ export default function InvoiceListPage() {
       })
 
       const fileUrl = String(
-        res?.fileUrl ||
-          res?.data?.fileUrl ||
-          res?.content?.fileUrl ||
-          ""
+        res?.fileUrl || res?.data?.fileUrl || res?.content?.fileUrl || ""
       ).trim()
 
       if (!fileUrl) {
@@ -2114,7 +2176,7 @@ export default function InvoiceListPage() {
                 icon={<ReceiptText size={24} />}
                 eyebrow="Nghiệp vụ bán hàng"
                 title="Quản lý hóa đơn"
-                description="Theo dõi danh sách hóa đơn, xuất hóa đơn M-Invoice và kiểm tra trạng thái thanh toán."
+                description=""
                 tone="blue"
                 actions={
                   <Link
@@ -2140,10 +2202,22 @@ export default function InvoiceListPage() {
                 onReload={handleReload}
                 onAdd={handleAdd}
                 onBulkImport={handleOpenBulkImport}
-                onDelete={handleDelete}
-                onViewAll={handleReload}
+                onBulkExportInvoice={() =>
+                  void handleBulkExportInvoiceFromList(
+                    selectedBulkExportableInvoices
+                  )
+                }
+                onBulkUpdateMInvoice={() =>
+                  void handleBulkUpdateMInvoiceFromList(
+                    selectedBulkUpdatableInvoices
+                  )
+                }
+                onClearSelection={() => setSelectedBulkInvoiceIds([])}
                 loading={loading}
-                disableDelete={!selectedInvoiceId}
+                bulkActionLoading={bulkInvoiceActionLoading}
+                selectedCount={selectedBulkInvoices.length}
+                exportableCount={selectedBulkExportableInvoices.length}
+                updatableCount={selectedBulkUpdatableInvoices.length}
               />
 
               <InvoiceDataTable
@@ -2160,8 +2234,6 @@ export default function InvoiceListPage() {
                 onCollectPayment={handleOpenCollectPayment}
                 selectedRowIds={selectedBulkInvoiceIds}
                 onSelectedRowIdsChange={setSelectedBulkInvoiceIds}
-                onBulkExportInvoice={handleBulkExportInvoiceFromList}
-                onBulkUpdateMInvoice={handleBulkUpdateMInvoiceFromList}
                 bulkActionLoading={bulkInvoiceActionLoading}
                 pagination={{
                   currentPage: listPage,

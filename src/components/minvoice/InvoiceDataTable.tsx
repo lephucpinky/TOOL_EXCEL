@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import {
   InvoiceApiRow,
@@ -9,6 +9,9 @@ import {
 } from "@/types/invoice"
 import DataTable, { DataTableColumn } from "../common/Datatable"
 import {
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
   Copy,
   FileText,
   HandCoins,
@@ -18,8 +21,31 @@ import {
   SlidersHorizontal,
   X,
 } from "lucide-react"
+import {
+  addMonths,
+  eachDayOfInterval,
+  endOfMonth,
+  endOfWeek,
+  format,
+  isSameDay,
+  isSameMonth,
+  isValid,
+  parseISO,
+  startOfMonth,
+  startOfWeek,
+  subMonths,
+} from "date-fns"
+import { vi } from "date-fns/locale"
+import { AnimatePresence, motion } from "framer-motion"
 import Pagination from "../pagination/Pagination"
 import * as invoiceHelper from "@/utils/invoice"
+import { cn } from "@/lib/utils"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import InvoiceFilterSelect from "./InvoiceFilterSelect"
 import { ToolbarButton } from "./InvoiceToolbar"
 type Props = {
   rows: InvoiceApiRow[]
@@ -35,8 +61,6 @@ type Props = {
   onCollectPayment?: (row: InvoiceApiRow) => void
   selectedRowIds?: string[]
   onSelectedRowIdsChange?: (ids: string[]) => void
-  onBulkExportInvoice?: (rows: InvoiceApiRow[]) => void | Promise<unknown>
-  onBulkUpdateMInvoice?: (rows: InvoiceApiRow[]) => void | Promise<unknown>
   bulkActionLoading?: boolean
   pagination?: {
     currentPage: number
@@ -53,6 +77,172 @@ type InvoiceProductValue =
   | NonNullable<InvoiceApiRow["items"]>[number]["productId"]
   | NonNullable<InvoiceApiRow["items"]>[number]["product"]
 
+type InvoiceDatePickerProps = {
+  id: string
+  value: string
+  onChange: (value: string) => void
+}
+
+const WEEKDAY_LABELS = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"]
+
+function InvoiceDatePicker({ id, value, onChange }: InvoiceDatePickerProps) {
+  const [open, setOpen] = useState(false)
+  const selectedDate = useMemo(() => {
+    if (!value) return null
+
+    const parsedDate = parseISO(value)
+    return isValid(parsedDate) ? parsedDate : null
+  }, [value])
+  const [visibleMonth, setVisibleMonth] = useState(() =>
+    startOfMonth(selectedDate || new Date())
+  )
+  const calendarDays = useMemo(() => {
+    const monthStart = startOfMonth(visibleMonth)
+    const monthEnd = endOfMonth(visibleMonth)
+
+    return eachDayOfInterval({
+      start: startOfWeek(monthStart, { weekStartsOn: 1 }),
+      end: endOfWeek(monthEnd, { weekStartsOn: 1 }),
+    })
+  }, [visibleMonth])
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (nextOpen) {
+      setVisibleMonth(startOfMonth(selectedDate || new Date()))
+    }
+
+    setOpen(nextOpen)
+  }
+
+  const handleSelectDate = (date: Date) => {
+    onChange(format(date, "yyyy-MM-dd"))
+    setOpen(false)
+  }
+
+  const today = new Date()
+
+  return (
+    <Popover open={open} onOpenChange={handleOpenChange} modal={false}>
+      <PopoverTrigger asChild>
+        <button
+          id={id}
+          type="button"
+          className={cn(
+            "group flex h-11 w-full items-center justify-between rounded-lg border border-slate-200 bg-white px-3 text-left text-sm outline-none transition",
+            "hover:border-blue-300 hover:bg-blue-50/40 focus:border-blue-500 focus:ring-2 focus:ring-blue-100",
+            selectedDate ? "font-medium text-slate-800" : "text-slate-400"
+          )}
+        >
+          <span>
+            {selectedDate ? format(selectedDate, "dd/MM/yyyy") : "Chọn ngày"}
+          </span>
+          <span className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-50 text-slate-500 transition group-hover:bg-white group-hover:text-blue-600">
+            <CalendarDays size={17} />
+          </span>
+        </button>
+      </PopoverTrigger>
+
+      <PopoverContent
+        data-invoice-filter-calendar
+        align="start"
+        sideOffset={6}
+        className="z-[1000] w-[320px] overflow-hidden rounded-xl border-slate-200 bg-white p-0 shadow-[0_18px_45px_rgba(15,23,42,0.18)]"
+      >
+        <div className="bg-gradient-to-r flex items-center justify-between border-b border-blue-100 from-blue-50 to-indigo-50 px-4 py-3">
+          <button
+            type="button"
+            onClick={() => setVisibleMonth((month) => subMonths(month, 1))}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 transition hover:bg-white hover:text-blue-700 hover:shadow-sm"
+            aria-label="Tháng trước"
+          >
+            <ChevronLeft size={18} />
+          </button>
+
+          <span className="text-sm font-bold capitalize text-slate-800">
+            {format(visibleMonth, "'Tháng' M, yyyy", { locale: vi })}
+          </span>
+
+          <button
+            type="button"
+            onClick={() => setVisibleMonth((month) => addMonths(month, 1))}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 transition hover:bg-white hover:text-blue-700 hover:shadow-sm"
+            aria-label="Tháng sau"
+          >
+            <ChevronRight size={18} />
+          </button>
+        </div>
+
+        <div className="p-3">
+          <div className="mb-1 grid grid-cols-7">
+            {WEEKDAY_LABELS.map((label) => (
+              <span
+                key={label}
+                className="flex h-8 items-center justify-center text-xs font-semibold text-slate-400"
+              >
+                {label}
+              </span>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-7 gap-y-1">
+            {calendarDays.map((date) => {
+              const isSelected = Boolean(
+                selectedDate && isSameDay(date, selectedDate)
+              )
+              const isToday = isSameDay(date, today)
+              const isCurrentMonth = isSameMonth(date, visibleMonth)
+
+              return (
+                <button
+                  key={format(date, "yyyy-MM-dd")}
+                  type="button"
+                  onClick={() => handleSelectDate(date)}
+                  className={cn(
+                    "mx-auto flex h-9 w-9 items-center justify-center rounded-lg text-sm transition",
+                    isCurrentMonth
+                      ? "text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+                      : "text-slate-300 hover:bg-slate-50",
+                    isToday &&
+                      !isSelected &&
+                      "font-bold text-blue-700 ring-1 ring-inset ring-blue-200",
+                    isSelected &&
+                      "bg-blue-600 font-bold text-white shadow-md shadow-blue-200 hover:bg-blue-700 hover:text-white"
+                  )}
+                  aria-pressed={isSelected}
+                  aria-label={format(date, "dd/MM/yyyy")}
+                >
+                  {format(date, "d")}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/70 px-4 py-3">
+          <button
+            type="button"
+            onClick={() => {
+              onChange("")
+              setOpen(false)
+            }}
+            disabled={!selectedDate}
+            className="text-sm font-semibold text-slate-500 transition hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Xóa ngày
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSelectDate(today)}
+            className="rounded-lg bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
+          >
+            Hôm nay
+          </button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 export default function InvoiceDataTable({
   rows,
   loading = false,
@@ -67,14 +257,13 @@ export default function InvoiceDataTable({
   onCollectPayment,
   selectedRowIds = [],
   onSelectedRowIdsChange,
-  onBulkExportInvoice,
-  onBulkUpdateMInvoice,
   bulkActionLoading = false,
   pagination,
 }: Props) {
   const [keyword, setKeyword] = useState("")
   const [filterOpen, setFilterOpen] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const filterContainerRef = useRef<HTMLDivElement>(null)
 
   const [draftFromDate, setDraftFromDate] = useState("")
   const [draftToDate, setDraftToDate] = useState("")
@@ -358,6 +547,35 @@ export default function InvoiceDataTable({
     setMounted(true)
   }, [])
 
+  useEffect(() => {
+    if (!filterOpen) return
+
+    const handlePointerDownOutside = (event: PointerEvent) => {
+      const target = event.target
+      const isFloatingFilterInteraction =
+        target instanceof Element &&
+        Boolean(
+          target.closest(
+            "[data-invoice-filter-calendar], [data-invoice-filter-select]"
+          )
+        )
+
+      if (
+        target instanceof Node &&
+        !isFloatingFilterInteraction &&
+        !filterContainerRef.current?.contains(target)
+      ) {
+        setFilterOpen(false)
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDownOutside)
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDownOutside)
+    }
+  }, [filterOpen])
+
   const filterToolbarSlot =
     mounted && typeof document !== "undefined"
       ? document.getElementById("invoice-order-filter-toolbar-slot")
@@ -465,24 +683,7 @@ export default function InvoiceDataTable({
   const pageRows = isExternalPagination
     ? filteredRows
     : filteredRows.slice(startIndex, startIndex + effectivePageSize)
-  const selectedRowIdSet = useMemo(
-    () => new Set(selectedRowIds),
-    [selectedRowIds]
-  )
-  const selectedInvoices = useMemo(() => {
-    return rows.filter((invoice) => selectedRowIdSet.has(invoice._id))
-  }, [rows, selectedRowIdSet])
-  const selectedExportableInvoices = useMemo(() => {
-    return selectedInvoices.filter((invoice) =>
-      canStartInvoiceExport(getInvoiceStatus(invoice))
-    )
-  }, [selectedInvoices])
-  const selectedUpdatableInvoices = useMemo(() => {
-    return selectedInvoices.filter(canUpdateMInvoice)
-  }, [selectedInvoices])
-  const enableBulkSelection = Boolean(
-    onSelectedRowIdsChange && (onBulkExportInvoice || onBulkUpdateMInvoice)
-  )
+  const enableBulkSelection = Boolean(onSelectedRowIdsChange)
 
   const summary = useMemo(() => {
     return filteredRows.reduce(
@@ -567,8 +768,29 @@ export default function InvoiceDataTable({
       },
     },
     {
+      key: "orderCreateStatus",
+      title: "Trạng thái tạo",
+      className: "whitespace-nowrap text-center min-w-[130px]",
+      headerClassName: "text-center",
+      render: (invoice) => {
+        const orderCreated = Boolean(String(invoice.orderNumber || "").trim())
+
+        return (
+          <span
+            className={`inline-flex min-w-[90px] justify-center rounded-full border px-2.5 py-1 text-xs font-semibold ${
+              orderCreated
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : "border-slate-200 bg-slate-50 text-slate-600"
+            }`}
+          >
+            {orderCreated ? "Đã tạo" : "Chưa tạo"}
+          </span>
+        )
+      },
+    },
+    {
       key: "exportInvoiceStatus",
-      title: "Trạng thái",
+      title: "Trạng thái xuất HĐ",
       className: "whitespace-nowrap text-center min-w-[140px]",
       headerClassName: "text-center",
       render: (invoice) => {
@@ -710,147 +932,155 @@ export default function InvoiceDataTable({
     <div className="mx-4 flex min-h-0 flex-1 flex-col gap-3 bg-white p-3">
       {filterToolbarSlot &&
         createPortal(
-          <div className="relative">
+          <div ref={filterContainerRef} className="relative">
             <ToolbarButton
               onClick={handleToggleFilter}
               variant={filterOpen || hasActiveFilters ? "primary" : "default"}
               disabled={loading}
             >
               <SlidersHorizontal size={16} />
+              Lọc đơn hàng
             </ToolbarButton>
 
-            {filterOpen && (
-              <div className="absolute left-0 top-[calc(100%+8px)] z-[999] w-[560px] max-w-[calc(100vw-32px)] rounded-lg border border-slate-200 bg-white p-6 shadow-xl">
-                <div className="grid gap-4">
-                  <div className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-center">
-                    <label
-                      htmlFor="invoice-filter-from-date"
-                      className="text-sm font-medium text-slate-700"
-                    >
-                      Từ ngày
-                    </label>
-                    <input
-                      id="invoice-filter-from-date"
-                      type="date"
-                      value={draftFromDate}
-                      onChange={(e) => setDraftFromDate(e.target.value)}
-                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                    />
-                  </div>
+            <AnimatePresence initial={false}>
+              {filterOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6, scale: 0.985 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{
+                    opacity: 0,
+                    y: -4,
+                    scale: 0.985,
+                    transition: { duration: 0.28, ease: "easeInOut" },
+                  }}
+                  transition={{ duration: 0.16, ease: "easeOut" }}
+                  className="absolute left-0 top-[calc(100%+8px)] z-[999] w-[560px] max-w-[calc(100vw-32px)] origin-top-left rounded-lg border border-slate-200 bg-white p-6 shadow-xl"
+                >
+                  <div className="grid gap-4">
+                    <div className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-center">
+                      <label
+                        htmlFor="invoice-filter-from-date"
+                        className="text-sm font-medium text-slate-700"
+                      >
+                        Từ ngày
+                      </label>
+                      <InvoiceDatePicker
+                        id="invoice-filter-from-date"
+                        value={draftFromDate}
+                        onChange={setDraftFromDate}
+                      />
+                    </div>
 
-                  <div className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-center">
-                    <label
-                      htmlFor="invoice-filter-to-date"
-                      className="text-sm font-medium text-slate-700"
-                    >
-                      Đến ngày
-                    </label>
-                    <input
-                      id="invoice-filter-to-date"
-                      type="date"
-                      value={draftToDate}
-                      onChange={(e) => setDraftToDate(e.target.value)}
-                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                    />
-                  </div>
+                    <div className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-center">
+                      <label
+                        htmlFor="invoice-filter-to-date"
+                        className="text-sm font-medium text-slate-700"
+                      >
+                        Đến ngày
+                      </label>
+                      <InvoiceDatePicker
+                        id="invoice-filter-to-date"
+                        value={draftToDate}
+                        onChange={setDraftToDate}
+                      />
+                    </div>
 
-                  <div className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-center">
-                    <label
-                      htmlFor="invoice-filter-export-status"
-                      className="text-sm font-medium text-slate-700"
-                    >
-                      Trạng thái xuất hóa đơn
-                    </label>
-                    <select
-                      id="invoice-filter-export-status"
-                      value={draftExportStatusFilter}
-                      onChange={(e) =>
-                        setDraftExportStatusFilter(e.target.value)
-                      }
-                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                    >
-                      <option value="">Tất cả</option>
-                      <option value={InvoiceStatus.DRAFT}>Nháp</option>
-                      <option value={InvoiceStatus.ISSUING}>
-                        Đang xuất hóa đơn
-                      </option>
-                      <option value={InvoiceStatus.ISSUED}>
-                        Đã xuất hóa đơn
-                      </option>
-                      <option value={InvoiceStatus.FAILED}>
-                        Xuất thất bại
-                      </option>
-                      <option value={InvoiceStatus.CANCELLED}>Đã hủy</option>
-                    </select>
-                  </div>
+                    <div className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-center">
+                      <label
+                        htmlFor="invoice-filter-export-status"
+                        className="text-sm font-medium text-slate-700"
+                      >
+                        Trạng thái xuất hóa đơn
+                      </label>
+                      <InvoiceFilterSelect
+                        id="invoice-filter-export-status"
+                        value={draftExportStatusFilter}
+                        onChange={setDraftExportStatusFilter}
+                        options={[
+                          { value: "", label: "Tất cả" },
+                          { value: InvoiceStatus.DRAFT, label: "Nháp" },
+                          {
+                            value: InvoiceStatus.ISSUING,
+                            label: "Đang xuất hóa đơn",
+                          },
+                          {
+                            value: InvoiceStatus.ISSUED,
+                            label: "Đã xuất hóa đơn",
+                          },
+                          {
+                            value: InvoiceStatus.FAILED,
+                            label: "Xuất thất bại",
+                          },
+                          {
+                            value: InvoiceStatus.CANCELLED,
+                            label: "Đã hủy",
+                          },
+                        ]}
+                      />
+                    </div>
 
-                  <div className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-center">
-                    <label
-                      htmlFor="invoice-filter-order-status"
-                      className="text-sm font-medium text-slate-700"
-                    >
-                      Trạng thái tạo đơn hàng
-                    </label>
-                    <select
-                      id="invoice-filter-order-status"
-                      value={draftOrderCreateFilter}
-                      onChange={(e) =>
-                        setDraftOrderCreateFilter(e.target.value)
-                      }
-                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                    >
-                      <option value="">Tất cả</option>
-                      <option value="created">Đã tạo đơn hàng</option>
-                      <option value="not_created">Chưa tạo đơn hàng</option>
-                    </select>
-                  </div>
+                    <div className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-center">
+                      <label
+                        htmlFor="invoice-filter-order-status"
+                        className="text-sm font-medium text-slate-700"
+                      >
+                        Trạng thái tạo đơn hàng
+                      </label>
+                      <InvoiceFilterSelect
+                        id="invoice-filter-order-status"
+                        value={draftOrderCreateFilter}
+                        onChange={setDraftOrderCreateFilter}
+                        options={[
+                          { value: "", label: "Tất cả" },
+                          { value: "created", label: "Đã tạo đơn hàng" },
+                          { value: "not_created", label: "Chưa tạo đơn hàng" },
+                        ]}
+                      />
+                    </div>
 
-                  <div className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-center">
-                    <label
-                      htmlFor="invoice-filter-agency"
-                      className="text-sm font-medium text-slate-700"
-                    >
-                      Đại lý
-                    </label>
-                    <select
-                      id="invoice-filter-agency"
-                      value={draftAgencyFilter}
-                      onChange={(e) => setDraftAgencyFilter(e.target.value)}
-                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                    >
-                      <option value="">Tất cả đại lý</option>
-                      {agencyOptions.map((agency) => (
-                        <option key={agency.value} value={agency.value}>
-                          {agency.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                    <div className="grid gap-2 sm:grid-cols-[170px_1fr] sm:items-center">
+                      <label
+                        htmlFor="invoice-filter-agency"
+                        className="text-sm font-medium text-slate-700"
+                      >
+                        Đại lý
+                      </label>
+                      <InvoiceFilterSelect
+                        id="invoice-filter-agency"
+                        value={draftAgencyFilter}
+                        onChange={setDraftAgencyFilter}
+                        options={[
+                          { value: "", label: "Tất cả đại lý" },
+                          ...agencyOptions,
+                        ]}
+                      />
+                    </div>
 
-                  <div className="flex flex-wrap items-center gap-2 sm:pl-[170px]">
-                    <button
-                      type="button"
-                      onClick={handleApplyFilters}
-                      className="inline-flex h-11 items-center justify-center rounded-lg bg-blue-600 px-5 text-sm font-semibold text-white transition hover:bg-blue-700"
-                    >
-                      Lọc
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2 sm:pl-[170px]">
+                      <button
+                        type="button"
+                        onClick={handleApplyFilters}
+                        className="inline-flex h-11 items-center justify-center rounded-lg bg-blue-600 px-5 text-sm font-semibold text-white transition hover:bg-blue-700"
+                      >
+                        Lọc
+                      </button>
 
-                    <button
-                      type="button"
-                      onClick={handleClearFilters}
-                      className="inline-flex h-11 items-center justify-center rounded-lg bg-red-700 px-5 text-sm font-semibold text-white transition hover:bg-red-800"
-                    >
-                      Xóa lọc
-                    </button>
-                  </div>
+                      <button
+                        type="button"
+                        onClick={handleClearFilters}
+                        className="inline-flex h-11 items-center justify-center rounded-lg bg-red-700 px-5 text-sm font-semibold text-white transition hover:bg-red-800"
+                      >
+                        Xóa lọc
+                      </button>
+                    </div>
 
-                  <div className="text-sm font-bold text-blue-700 sm:pl-[170px]">
-                    Tổng đơn hàng: {filteredRows.length}
+                    <div className="text-sm font-bold text-blue-700 sm:pl-[170px]">
+                      Tổng đơn hàng: {filteredRows.length}
+                    </div>
                   </div>
-                </div>
-              </div>
-            )}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>,
           filterToolbarSlot
         )}
@@ -886,66 +1116,6 @@ export default function InvoiceDataTable({
           </div>
         </div>
       </div>
-
-      {selectedInvoices.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-sm">
-          <span className="font-semibold text-blue-800">
-            Đã chọn {selectedInvoices.length} hóa đơn
-          </span>
-
-          <button
-            type="button"
-            onClick={() =>
-              void onBulkExportInvoice?.(selectedExportableInvoices)
-            }
-            disabled={
-              loading ||
-              bulkActionLoading ||
-              !onBulkExportInvoice ||
-              selectedExportableInvoices.length === 0
-            }
-            className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-amber-200 bg-white px-3 text-sm font-semibold text-amber-700 shadow-sm transition hover:border-amber-400 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {bulkActionLoading ? (
-              <Loader2 size={15} className="animate-spin" />
-            ) : (
-              <FileText size={15} />
-            )}
-            Xuất HĐ ({selectedExportableInvoices.length})
-          </button>
-
-          <button
-            type="button"
-            onClick={() =>
-              void onBulkUpdateMInvoice?.(selectedUpdatableInvoices)
-            }
-            disabled={
-              loading ||
-              bulkActionLoading ||
-              !onBulkUpdateMInvoice ||
-              selectedUpdatableInvoices.length === 0
-            }
-            className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-blue-200 bg-white px-3 text-sm font-semibold text-blue-700 shadow-sm transition hover:border-blue-400 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {bulkActionLoading ? (
-              <Loader2 size={15} className="animate-spin" />
-            ) : (
-              <RefreshCw size={15} />
-            )}
-            Cập nhật HĐ ({selectedUpdatableInvoices.length})
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onSelectedRowIdsChange?.([])}
-            disabled={loading || bulkActionLoading}
-            className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <X size={15} />
-            Bỏ chọn
-          </button>
-        </div>
-      )}
 
       <DataTable<InvoiceApiRow>
         data={pageRows}

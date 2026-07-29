@@ -509,6 +509,10 @@ export function DataTable<T>({
                       rowIndex % 2 === 0
                         ? "bg-white group-hover:bg-blue-50"
                         : "bg-slate-50/60 group-hover:bg-blue-50"
+                    const stickyRowBg =
+                      rowIndex % 2 === 0
+                        ? "bg-white group-hover:bg-blue-50"
+                        : "bg-slate-50 group-hover:bg-blue-50"
 
                     return (
                       <TableRow className="group text-center" key={rowKey}>
@@ -518,7 +522,7 @@ export function DataTable<T>({
                               leftStickyCover,
                               selectionColWidth,
                               "sticky left-0 z-30 border-b border-slate-100 px-3 py-3 text-center align-middle transition-colors",
-                              rowBg
+                              stickyRowBg
                             )}
                           >
                             <div className="relative z-10 flex items-center justify-center">
@@ -549,7 +553,10 @@ export function DataTable<T>({
                               key={column.key}
                               className={cn(
                                 "border-b border-slate-100 px-3 py-3 align-middle text-slate-700 transition-colors",
-                                rowBg,
+                                isFirstColumn ||
+                                  (!hasActions && isLastDataColumn)
+                                  ? stickyRowBg
+                                  : rowBg,
                                 isFirstColumn && leftStickyCover,
                                 isFirstColumn && firstColWidth,
                                 isFirstColumn && firstDataColumnLeft,
