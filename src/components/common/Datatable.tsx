@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type MouseEvent,
+  type PointerEvent,
   type ReactNode,
   type WheelEvent,
 } from "react"
@@ -24,9 +25,12 @@ import { cn } from "@/lib/utils"
 import SkeletonTable from "../skeleton/SkeletonTable"
 import Pagination from "../pagination/Pagination"
 
+const DEFAULT_PAGE_SIZE_OPTIONS = [10, 50, 100, 200, 300]
+
 export interface DataTableColumn<T> {
   key: string
   title: React.ReactNode
+  filter?: React.ReactNode
   render?: (item: T, index: number) => ReactNode
   className?: string
   headerClassName?: string
@@ -143,6 +147,7 @@ export function DataTable<T>({
 }: DataTableProps<T>) {
   const hasActions = Boolean(onView || onEdit || onDelete || renderActions)
   const hasSelection = Boolean(selectable && onSelectedRowKeysChange)
+  const hasColumnFilters = columns.some((column) => Boolean(column.filter))
   const hasToolbar = Boolean(
     titleTable || children || onClickAddNew || showExportButton
   )
@@ -163,22 +168,10 @@ export function DataTable<T>({
     (pagination && pagination !== true
       ? (pagination.initialPageSize ?? 10)
       : 10)
-  const pageSizeOptions = useMemo(() => {
-    if (
-      pagination &&
-      pagination !== true &&
-      pagination.pageSizeOptions?.length
-    ) {
-      return pagination.pageSizeOptions
-    }
-
-    return [10, 50, 100, 200, 300]
-  }, [
-    pagination,
-    pagination && pagination !== true
-      ? pagination.pageSizeOptions?.join(",")
-      : "10,50,100,200,300",
-  ])
+  const pageSizeOptions =
+    pagination && pagination !== true && pagination.pageSizeOptions?.length
+      ? pagination.pageSizeOptions
+      : DEFAULT_PAGE_SIZE_OPTIONS
 
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(initialPageSize)
@@ -262,54 +255,106 @@ export function DataTable<T>({
   }
 
   const tableScrollRef = useRef<HTMLDivElement | null>(null)
+  const isTableDragCandidateRef = useRef(false)
   const isTableDraggingRef = useRef(false)
   const dragStartXRef = useRef(0)
   const dragStartScrollLeftRef = useRef(0)
   const dragMovedRef = useRef(false)
+  const dragPointerIdRef = useRef<number | null>(null)
+  const pendingScrollLeftRef = useRef(0)
+  const dragAnimationFrameRef = useRef<number | null>(null)
 
   const isInteractiveTarget = (target: EventTarget | null) => {
     if (!(target instanceof HTMLElement)) return false
 
     return Boolean(
-      target.closest("button,a,input,select,textarea,[role='button']")
+      target.closest(
+        "button,a,input,select,textarea,[role='button'],[data-table-copyable]"
+      )
     )
   }
 
   const stopTableDrag = () => {
+    const scrollElement = tableScrollRef.current
+
+    if (
+      isTableDraggingRef.current &&
+      dragAnimationFrameRef.current !== null &&
+      scrollElement
+    ) {
+      scrollElement.scrollLeft = pendingScrollLeftRef.current
+    }
+
+    isTableDragCandidateRef.current = false
     isTableDraggingRef.current = false
+    dragPointerIdRef.current = null
+
+    if (dragAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(dragAnimationFrameRef.current)
+      dragAnimationFrameRef.current = null
+    }
 
     tableScrollRef.current?.classList.remove("cursor-grabbing", "select-none")
   }
 
-  const handleTableMouseDown = (event: MouseEvent<HTMLDivElement>) => {
+  const handleTablePointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return
+    if (event.pointerType !== "mouse") return
     if (isInteractiveTarget(event.target)) return
 
     const scrollElement = tableScrollRef.current
     if (!scrollElement) return
 
-    isTableDraggingRef.current = true
+    isTableDragCandidateRef.current = true
+    isTableDraggingRef.current = false
     dragMovedRef.current = false
+    dragPointerIdRef.current = event.pointerId
     dragStartXRef.current = event.clientX
     dragStartScrollLeftRef.current = scrollElement.scrollLeft
-
-    scrollElement.classList.add("cursor-grabbing", "select-none")
   }
 
-  const handleTableMouseMove = (event: MouseEvent<HTMLDivElement>) => {
-    if (!isTableDraggingRef.current) return
+  const handleTablePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (!isTableDragCandidateRef.current) return
+    if (event.pointerId !== dragPointerIdRef.current) return
 
     const scrollElement = tableScrollRef.current
     if (!scrollElement) return
 
     const distance = event.clientX - dragStartXRef.current
 
-    if (Math.abs(distance) > 4) {
+    if (!isTableDraggingRef.current) {
+      if (Math.abs(distance) <= 6) return
+
+      isTableDraggingRef.current = true
       dragMovedRef.current = true
+      scrollElement.setPointerCapture(event.pointerId)
+      scrollElement.classList.add("cursor-grabbing", "select-none")
     }
 
-    scrollElement.scrollLeft = dragStartScrollLeftRef.current - distance
+    pendingScrollLeftRef.current = dragStartScrollLeftRef.current - distance
+
+    if (dragAnimationFrameRef.current === null) {
+      dragAnimationFrameRef.current = window.requestAnimationFrame(() => {
+        scrollElement.scrollLeft = pendingScrollLeftRef.current
+        dragAnimationFrameRef.current = null
+      })
+    }
+
     event.preventDefault()
+  }
+
+  const handleTablePointerUp = (event: PointerEvent<HTMLDivElement>) => {
+    const scrollElement = tableScrollRef.current
+
+    if (scrollElement?.hasPointerCapture(event.pointerId)) {
+      scrollElement.releasePointerCapture(event.pointerId)
+    }
+
+    stopTableDrag()
+
+    window.setTimeout(() => {
+      dragMovedRef.current = false
+    }, 0)
   }
 
   const handleTableClickCapture = (event: MouseEvent<HTMLDivElement>) => {
@@ -327,6 +372,14 @@ export function DataTable<T>({
 
     tableScrollRef.current.scrollLeft += event.deltaY
   }
+
+  useEffect(() => {
+    return () => {
+      if (dragAnimationFrameRef.current !== null) {
+        window.cancelAnimationFrame(dragAnimationFrameRef.current)
+      }
+    }
+  }, [])
   useEffect(() => {
     if (isExternalPagination) return
 
@@ -416,15 +469,18 @@ export function DataTable<T>({
         <div className="rounded-md">
           <div
             ref={tableScrollRef}
-            onMouseDown={handleTableMouseDown}
-            onMouseMove={handleTableMouseMove}
-            onMouseUp={stopTableDrag}
-            onMouseLeave={stopTableDrag}
+            onPointerDown={handleTablePointerDown}
+            onPointerMove={handleTablePointerMove}
+            onPointerUp={handleTablePointerUp}
+            onPointerCancel={handleTablePointerUp}
+            onPointerLeave={() => {
+              if (!isTableDraggingRef.current) stopTableDrag()
+            }}
             onClickCapture={handleTableClickCapture}
             onWheel={handleTableWheel}
             className={cn(
               "relative isolate max-h-[600px] cursor-grab overflow-auto rounded-md",
-              "overscroll-contain scroll-smooth",
+              "overscroll-contain [&_[data-table-copyable]]:cursor-text [&_[data-table-copyable]]:select-text",
               "[scrollbar-width:thin]",
               "[scrollbar-color:#cbd5e1_transparent]",
               "[&::-webkit-scrollbar]:h-2",
@@ -479,7 +535,12 @@ export function DataTable<T>({
                           column.headerClassName
                         )}
                       >
-                        <span className="relative z-10">{column.title}</span>
+                        <span
+                          data-table-copyable
+                          className="relative z-10 select-text"
+                        >
+                          {column.title}
+                        </span>
                       </TableHead>
                     )
                   })}
@@ -496,6 +557,58 @@ export function DataTable<T>({
                     </TableHead>
                   )}
                 </TableRow>
+
+                {hasColumnFilters && (
+                  <TableRow className="hover:bg-transparent">
+                    {hasSelection && (
+                      <TableHead
+                        className={cn(
+                          leftStickyCover,
+                          selectionColWidth,
+                          "sticky left-0 top-10 z-40 h-16 border-b border-slate-200 bg-slate-50 p-2"
+                        )}
+                      >
+                        <div className="h-11" />
+                      </TableHead>
+                    )}
+
+                    {columns.map((column, index) => {
+                      const isFirstColumn = index === 0
+                      const isLastDataColumn = index === columns.length - 1
+
+                      return (
+                        <TableHead
+                          key={`${column.key}-filter`}
+                          className={cn(
+                            "sticky top-10 z-20 h-16 border-b border-slate-200 bg-slate-50 p-2 font-normal text-slate-700",
+                            isFirstColumn && leftStickyCover,
+                            isFirstColumn && firstColWidth,
+                            isFirstColumn && firstDataColumnLeft,
+                            isFirstColumn && "z-30",
+                            !hasActions && isLastDataColumn && rightStickyCover,
+                            !hasActions && isLastDataColumn && "right-0 z-50"
+                          )}
+                        >
+                          <div className="relative z-10">
+                            {column.filter ?? <div className="h-11" />}
+                          </div>
+                        </TableHead>
+                      )
+                    })}
+
+                    {hasActions && (
+                      <TableHead
+                        className={cn(
+                          rightStickyCover,
+                          actionColWidth,
+                          "sticky right-0 top-10 z-[80] h-16 border-b border-slate-200 bg-slate-50 p-2"
+                        )}
+                      >
+                        <div className="h-11" />
+                      </TableHead>
+                    )}
+                  </TableRow>
+                )}
               </TableHeader>
 
               <TableBody>
@@ -507,7 +620,7 @@ export function DataTable<T>({
                       !isRowSelectable || isRowSelectable(item)
                     const rowBg =
                       rowIndex % 2 === 0
-                        ? "bg-white group-hover:bg-blue-50"
+                        ? "bg-White group-hover:bg-blue-50"
                         : "bg-slate-50/60 group-hover:bg-blue-50"
                     const stickyRowBg =
                       rowIndex % 2 === 0
@@ -573,7 +686,10 @@ export function DataTable<T>({
                             >
                               {isFirstColumn ||
                               (!hasActions && isLastDataColumn) ? (
-                                <div className="relative z-10">
+                                <div
+                                  data-table-copyable
+                                  className="relative z-10 inline-block max-w-full select-text"
+                                >
                                   {column.render
                                     ? column.render(item, rowIndex)
                                     : String(
@@ -582,14 +698,19 @@ export function DataTable<T>({
                                         ] ?? ""
                                       )}
                                 </div>
-                              ) : column.render ? (
-                                column.render(item, rowIndex)
                               ) : (
-                                String(
-                                  (item as Record<string, unknown>)[
-                                    column.key
-                                  ] ?? ""
-                                )
+                                <div
+                                  data-table-copyable
+                                  className="inline-block max-w-full select-text"
+                                >
+                                  {column.render
+                                    ? column.render(item, rowIndex)
+                                    : String(
+                                        (item as Record<string, unknown>)[
+                                          column.key
+                                        ] ?? ""
+                                      )}
+                                </div>
                               )}
                             </TableCell>
                           )

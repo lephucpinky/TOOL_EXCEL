@@ -7,11 +7,8 @@ import {
   InvoicePaymentStatus,
   InvoiceStatus,
 } from "@/types/invoice"
-import DataTable, { DataTableColumn } from "../common/Datatable"
+import { DataTable, type DataTableColumn } from "../common/Datatable"
 import {
-  CalendarDays,
-  ChevronLeft,
-  ChevronRight,
   Copy,
   FileText,
   HandCoins,
@@ -21,31 +18,12 @@ import {
   SlidersHorizontal,
   X,
 } from "lucide-react"
-import {
-  addMonths,
-  eachDayOfInterval,
-  endOfMonth,
-  endOfWeek,
-  format,
-  isSameDay,
-  isSameMonth,
-  isValid,
-  parseISO,
-  startOfMonth,
-  startOfWeek,
-  subMonths,
-} from "date-fns"
-import { vi } from "date-fns/locale"
 import { AnimatePresence, motion } from "framer-motion"
 import Pagination from "../pagination/Pagination"
 import * as invoiceHelper from "@/utils/invoice"
 import { cn } from "@/lib/utils"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
 import InvoiceFilterSelect from "./InvoiceFilterSelect"
+import InvoiceDatePicker from "./InvoiceFilterDatePicker"
 import { ToolbarButton } from "./InvoiceToolbar"
 type Props = {
   rows: InvoiceApiRow[]
@@ -77,169 +55,318 @@ type InvoiceProductValue =
   | NonNullable<InvoiceApiRow["items"]>[number]["productId"]
   | NonNullable<InvoiceApiRow["items"]>[number]["product"]
 
-type InvoiceDatePickerProps = {
+type InvoiceColumnFilterKey =
+  | "createdAt"
+  | "activationDate"
+  | "invoiceNumber"
+  | "inv_invoiceIssuedDate"
+  | "orderCreateStatus"
+  | "exportInvoiceStatus"
+  | "agencyId"
+  | "inv_buyerTaxCode"
+  | "companyName"
+  | "orderNumber"
+  | "productName"
+  | "inv_TotalAmountWithoutVAT"
+  | "inv_TotalAmount"
+  | "paid"
+  | "paidDate"
+  | "amountCollected"
+  | "paidAmount"
+
+type InvoiceColumnFilters = Record<InvoiceColumnFilterKey, string>
+
+type InvoiceColumnFilterControlProps = {
   id: string
+  label: string
   value: string
+  appliedValue: string
   onChange: (value: string) => void
+  onApply: (value: string) => void
+  inputType?: "text" | "date"
+  options?: { value: string; label: string }[]
 }
 
-const WEEKDAY_LABELS = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"]
+const createEmptyColumnFilters = (): InvoiceColumnFilters => ({
+  createdAt: "",
+  activationDate: "",
+  invoiceNumber: "",
+  inv_invoiceIssuedDate: "",
+  orderCreateStatus: "",
+  exportInvoiceStatus: "",
+  agencyId: "",
+  inv_buyerTaxCode: "",
+  companyName: "",
+  orderNumber: "",
+  productName: "",
+  inv_TotalAmountWithoutVAT: "",
+  inv_TotalAmount: "",
+  paid: "",
+  paidDate: "",
+  amountCollected: "",
+  paidAmount: "",
+})
 
-function InvoiceDatePicker({ id, value, onChange }: InvoiceDatePickerProps) {
-  const [open, setOpen] = useState(false)
-  const selectedDate = useMemo(() => {
-    if (!value) return null
+function normalizeFilterText(value: unknown) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+}
 
-    const parsedDate = parseISO(value)
-    return isValid(parsedDate) ? parsedDate : null
-  }, [value])
-  const [visibleMonth, setVisibleMonth] = useState(() =>
-    startOfMonth(selectedDate || new Date())
+const MONEY_FORMATTER = new Intl.NumberFormat("vi-VN")
+const EXACT_MATCH_COLUMN_KEYS = new Set<InvoiceColumnFilterKey>([
+  "createdAt",
+  "activationDate",
+  "inv_invoiceIssuedDate",
+  "orderCreateStatus",
+  "exportInvoiceStatus",
+  "paid",
+  "paidDate",
+])
+
+function getInvoiceStatusDisplayLabel(invoice: InvoiceApiRow) {
+  return (
+    String(invoice.invoiceStatusVi || "").trim() ||
+    invoiceHelper.invoiceStatusLabel[invoiceHelper.getInvoiceStatus(invoice)]
   )
-  const calendarDays = useMemo(() => {
-    const monthStart = startOfMonth(visibleMonth)
-    const monthEnd = endOfMonth(visibleMonth)
+}
 
-    return eachDayOfInterval({
-      start: startOfWeek(monthStart, { weekStartsOn: 1 }),
-      end: endOfWeek(monthEnd, { weekStartsOn: 1 }),
-    })
-  }, [visibleMonth])
+function getMInvoiceCreatedId(invoice?: InvoiceApiRow | null) {
+  return String(invoice?.inv_invoiceCreatedId || "").trim()
+}
 
-  const handleOpenChange = (nextOpen: boolean) => {
-    if (nextOpen) {
-      setVisibleMonth(startOfMonth(selectedDate || new Date()))
-    }
+function canViewMInvoicePdf(invoice: InvoiceApiRow) {
+  return (
+    invoiceHelper.getInvoiceStatus(invoice) === InvoiceStatus.ISSUED &&
+    Boolean(getMInvoiceCreatedId(invoice))
+  )
+}
 
-    setOpen(nextOpen)
-  }
-
-  const handleSelectDate = (date: Date) => {
-    onChange(format(date, "yyyy-MM-dd"))
-    setOpen(false)
-  }
-
-  const today = new Date()
+function canUpdateMInvoice(invoice: InvoiceApiRow) {
+  const invoiceNumber = Number(invoice.invoiceNumber)
 
   return (
-    <Popover open={open} onOpenChange={handleOpenChange} modal={false}>
-      <PopoverTrigger asChild>
-        <button
-          id={id}
-          type="button"
-          className={cn(
-            "group flex h-11 w-full items-center justify-between rounded-lg border border-slate-200 bg-white px-3 text-left text-sm outline-none transition",
-            "hover:border-blue-300 hover:bg-blue-50/40 focus:border-blue-500 focus:ring-2 focus:ring-blue-100",
-            selectedDate ? "font-medium text-slate-800" : "text-slate-400"
-          )}
-        >
-          <span>
-            {selectedDate ? format(selectedDate, "dd/MM/yyyy") : "Chọn ngày"}
-          </span>
-          <span className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-50 text-slate-500 transition group-hover:bg-white group-hover:text-blue-600">
-            <CalendarDays size={17} />
-          </span>
-        </button>
-      </PopoverTrigger>
+    canViewMInvoicePdf(invoice) &&
+    Number.isFinite(invoiceNumber) &&
+    invoiceNumber > 0
+  )
+}
 
-      <PopoverContent
-        data-invoice-filter-calendar
-        align="start"
-        sideOffset={6}
-        className="z-[1000] w-[320px] overflow-hidden rounded-xl border-slate-200 bg-white p-0 shadow-[0_18px_45px_rgba(15,23,42,0.18)]"
+function getAgencyName(value: InvoiceApiRow["agencyId"]) {
+  if (!value || typeof value === "string") return ""
+  return String(value.agencyName || "")
+}
+
+function getDepartmentName(value: InvoiceApiRow["departmentId"]) {
+  if (!value || typeof value === "string") return ""
+  return String(value.departmentName || "")
+}
+
+function getEmployeeName(value: InvoiceApiRow["employeeId"]) {
+  if (!value || typeof value === "string") return ""
+  return String(value.employeeName || "")
+}
+
+function hasDisplayValue(value: unknown) {
+  return value !== undefined && value !== null && String(value).trim() !== ""
+}
+
+function formatDisplayDate(value?: string | null) {
+  const normalizedDate = invoiceHelper.normalizeDateInput(value || "")
+
+  if (normalizedDate) {
+    const [year, month, day] = normalizedDate.split("-")
+    return `${day}/${month}/${year}`
+  }
+
+  return "-"
+}
+
+function getPositivePercent(value: unknown) {
+  if (!hasDisplayValue(value)) return null
+
+  const numericValue = invoiceHelper.toNumber(value)
+  return numericValue > 0 ? numericValue : null
+}
+
+function getInvoiceDiscountPercentage(invoice: InvoiceApiRow) {
+  const itemWithDiscount = invoice.items?.find((item) =>
+    getPositivePercent(item.discountPercentage)
+  )
+
+  if (itemWithDiscount) {
+    return getPositivePercent(itemWithDiscount.discountPercentage) || 0
+  }
+
+  const invoiceDiscountPercentage = getPositivePercent(
+    invoice.inv_discountPercentage
+  )
+
+  if (invoiceDiscountPercentage !== null) return invoiceDiscountPercentage
+
+  if (hasDisplayValue(invoice.inv_discountPercentage)) {
+    return invoiceHelper.toNumber(invoice.inv_discountPercentage)
+  }
+
+  if (invoice.agencyId && typeof invoice.agencyId === "object") {
+    const agencyDiscountPercentage = getPositivePercent(
+      invoice.agencyId.commissionPercent
+    )
+
+    if (agencyDiscountPercentage !== null) return agencyDiscountPercentage
+  }
+
+  const firstItemDiscountPercentage = invoice.items?.find((item) =>
+    hasDisplayValue(item.discountPercentage)
+  )?.discountPercentage
+
+  return hasDisplayValue(firstItemDiscountPercentage)
+    ? invoiceHelper.toNumber(firstItemDiscountPercentage)
+    : 0
+}
+
+function getInvoiceMinvoiceRevenue(invoice: InvoiceApiRow) {
+  const discountPercentage = getInvoiceDiscountPercentage(invoice)
+  const totalAmount = invoiceHelper.toNumber(invoice.inv_TotalAmount)
+
+  if (totalAmount > 0) {
+    return invoiceHelper.roundInvoiceMoney(
+      (totalAmount * discountPercentage) / 100
+    )
+  }
+
+  return (
+    invoice.items?.reduce(
+      (sum, item) => sum + invoiceHelper.toNumber(item.revenue),
+      0
+    ) || 0
+  )
+}
+
+function getProductCode(product: InvoiceProductValue) {
+  if (!product || typeof product === "string") return ""
+  return String(product.inv_itemCode || "")
+}
+
+function getProductName(product: InvoiceProductValue) {
+  if (!product || typeof product === "string") return ""
+  return String(product.inv_itemName || "")
+}
+
+function getInvoiceExportedAmount(invoice: InvoiceApiRow) {
+  if (invoiceHelper.getInvoiceStatus(invoice) !== InvoiceStatus.ISSUED) return 0
+  return invoiceHelper.toNumber(invoice.inv_TotalAmount)
+}
+
+function getInvoicePaymentState(invoice: InvoiceApiRow) {
+  const totalAmount = invoiceHelper.toNumber(invoice.inv_TotalAmount)
+  const exportedAmount = getInvoiceExportedAmount(invoice)
+  const rawCollected = Math.max(
+    invoiceHelper.toNumber(invoice.amountCollected),
+    invoiceHelper.toNumber(invoice.paidAmount)
+  )
+  const isPaidFromApi =
+    invoice.isPaid === true ||
+    invoice.paymentStatus === InvoicePaymentStatus.PAID
+  const isCollectedFromApi =
+    isPaidFromApi || invoice.paymentStatus === InvoicePaymentStatus.PARTIAL
+  const actualPaidAmount =
+    isPaidFromApi && rawCollected <= 0 ? totalAmount : Math.max(rawCollected, 0)
+  const rawSuggestedPaidAmount = invoiceHelper.toNumber(
+    invoice.suggestedAmountCollected
+  )
+  const suggestedPaidAmount =
+    rawSuggestedPaidAmount > 0 ? rawSuggestedPaidAmount : exportedAmount
+  const isPaid =
+    totalAmount > 0 && (isPaidFromApi || actualPaidAmount >= totalAmount)
+  const isCollected = isCollectedFromApi || actualPaidAmount > 0
+  const paidAmount =
+    actualPaidAmount > 0 ? actualPaidAmount : suggestedPaidAmount
+
+  return {
+    isPaid,
+    isCollected,
+    actualPaidAmount,
+    paidAmount,
+    remainingAmount: totalAmount - paidAmount,
+    outstandingAmount: totalAmount - actualPaidAmount,
+  }
+}
+
+function InvoiceColumnFilterControl({
+  id,
+  label,
+  value,
+  appliedValue,
+  onChange,
+  onApply,
+  inputType = "text",
+  options,
+}: InvoiceColumnFilterControlProps) {
+  const isActive = Boolean(appliedValue)
+  const controlClassName = cn(
+    "h-11 w-full rounded-lg border bg-white px-3 text-sm font-normal text-slate-800 outline-none transition placeholder:text-slate-400",
+    "hover:border-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100",
+    isActive ? "border-blue-400 bg-blue-50/40" : "border-slate-300"
+  )
+
+  if (options) {
+    return (
+      <InvoiceFilterSelect
+        id={id}
+        value={value}
+        onChange={(nextValue) => {
+          onChange(nextValue)
+          onApply(nextValue)
+        }}
+        options={[{ value: "", label: "-" }, ...options]}
+      />
+    )
+  }
+
+  if (inputType === "date") {
+    return (
+      <div
+        className={cn(
+          "[&_button]:h-11",
+          isActive && "[&_button]:border-blue-400 [&_button]:bg-blue-50/40"
+        )}
       >
-        <div className="bg-gradient-to-r flex items-center justify-between border-b border-blue-100 from-blue-50 to-indigo-50 px-4 py-3">
-          <button
-            type="button"
-            onClick={() => setVisibleMonth((month) => subMonths(month, 1))}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 transition hover:bg-white hover:text-blue-700 hover:shadow-sm"
-            aria-label="Tháng trước"
-          >
-            <ChevronLeft size={18} />
-          </button>
+        <InvoiceDatePicker
+          id={id}
+          value={value}
+          onChange={(nextValue) => {
+            onChange(nextValue)
+            onApply(nextValue)
+          }}
+        />
+      </div>
+    )
+  }
 
-          <span className="text-sm font-bold capitalize text-slate-800">
-            {format(visibleMonth, "'Tháng' M, yyyy", { locale: vi })}
-          </span>
+  return (
+    <input
+      id={id}
+      type="text"
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      onBlur={(event) => onApply(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          onApply(event.currentTarget.value)
+          event.preventDefault()
+        }
 
-          <button
-            type="button"
-            onClick={() => setVisibleMonth((month) => addMonths(month, 1))}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 transition hover:bg-white hover:text-blue-700 hover:shadow-sm"
-            aria-label="Tháng sau"
-          >
-            <ChevronRight size={18} />
-          </button>
-        </div>
-
-        <div className="p-3">
-          <div className="mb-1 grid grid-cols-7">
-            {WEEKDAY_LABELS.map((label) => (
-              <span
-                key={label}
-                className="flex h-8 items-center justify-center text-xs font-semibold text-slate-400"
-              >
-                {label}
-              </span>
-            ))}
-          </div>
-
-          <div className="grid grid-cols-7 gap-y-1">
-            {calendarDays.map((date) => {
-              const isSelected = Boolean(
-                selectedDate && isSameDay(date, selectedDate)
-              )
-              const isToday = isSameDay(date, today)
-              const isCurrentMonth = isSameMonth(date, visibleMonth)
-
-              return (
-                <button
-                  key={format(date, "yyyy-MM-dd")}
-                  type="button"
-                  onClick={() => handleSelectDate(date)}
-                  className={cn(
-                    "mx-auto flex h-9 w-9 items-center justify-center rounded-lg text-sm transition",
-                    isCurrentMonth
-                      ? "text-slate-700 hover:bg-blue-50 hover:text-blue-700"
-                      : "text-slate-300 hover:bg-slate-50",
-                    isToday &&
-                      !isSelected &&
-                      "font-bold text-blue-700 ring-1 ring-inset ring-blue-200",
-                    isSelected &&
-                      "bg-blue-600 font-bold text-white shadow-md shadow-blue-200 hover:bg-blue-700 hover:text-white"
-                  )}
-                  aria-pressed={isSelected}
-                  aria-label={format(date, "dd/MM/yyyy")}
-                >
-                  {format(date, "d")}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/70 px-4 py-3">
-          <button
-            type="button"
-            onClick={() => {
-              onChange("")
-              setOpen(false)
-            }}
-            disabled={!selectedDate}
-            className="text-sm font-semibold text-slate-500 transition hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Xóa ngày
-          </button>
-          <button
-            type="button"
-            onClick={() => handleSelectDate(today)}
-            className="rounded-lg bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
-          >
-            Hôm nay
-          </button>
-        </div>
-      </PopoverContent>
-    </Popover>
+        if (event.key === "Escape") {
+          onChange(appliedValue)
+        }
+      }}
+      placeholder=""
+      className={controlClassName}
+      aria-label={`Lọc theo ${label}`}
+    />
   )
 }
 
@@ -276,211 +403,26 @@ export default function InvoiceDataTable({
   const [exportStatusFilter, setExportStatusFilter] = useState("")
   const [orderCreateFilter, setOrderCreateFilter] = useState("")
   const [agencyFilter, setAgencyFilter] = useState("")
+  const [columnFilters, setColumnFilters] = useState<InvoiceColumnFilters>(
+    createEmptyColumnFilters
+  )
+  const [draftColumnFilters, setDraftColumnFilters] =
+    useState<InvoiceColumnFilters>(createEmptyColumnFilters)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const isExternalPagination = Boolean(pagination)
   const effectivePage = pagination?.currentPage ?? page
   const effectivePageSize = pagination?.pageSize ?? pageSize
 
-  const invoiceStatusLabel = invoiceHelper.invoiceStatusLabel
-  const invoiceStatusClass = invoiceHelper.invoiceStatusClass
-  const getInvoiceStatus = invoiceHelper.getInvoiceStatus
-  const canStartInvoiceExport = invoiceHelper.canStartInvoiceExport
-  const getInvoiceStatusDisplayLabel = (invoice: InvoiceApiRow) => {
-    return (
-      String(invoice.invoiceStatusVi || "").trim() ||
-      invoiceStatusLabel[getInvoiceStatus(invoice)]
-    )
-  }
-  const getMInvoiceCreatedId = (invoice?: InvoiceApiRow | null) => {
-    return String(invoice?.inv_invoiceCreatedId || "").trim()
-  }
-
-  const canViewMInvoicePdf = (invoice: InvoiceApiRow) => {
-    return (
-      getInvoiceStatus(invoice) === InvoiceStatus.ISSUED &&
-      Boolean(getMInvoiceCreatedId(invoice))
-    )
-  }
-  const canUpdateMInvoice = (invoice: InvoiceApiRow) => {
-    const invoiceNumber = Number(invoice.invoiceNumber)
-
-    return (
-      canViewMInvoicePdf(invoice) &&
-      Number.isFinite(invoiceNumber) &&
-      invoiceNumber > 0
-    )
-  }
   const canSelectInvoice = (invoice: InvoiceApiRow) => {
     if (bulkActionLoading) return false
 
-    const status = getInvoiceStatus(invoice)
-
-    return canStartInvoiceExport(status) || canUpdateMInvoice(invoice)
-  }
-
-  const getAgencyName = (value: InvoiceApiRow["agencyId"]) => {
-    if (!value || typeof value === "string") return ""
-    return String(value.agencyName || "")
-  }
-
-  const getDepartmentName = (value: InvoiceApiRow["departmentId"]) => {
-    if (!value || typeof value === "string") return ""
-    return String(value.departmentName || "")
-  }
-
-  const getEmployeeName = (value: InvoiceApiRow["employeeId"]) => {
-    if (!value || typeof value === "string") return ""
-    return String(value.employeeName || "")
-  }
-
-  const hasDisplayValue = (value: unknown) => {
-    return value !== undefined && value !== null && String(value).trim() !== ""
-  }
-
-  const formatDisplayDate = (value?: string | null) => {
-    const normalizedDate = invoiceHelper.normalizeDateInput(value || "")
-
-    if (normalizedDate) {
-      const [year, month, day] = normalizedDate.split("-")
-      return `${day}/${month}/${year}`
-    }
-
-    return "-"
-  }
-
-  const getPositivePercent = (value: unknown) => {
-    if (!hasDisplayValue(value)) return null
-
-    const numericValue = invoiceHelper.toNumber(value)
-
-    return numericValue > 0 ? numericValue : null
-  }
-
-  const formatPercent = (value: unknown) => {
-    const numericValue = invoiceHelper.toNumber(value)
-
-    return Number.isInteger(numericValue)
-      ? String(numericValue)
-      : numericValue.toFixed(2).replace(/\.?0+$/, "")
-  }
-
-  const getInvoiceDiscountPercentage = (invoice: InvoiceApiRow) => {
-    const itemWithDiscount = invoice.items?.find((item) =>
-      getPositivePercent(item.discountPercentage)
-    )
-
-    if (itemWithDiscount) {
-      return getPositivePercent(itemWithDiscount.discountPercentage) || 0
-    }
-
-    const invoiceDiscountPercentage = getPositivePercent(
-      invoice.inv_discountPercentage
-    )
-
-    if (invoiceDiscountPercentage !== null) {
-      return invoiceDiscountPercentage
-    }
-
-    if (hasDisplayValue(invoice.inv_discountPercentage)) {
-      return invoiceHelper.toNumber(invoice.inv_discountPercentage)
-    }
-
-    if (invoice.agencyId && typeof invoice.agencyId === "object") {
-      const agencyDiscountPercentage = getPositivePercent(
-        invoice.agencyId.commissionPercent
-      )
-
-      if (agencyDiscountPercentage !== null) return agencyDiscountPercentage
-    }
-
-    const firstItemDiscountPercentage = invoice.items?.find((item) =>
-      hasDisplayValue(item.discountPercentage)
-    )?.discountPercentage
-
-    if (hasDisplayValue(firstItemDiscountPercentage)) {
-      return invoiceHelper.toNumber(firstItemDiscountPercentage)
-    }
-
-    return 0
-  }
-
-  const getInvoiceMinvoiceRevenue = (invoice: InvoiceApiRow) => {
-    const discountPercentage = getInvoiceDiscountPercentage(invoice)
-    const totalAmount = invoiceHelper.toNumber(invoice.inv_TotalAmount)
-
-    if (totalAmount > 0) {
-      return invoiceHelper.roundInvoiceMoney(
-        (totalAmount * discountPercentage) / 100
-      )
-    }
+    const status = invoiceHelper.getInvoiceStatus(invoice)
 
     return (
-      invoice.items?.reduce((sum, item) => {
-        return sum + invoiceHelper.toNumber(item.revenue)
-      }, 0) || 0
+      invoiceHelper.canStartInvoiceExport(status) || canUpdateMInvoice(invoice)
     )
   }
-
-  const getProductCode = (product: InvoiceProductValue) => {
-    if (!product || typeof product === "string") return ""
-    return String(product.inv_itemCode || "")
-  }
-
-  const getProductName = (product: InvoiceProductValue) => {
-    if (!product || typeof product === "string") return ""
-    return String(product.inv_itemName || "")
-  }
-
-  const getInvoiceExportedAmount = (invoice: InvoiceApiRow) => {
-    if (getInvoiceStatus(invoice) !== InvoiceStatus.ISSUED) return 0
-
-    return invoiceHelper.toNumber(invoice.inv_TotalAmount)
-  }
-
-  const getInvoicePaymentState = (invoice: InvoiceApiRow) => {
-    const totalAmount = invoiceHelper.toNumber(invoice.inv_TotalAmount)
-    const exportedAmount = getInvoiceExportedAmount(invoice)
-
-    const rawCollected = Math.max(
-      invoiceHelper.toNumber(invoice.amountCollected),
-      invoiceHelper.toNumber(invoice.paidAmount)
-    )
-
-    const isPaidFromApi =
-      invoice.isPaid === true ||
-      invoice.paymentStatus === InvoicePaymentStatus.PAID
-    const isCollectedFromApi =
-      isPaidFromApi || invoice.paymentStatus === InvoicePaymentStatus.PARTIAL
-    const actualPaidAmount =
-      isPaidFromApi && rawCollected <= 0
-        ? totalAmount
-        : Math.max(rawCollected, 0)
-    const rawSuggestedPaidAmount = invoiceHelper.toNumber(
-      invoice.suggestedAmountCollected
-    )
-    const suggestedPaidAmount =
-      rawSuggestedPaidAmount > 0 ? rawSuggestedPaidAmount : exportedAmount
-    const isPaid =
-      totalAmount > 0 && (isPaidFromApi || actualPaidAmount >= totalAmount)
-    const isCollected = isCollectedFromApi || actualPaidAmount > 0
-    const paidAmount =
-      actualPaidAmount > 0 ? actualPaidAmount : suggestedPaidAmount
-    const remainingAmount = totalAmount - paidAmount
-    const outstandingAmount = totalAmount - actualPaidAmount
-
-    return {
-      isPaid,
-      isCollected,
-      actualPaidAmount,
-      paidAmount,
-      remainingAmount,
-      outstandingAmount,
-    }
-  }
-  const moneyFormatter = useMemo(() => {
-    return new Intl.NumberFormat("vi-VN")
-  }, [])
   const agencyOptions = useMemo(() => {
     const optionMap = new Map<string, string>()
 
@@ -504,7 +446,8 @@ export default function InvoiceDataTable({
       toDate ||
       exportStatusFilter ||
       orderCreateFilter ||
-      agencyFilter
+      agencyFilter ||
+      Object.values(columnFilters).some(Boolean)
   )
 
   const handleClearFilters = () => {
@@ -521,9 +464,44 @@ export default function InvoiceDataTable({
     setExportStatusFilter("")
     setOrderCreateFilter("")
     setAgencyFilter("")
+    setColumnFilters(createEmptyColumnFilters())
+    setDraftColumnFilters(createEmptyColumnFilters())
 
     setPage(1)
+    pagination?.onPageChange(1)
   }
+
+  const handleDraftColumnFilterChange = (
+    key: InvoiceColumnFilterKey,
+    value: string
+  ) => {
+    setDraftColumnFilters((current) => ({ ...current, [key]: value }))
+  }
+
+  const handleApplyColumnFilter = (
+    key: InvoiceColumnFilterKey,
+    value: string
+  ) => {
+    setColumnFilters((current) => ({ ...current, [key]: value }))
+    setPage(1)
+    pagination?.onPageChange(1)
+  }
+
+  useEffect(() => {
+    const hasPendingColumnFilter = (
+      Object.keys(draftColumnFilters) as InvoiceColumnFilterKey[]
+    ).some((key) => draftColumnFilters[key] !== columnFilters[key])
+
+    if (!hasPendingColumnFilter) return
+
+    const timeoutId = window.setTimeout(() => {
+      setColumnFilters({ ...draftColumnFilters })
+      setPage(1)
+      pagination?.onPageChange(1)
+    }, 500)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [columnFilters, draftColumnFilters, pagination])
 
   const handleApplyFilters = () => {
     setFromDate(draftFromDate)
@@ -581,13 +559,13 @@ export default function InvoiceDataTable({
       ? document.getElementById("invoice-order-filter-toolbar-slot")
       : null
   const filteredRows = useMemo(() => {
-    const searchValue = keyword.trim().toLowerCase()
+    const searchValue = normalizeFilterText(keyword)
 
     return rows.filter((invoice) => {
       const firstItem = invoice.items?.[0]
       const product = firstItem?.productId
 
-      const invoiceStatus = getInvoiceStatus(invoice)
+      const invoiceStatus = invoiceHelper.getInvoiceStatus(invoice)
       const invoiceDate = invoiceHelper.normalizeDateInput(
         invoice.inv_invoiceIssuedDate
       )
@@ -618,9 +596,11 @@ export default function InvoiceDataTable({
       ]
         .filter(Boolean)
         .join(" ")
-        .toLowerCase()
+      const normalizedSearchText = normalizeFilterText(searchText)
 
-      const matchKeyword = searchValue ? searchText.includes(searchValue) : true
+      const matchKeyword = searchValue
+        ? normalizedSearchText.includes(searchValue)
+        : true
 
       const matchFromDate = fromDate
         ? Boolean(invoiceDate && invoiceDate >= fromDate)
@@ -643,13 +623,72 @@ export default function InvoiceDataTable({
 
       const matchAgency = agencyFilter ? agencyId === agencyFilter : true
 
+      const paymentState = getInvoicePaymentState(invoice)
+      const paidDate = paymentState.isCollected
+        ? invoiceHelper.normalizeDateInput(
+            invoice.paidDate || invoice.paymentDate || ""
+          )
+        : ""
+      const columnValues: Record<InvoiceColumnFilterKey, string> = {
+        createdAt: invoiceHelper.normalizeDateInput(
+          String(invoice.createdAt || "")
+        ),
+        activationDate: invoiceHelper.normalizeDateInput(
+          invoice.activationDate || ""
+        ),
+        invoiceNumber: String(invoice.invoiceNumber || ""),
+        inv_invoiceIssuedDate: invoiceDate,
+        orderCreateStatus: orderCreated ? "created" : "not_created",
+        exportInvoiceStatus: invoiceStatus,
+        agencyId: agencyName,
+        inv_buyerTaxCode: String(invoice.inv_buyerTaxCode || ""),
+        companyName: String(
+          invoice.inv_buyerLegalName || invoice.inv_buyerDisplayName || ""
+        ),
+        orderNumber: String(invoice.orderNumber || ""),
+        productName: getProductName(product),
+        inv_TotalAmountWithoutVAT: MONEY_FORMATTER.format(
+          Number(invoice.inv_TotalAmount || 0)
+        ),
+        inv_TotalAmount: MONEY_FORMATTER.format(
+          getInvoiceExportedAmount(invoice)
+        ),
+        paid: paymentState.isCollected ? "collected" : "not_collected",
+        paidDate,
+        amountCollected: MONEY_FORMATTER.format(paymentState.paidAmount),
+        paidAmount: MONEY_FORMATTER.format(paymentState.remainingAmount),
+      }
+      const matchColumnFilters = (
+        Object.entries(columnFilters) as [InvoiceColumnFilterKey, string][]
+      ).every(([key, filterValue]) => {
+        if (!filterValue) return true
+
+        const normalizedCellValue = normalizeFilterText(columnValues[key])
+        const normalizedFilterValue = normalizeFilterText(filterValue)
+
+        if (EXACT_MATCH_COLUMN_KEYS.has(key)) {
+          return normalizedCellValue === normalizedFilterValue
+        }
+
+        if (normalizedCellValue.includes(normalizedFilterValue)) return true
+
+        const numericFilterValue = normalizedFilterValue.replace(/\D/g, "")
+
+        return (
+          /^[\d\s.,-]+$/.test(normalizedFilterValue) &&
+          numericFilterValue.length > 0 &&
+          normalizedCellValue.replace(/\D/g, "").includes(numericFilterValue)
+        )
+      })
+
       return (
         matchKeyword &&
         matchFromDate &&
         matchToDate &&
         matchExportStatus &&
         matchOrderCreate &&
-        matchAgency
+        matchAgency &&
+        matchColumnFilters
       )
     })
   }, [
@@ -660,6 +699,7 @@ export default function InvoiceDataTable({
     exportStatusFilter,
     orderCreateFilter,
     agencyFilter,
+    columnFilters,
   ])
 
   useEffect(() => {
@@ -675,6 +715,7 @@ export default function InvoiceDataTable({
     exportStatusFilter,
     orderCreateFilter,
     agencyFilter,
+    columnFilters,
   ])
   const totalItems = pagination?.totalItems ?? filteredRows.length
   const totalPages = Math.max(Math.ceil(totalItems / effectivePageSize), 1)
@@ -713,11 +754,31 @@ export default function InvoiceDataTable({
     )
   }, [filteredRows])
 
+  const renderColumnFilter = (
+    key: InvoiceColumnFilterKey,
+    label: string,
+    config?: Pick<InvoiceColumnFilterControlProps, "inputType" | "options">
+  ) => (
+    <InvoiceColumnFilterControl
+      id={`invoice-column-filter-${key}`}
+      label={label}
+      value={draftColumnFilters[key]}
+      appliedValue={columnFilters[key]}
+      onChange={(value) => handleDraftColumnFilterChange(key, value)}
+      onApply={(value) => handleApplyColumnFilter(key, value)}
+      inputType={config?.inputType}
+      options={config?.options}
+    />
+  )
+
   const columns: DataTableColumn<InvoiceApiRow>[] = [
     {
       key: "createdAt",
       title: "Ngày tạo",
-      className: "whitespace-nowrap text-center",
+      filter: renderColumnFilter("createdAt", "Ngày tạo", {
+        inputType: "date",
+      }),
+      className: "whitespace-nowrap text-center min-w-[150px]",
       headerClassName: "text-center",
       render: (invoice) => {
         const value = invoice.createdAt
@@ -745,7 +806,10 @@ export default function InvoiceDataTable({
     {
       key: "activationDate",
       title: "Ngày kích hoạt",
-      className: "whitespace-nowrap text-center min-w-[130px]",
+      filter: renderColumnFilter("activationDate", "Ngày kích hoạt", {
+        inputType: "date",
+      }),
+      className: "whitespace-nowrap text-center min-w-[150px]",
       headerClassName: "text-center",
       render: (invoice) => {
         return formatDisplayDate(invoice.activationDate)
@@ -754,14 +818,18 @@ export default function InvoiceDataTable({
     {
       key: "invoiceNumber",
       title: "Số hoá đơn",
-      className: "whitespace-nowrap text-center min-w-[130px] ",
+      filter: renderColumnFilter("invoiceNumber", "Số hoá đơn"),
+      className: "whitespace-nowrap text-center min-w-[150px] ",
       headerClassName: "text-center",
       render: (invoice) => invoice.invoiceNumber || "-",
     },
     {
       key: "inv_invoiceIssuedDate",
       title: "Ngày xuất HĐ",
-      className: "whitespace-nowrap text-center min-w-[130px]",
+      filter: renderColumnFilter("inv_invoiceIssuedDate", "Ngày xuất HĐ", {
+        inputType: "date",
+      }),
+      className: "whitespace-nowrap text-center min-w-[150px]",
       headerClassName: "text-center",
       render: (invoice) => {
         return formatDisplayDate(invoice.inv_invoiceIssuedDate)
@@ -770,7 +838,13 @@ export default function InvoiceDataTable({
     {
       key: "orderCreateStatus",
       title: "Trạng thái tạo",
-      className: "whitespace-nowrap text-center min-w-[130px]",
+      filter: renderColumnFilter("orderCreateStatus", "Trạng thái tạo", {
+        options: [
+          { value: "created", label: "Đã tạo" },
+          { value: "not_created", label: "Chưa tạo" },
+        ],
+      }),
+      className: "whitespace-nowrap text-center min-w-[150px]",
       headerClassName: "text-center",
       render: (invoice) => {
         const orderCreated = Boolean(String(invoice.orderNumber || "").trim())
@@ -791,14 +865,23 @@ export default function InvoiceDataTable({
     {
       key: "exportInvoiceStatus",
       title: "Trạng thái xuất HĐ",
-      className: "whitespace-nowrap text-center min-w-[140px]",
+      filter: renderColumnFilter("exportInvoiceStatus", "Trạng thái xuất HĐ", {
+        options: [
+          { value: InvoiceStatus.DRAFT, label: "Nháp" },
+          { value: InvoiceStatus.ISSUING, label: "Đang xuất hóa đơn" },
+          { value: InvoiceStatus.ISSUED, label: "Đã xuất hóa đơn" },
+          { value: InvoiceStatus.FAILED, label: "Xuất thất bại" },
+          { value: InvoiceStatus.CANCELLED, label: "Đã hủy" },
+        ],
+      }),
+      className: "whitespace-nowrap text-center min-w-[160px]",
       headerClassName: "text-center",
       render: (invoice) => {
-        const status = getInvoiceStatus(invoice)
+        const status = invoiceHelper.getInvoiceStatus(invoice)
 
         return (
           <span
-            className={`inline-flex min-w-[110px] justify-center rounded-full border px-2.5 py-1 text-xs font-semibold ${invoiceStatusClass[status]}`}
+            className={`inline-flex min-w-[110px] justify-center rounded-full border px-2.5 py-1 text-xs font-semibold ${invoiceHelper.invoiceStatusClass[status]}`}
           >
             {getInvoiceStatusDisplayLabel(invoice)}
           </span>
@@ -808,26 +891,21 @@ export default function InvoiceDataTable({
     {
       key: "agencyId",
       title: "Tên Đại lý",
-      className: "min-w-[130px]",
+      filter: renderColumnFilter("agencyId", "Tên Đại lý"),
+      className: "min-w-[150px]",
       render: (invoice) => getAgencyName(invoice.agencyId) || "-",
     },
-    // {
-    //   key: "discountPercentage",
-    //   title: "% chiết khấu",
-    //   className: "whitespace-nowrap text-right min-w-[120px]",
-    //   headerClassName: "text-right",
-    //   render: (invoice) =>
-    //     `${formatPercent(getInvoiceDiscountPercentage(invoice))}%`,
-    // },
     {
       key: "inv_buyerTaxCode",
       title: "MST",
+      filter: renderColumnFilter("inv_buyerTaxCode", "MST"),
       className: "whitespace-nowrap",
       render: (invoice) => invoice.inv_buyerTaxCode || "-",
     },
     {
       key: "companyName",
       title: "Tên công ty",
+      filter: renderColumnFilter("companyName", "Tên công ty"),
       className: "min-w-[400px] text-left",
       render: (invoice) =>
         invoice.inv_buyerLegalName || invoice.inv_buyerDisplayName || "-",
@@ -842,6 +920,7 @@ export default function InvoiceDataTable({
     {
       key: "orderNumber",
       title: "Số đơn hàng",
+      filter: renderColumnFilter("orderNumber", "Số đơn hàng"),
       className: "whitespace-nowrap text-center min-w-[160px]",
       headerClassName: "text-center",
       render: (invoice) => invoice.orderNumber || "-",
@@ -849,29 +928,38 @@ export default function InvoiceDataTable({
     {
       key: "productName",
       title: "Tên SP",
+      filter: renderColumnFilter("productName", "Tên SP"),
       className: "min-w-[200px]",
       render: (invoice) => getProductName(invoice.items?.[0]?.productId) || "-",
     },
     {
       key: "inv_TotalAmountWithoutVAT",
       title: "Tổng giá trị",
+      filter: renderColumnFilter("inv_TotalAmountWithoutVAT", "Tổng giá trị"),
       className: "whitespace-nowrap min-w-[150px] text-right ",
       headerClassName: "text-right",
       render: (invoice) =>
-        moneyFormatter.format(Number(invoice.inv_TotalAmount || 0)),
+        MONEY_FORMATTER.format(Number(invoice.inv_TotalAmount || 0)),
     },
     {
       key: "inv_TotalAmount",
       title: "Tổng xuất HĐ",
+      filter: renderColumnFilter("inv_TotalAmount", "Tổng xuất HĐ"),
       className: "whitespace-nowrap text-right min-w-[120px] ",
       headerClassName: "text-right",
       render: (invoice) =>
-        moneyFormatter.format(getInvoiceExportedAmount(invoice)),
+        MONEY_FORMATTER.format(getInvoiceExportedAmount(invoice)),
     },
 
     {
       key: "paid",
       title: "Thu tiền",
+      filter: renderColumnFilter("paid", "Thu tiền", {
+        options: [
+          { value: "collected", label: "Đã thu" },
+          { value: "not_collected", label: "Chưa thu" },
+        ],
+      }),
       className: "text-center",
       headerClassName: "text-center",
       render: (invoice) => {
@@ -893,7 +981,10 @@ export default function InvoiceDataTable({
     {
       key: "paidDate",
       title: "Ngày thu tiền",
-      className: "whitespace-nowrap text-center min-w-[130px]",
+      filter: renderColumnFilter("paidDate", "Ngày thu tiền", {
+        inputType: "date",
+      }),
+      className: "whitespace-nowrap text-center min-w-[150px]",
       headerClassName: "text-center",
       render: (invoice) => {
         const { isCollected } = getInvoicePaymentState(invoice)
@@ -906,14 +997,16 @@ export default function InvoiceDataTable({
     {
       key: "amountCollected",
       title: "Số tiền thu",
+      filter: renderColumnFilter("amountCollected", "Số tiền thu"),
       className: "whitespace-nowrap text-right min-w-[120px] ",
       headerClassName: "text-right",
       render: (invoice) =>
-        moneyFormatter.format(getInvoicePaymentState(invoice).paidAmount),
+        MONEY_FORMATTER.format(getInvoicePaymentState(invoice).paidAmount),
     },
     {
       key: "paidAmount",
       title: "Số tiền chênh lệch",
+      filter: renderColumnFilter("paidAmount", "Số tiền chênh lệch"),
       className: "whitespace-nowrap text-center min-w-[150px] ",
       headerClassName: "text-right",
       render: (invoice) => {
@@ -921,7 +1014,7 @@ export default function InvoiceDataTable({
 
         return (
           <span className={remainingAmount < 0 ? "text-rose-600" : ""}>
-            {moneyFormatter.format(remainingAmount)}
+            {MONEY_FORMATTER.format(remainingAmount)}
           </span>
         )
       },
@@ -1130,14 +1223,14 @@ export default function InvoiceDataTable({
         onView={onView}
         onEdit={onEdit}
         canEdit={(invoice) => {
-          const status = getInvoiceStatus(invoice)
+          const status = invoiceHelper.getInvoiceStatus(invoice)
 
           return ![InvoiceStatus.ISSUING, InvoiceStatus.CANCELLED].includes(
             status
           )
         }}
         renderActions={(invoice) => {
-          const status = getInvoiceStatus(invoice)
+          const status = invoiceHelper.getInvoiceStatus(invoice)
           const isExporting = exportingInvoiceId === invoice._id
           const isUpdatingMInvoice = updatingMInvoiceId === invoice._id
           const isProcessing =
@@ -1176,19 +1269,20 @@ export default function InvoiceDataTable({
                 </button>
               )}
 
-              {canStartInvoiceExport(status) && onExportInvoice && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    void onExportInvoice(invoice)
-                  }}
-                  title="Xuất hóa đơn"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 text-amber-700 shadow-sm transition hover:border-amber-400 hover:bg-amber-100 hover:text-amber-800"
-                >
-                  <FileText size={15} />
-                </button>
-              )}
+              {invoiceHelper.canStartInvoiceExport(status) &&
+                onExportInvoice && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      void onExportInvoice(invoice)
+                    }}
+                    title="Xuất hóa đơn"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 text-amber-700 shadow-sm transition hover:border-amber-400 hover:bg-amber-100 hover:text-amber-800"
+                  >
+                    <FileText size={15} />
+                  </button>
+                )}
 
               {canCollectPayment && onCollectPayment && (
                 <button
@@ -1240,35 +1334,35 @@ export default function InvoiceDataTable({
         <div>
           <div className="text-xs text-slate-500">Tổng giá trị</div>
           <div className="font-bold text-slate-800">
-            {moneyFormatter.format(summary.totalBeforeTax)}
+            {MONEY_FORMATTER.format(summary.totalBeforeTax)}
           </div>
         </div>
 
         <div>
           <div className="text-xs text-slate-500">Tiền thuế</div>
           <div className="font-bold text-slate-800">
-            {moneyFormatter.format(summary.vatAmount)}
+            {MONEY_FORMATTER.format(summary.vatAmount)}
           </div>
         </div>
 
         <div>
           <div className="text-xs text-slate-500">Tổng xuất HĐ</div>
           <div className="font-bold text-slate-800">
-            {moneyFormatter.format(summary.totalAmount)}
+            {MONEY_FORMATTER.format(summary.totalAmount)}
           </div>
         </div>
 
         <div>
           <div className="text-xs text-slate-500">DT MINVOICE</div>
           <div className="font-bold text-slate-800">
-            {moneyFormatter.format(summary.minvoiceRevenue)}
+            {MONEY_FORMATTER.format(summary.minvoiceRevenue)}
           </div>
         </div>
 
         <div>
           <div className="text-xs text-slate-500">Đã thu</div>
           <div className="font-bold text-emerald-700">
-            {moneyFormatter.format(summary.paidAmount)}
+            {MONEY_FORMATTER.format(summary.paidAmount)}
           </div>
         </div>
 
@@ -1279,7 +1373,7 @@ export default function InvoiceDataTable({
               summary.remainingAmount < 0 ? "text-rose-600" : "text-amber-700"
             }`}
           >
-            {moneyFormatter.format(summary.remainingAmount)}
+            {MONEY_FORMATTER.format(summary.remainingAmount)}
           </div>
         </div>
       </div>

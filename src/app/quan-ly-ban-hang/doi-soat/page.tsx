@@ -6,6 +6,8 @@ import { normalize, type ExcelRow } from "@/utils/excel"
 import { exportChiHoaHongXlsx } from "@/services/file-chi-hoa-hong/exportChiHoaHong"
 
 import { SearchableSelect } from "@/components/select/SearchableSelect"
+import InvoiceFilterDatePicker from "@/components/minvoice/InvoiceFilterDatePicker"
+import InvoiceFilterSelect from "@/components/minvoice/InvoiceFilterSelect"
 import { exportXuatHoaDonXlsx } from "@/services/file-xuatHD/exportXuatHD"
 import {
   APIExportSaleTransactionReport,
@@ -35,8 +37,6 @@ const ALL_VALUE = "__ALL__"
 const LIST_PARAMS = {}
 const EXCEL_MIME_TYPE =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-const REPORT_HEADER_FILL = "2F5597"
-const REPORT_BORDER_COLOR = "D9E2F3"
 
 const INVOICE_STATUS_OPTIONS = [
   { value: "", label: "Tất cả trạng thái" },
@@ -46,36 +46,6 @@ const INVOICE_STATUS_OPTIONS = [
   { value: InvoiceStatus.FAILED, label: "Xuất thất bại" },
   { value: InvoiceStatus.CANCELLED, label: "Đã hủy" },
 ]
-
-const REPORT_INVOICE_STATUSES = [
-  InvoiceStatus.DRAFT,
-  InvoiceStatus.ISSUING,
-  InvoiceStatus.ISSUED,
-  InvoiceStatus.FAILED,
-  InvoiceStatus.CANCELLED,
-]
-
-const REPORT_HEADER_STYLE = {
-  fill: {
-    patternType: "solid",
-    fgColor: { rgb: REPORT_HEADER_FILL },
-  },
-  font: {
-    bold: true,
-    color: { rgb: "FFFFFF" },
-  },
-  alignment: {
-    horizontal: "center",
-    vertical: "center",
-    wrapText: true,
-  },
-  border: {
-    top: { style: "thin", color: { rgb: REPORT_BORDER_COLOR } },
-    right: { style: "thin", color: { rgb: REPORT_BORDER_COLOR } },
-    bottom: { style: "thin", color: { rgb: REPORT_BORDER_COLOR } },
-    left: { style: "thin", color: { rgb: REPORT_BORDER_COLOR } },
-  },
-}
 
 const PAYMENT_STATUS_OPTIONS = [
   { value: "", label: "Tất cả thanh toán" },
@@ -186,134 +156,6 @@ function getReportResponseBlob(
       })
 }
 
-async function readReportWorkbook(
-  response: Awaited<ReturnType<typeof APIExportSaleTransactionReport>>
-) {
-  const blob = getReportResponseBlob(response)
-
-  if (!blob.size) return null
-
-  return XLSX.read(await blob.arrayBuffer(), {
-    type: "array",
-    cellStyles: true,
-  })
-}
-
-function hasExcelCellValue(value: unknown) {
-  return value !== undefined && value !== null && String(value).trim() !== ""
-}
-
-function readSheetRows(workbook: XLSX.WorkBook, sheetName: string) {
-  const sheet = workbook.Sheets[sheetName]
-
-  if (!sheet) return []
-
-  return XLSX.utils.sheet_to_json(sheet, {
-    header: 1,
-    defval: "",
-    blankrows: false,
-  }) as unknown[][]
-}
-
-function appendReportWorkbook(target: XLSX.WorkBook, source: XLSX.WorkBook) {
-  for (const sheetName of source.SheetNames) {
-    const sourceRows = readSheetRows(source, sheetName)
-
-    if (!sourceRows.length) continue
-
-    const targetSheet = target.Sheets[sheetName]
-    const rowsToAppend = (
-      targetSheet ? sourceRows.slice(1) : sourceRows
-    ).filter((row) => row.some(hasExcelCellValue))
-
-    if (!rowsToAppend.length) continue
-
-    if (targetSheet) {
-      XLSX.utils.sheet_add_aoa(targetSheet, rowsToAppend, { origin: -1 })
-    } else {
-      target.SheetNames.push(sheetName)
-      target.Sheets[sheetName] = XLSX.utils.aoa_to_sheet(rowsToAppend)
-    }
-  }
-}
-
-function getReportColumnWidth(header: unknown) {
-  const label = String(header || "").trim()
-
-  if (!label) return 12
-
-  return Math.min(Math.max(label.length + 4, 12), 32)
-}
-
-function applyReportSheetStyle(sheet: XLSX.WorkSheet) {
-  if (!sheet["!ref"]) return
-
-  const range = XLSX.utils.decode_range(sheet["!ref"])
-  const headerEndColumn = range.e.c
-
-  sheet["!rows"] = sheet["!rows"] || []
-  sheet["!rows"][0] = {
-    ...(sheet["!rows"][0] || {}),
-    hpt: 24,
-  }
-  sheet["!cols"] = Array.from({ length: headerEndColumn + 1 }, (_, column) => {
-    const cellAddress = XLSX.utils.encode_cell({ r: 0, c: column })
-    const headerCell = sheet[cellAddress]
-
-    return {
-      ...(sheet["!cols"]?.[column] || {}),
-      wch: getReportColumnWidth(headerCell?.v),
-    }
-  })
-  sheet["!autofilter"] = {
-    ref: XLSX.utils.encode_range({
-      s: { r: 0, c: 0 },
-      e: { r: range.e.r, c: headerEndColumn },
-    }),
-  }
-
-  for (let column = 0; column <= headerEndColumn; column += 1) {
-    const cellAddress = XLSX.utils.encode_cell({ r: 0, c: column })
-    const cell = sheet[cellAddress] || { t: "s", v: "" }
-
-    cell.s = REPORT_HEADER_STYLE
-    sheet[cellAddress] = cell
-  }
-}
-
-function applyReportWorkbookStyle(workbook: XLSX.WorkBook) {
-  for (const sheetName of workbook.SheetNames) {
-    const sheet = workbook.Sheets[sheetName]
-
-    if (sheet) {
-      applyReportSheetStyle(sheet)
-    }
-  }
-}
-
-function mergeReportWorkbooks(workbooks: XLSX.WorkBook[]) {
-  const [target, ...sources] = workbooks
-
-  if (!target) {
-    throw new Error("API không trả về dữ liệu file báo cáo.")
-  }
-
-  for (const source of sources) {
-    appendReportWorkbook(target, source)
-  }
-
-  applyReportWorkbookStyle(target)
-
-  const output = XLSX.write(target, {
-    bookType: "xlsx",
-    type: "array",
-  })
-
-  return new Blob([output], {
-    type: EXCEL_MIME_TYPE,
-  })
-}
-
 function pickKeyFromRow(row: Record<string, any>, aliases: string[]) {
   const keys = Object.keys(row || {})
   const map = new Map<string, string>()
@@ -332,7 +174,6 @@ function parseSalesWorkbook(wb: XLSX.WorkBook): {
   headers: string[]
   rows: ExcelRow[]
   keyDealer: string
-  keyDate: string
 } {
   const first = wb.SheetNames[0]
   const ws = wb.Sheets[first]
@@ -351,18 +192,73 @@ function parseSalesWorkbook(wb: XLSX.WorkBook): {
     "Agency",
     "CTV",
   ])
-  const keyDate = pickKeyFromRow(sample, [
-    "NGÀY KÍCH HOẠT",
-    "NGÀY PHÁT SINH",
-    "THÁNG PHÁT SINH",
-    "THÁNG",
+  const keyOrder = pickKeyFromRow(sample, [
+    "SỐ ĐƠN HÀNG",
+    "MÃ ĐƠN HÀNG",
+    "MÃ HÓA ĐƠN",
+    "ORDER NUMBER",
   ])
+  const keyProduct = pickKeyFromRow(sample, [
+    "MÃ SẢN PHẨM",
+    "MÃ SP",
+    "ITEM PRODUCT",
+    "PRODUCT CODE",
+  ])
+  const keyReconciliation = pickKeyFromRow(sample, [
+    "GIÁ ĐỐI SOÁT",
+    "GIA DOI SOAT",
+  ])
+
+  let rows = json
+  if (keyOrder && keyProduct && keyReconciliation) {
+    const productGroups = new Map<
+      string,
+      { rowCount: number; totalRowIndex: number }
+    >()
+
+    json.forEach((row, index) => {
+      const orderNumber = String(row[keyOrder] ?? "").trim()
+      const productCode = String(row[keyProduct] ?? "")
+        .trim()
+        .toUpperCase()
+      const groupCode = productCode.replace(/\d+$/, "") || productCode
+
+      if (!orderNumber || !productCode) return
+
+      const groupKey = `${orderNumber}\u0000${groupCode}`
+      const group = productGroups.get(groupKey) || {
+        rowCount: 0,
+        totalRowIndex: -1,
+      }
+
+      group.rowCount += 1
+      if (group.totalRowIndex < 0 && productCode === groupCode) {
+        group.totalRowIndex = index
+      }
+      productGroups.set(groupKey, group)
+    })
+
+    rows = json.filter((row, index) => {
+      const orderNumber = String(row[keyOrder] ?? "").trim()
+      const productCode = String(row[keyProduct] ?? "")
+        .trim()
+        .toUpperCase()
+      const groupCode = productCode.replace(/\d+$/, "") || productCode
+      const group = productGroups.get(`${orderNumber}\u0000${groupCode}`)
+
+      return (
+        !group ||
+        group.rowCount === 1 ||
+        group.totalRowIndex < 0 ||
+        group.totalRowIndex === index
+      )
+    })
+  }
 
   return {
     headers,
-    rows: json as unknown as ExcelRow[],
+    rows: rows as unknown as ExcelRow[],
     keyDealer,
-    keyDate,
   }
 }
 
@@ -392,9 +288,6 @@ export default function HomePage() {
   const [salesFile, setSalesFile] = useState<File | null>(null)
   const [salesHeaders, setSalesHeaders] = useState<string[]>([])
   const [salesRows, setSalesRows] = useState<ExcelRow[]>([])
-
-  const [keyDealer, setKeyDealer] = useState<string>("Đại Lý")
-  const [keyDate, setKeyDate] = useState<string>("NGÀY KÍCH HOẠT")
 
   const [dealers, setDealers] = useState<string[]>([])
   const [dealerName, setDealerName] = useState<string>(ALL_VALUE)
@@ -537,8 +430,6 @@ export default function HomePage() {
 
       setSalesHeaders(parsed.headers)
       setSalesRows(parsed.rows)
-      setKeyDealer(parsed.keyDealer)
-      setKeyDate(parsed.keyDate)
 
       if (!parsed.keyDealer) {
         setExportErr(
@@ -647,25 +538,6 @@ export default function HomePage() {
 
     try {
       const params = buildReportParams()
-
-      if (!reportFilters.invoiceStatus) {
-        const responses = await Promise.all(
-          REPORT_INVOICE_STATUSES.map((invoiceStatus) =>
-            APIExportSaleTransactionReport({
-              ...params,
-              invoiceStatus,
-            })
-          )
-        )
-        const workbooks = (
-          await Promise.all(responses.map(readReportWorkbook))
-        ).filter((workbook): workbook is XLSX.WorkBook => Boolean(workbook))
-        const blob = mergeReportWorkbooks(workbooks)
-
-        downloadBlob(blob, buildDefaultReportFileName(reportFilters))
-        return
-      }
-
       const response = await APIExportSaleTransactionReport(params)
       const blob = getReportResponseBlob(response)
 
@@ -946,15 +818,13 @@ export default function HomePage() {
               >
                 Từ ngày
               </label>
-              <input
-                id="report-start-date"
-                type="date"
-                value={reportFilters.startDate}
-                onChange={(event) =>
-                  updateReportFilter("startDate", event.target.value)
-                }
-                className="mt-2 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-              />
+              <div className="mt-2">
+                <InvoiceFilterDatePicker
+                  id="report-start-date"
+                  value={reportFilters.startDate}
+                  onChange={(value) => updateReportFilter("startDate", value)}
+                />
+              </div>
             </div>
 
             <div>
@@ -964,15 +834,13 @@ export default function HomePage() {
               >
                 Đến ngày
               </label>
-              <input
-                id="report-end-date"
-                type="date"
-                value={reportFilters.endDate}
-                onChange={(event) =>
-                  updateReportFilter("endDate", event.target.value)
-                }
-                className="mt-2 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-              />
+              <div className="mt-2">
+                <InvoiceFilterDatePicker
+                  id="report-end-date"
+                  value={reportFilters.endDate}
+                  onChange={(value) => updateReportFilter("endDate", value)}
+                />
+              </div>
             </div>
 
             <div>
@@ -982,20 +850,16 @@ export default function HomePage() {
               >
                 Trạng thái hóa đơn
               </label>
-              <select
-                id="report-invoice-status"
-                value={reportFilters.invoiceStatus}
-                onChange={(event) =>
-                  updateReportFilter("invoiceStatus", event.target.value)
-                }
-                className="mt-2 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-              >
-                {INVOICE_STATUS_OPTIONS.map((option) => (
-                  <option key={option.value || "all"} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+              <div className="mt-2">
+                <InvoiceFilterSelect
+                  id="report-invoice-status"
+                  value={reportFilters.invoiceStatus}
+                  onChange={(value) =>
+                    updateReportFilter("invoiceStatus", value)
+                  }
+                  options={INVOICE_STATUS_OPTIONS}
+                />
+              </div>
             </div>
 
             <div>
@@ -1005,20 +869,14 @@ export default function HomePage() {
               >
                 Thanh toán
               </label>
-              <select
-                id="report-payment-status"
-                value={reportFilters.isPaid}
-                onChange={(event) =>
-                  updateReportFilter("isPaid", event.target.value)
-                }
-                className="mt-2 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-              >
-                {PAYMENT_STATUS_OPTIONS.map((option) => (
-                  <option key={option.value || "all"} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+              <div className="mt-2">
+                <InvoiceFilterSelect
+                  id="report-payment-status"
+                  value={reportFilters.isPaid}
+                  onChange={(value) => updateReportFilter("isPaid", value)}
+                  options={PAYMENT_STATUS_OPTIONS}
+                />
+              </div>
             </div>
 
             <div>
@@ -1028,22 +886,21 @@ export default function HomePage() {
               >
                 Đại lý
               </label>
-              <select
-                id="report-agency"
-                value={reportFilters.agencyId}
-                disabled={catalogsLoading}
-                onChange={(event) =>
-                  updateReportFilter("agencyId", event.target.value)
-                }
-                className="mt-2 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-50 disabled:text-slate-400"
-              >
-                <option value="">Tất cả đại lý</option>
-                {agencies.map((agency) => (
-                  <option key={agency._id} value={agency._id}>
-                    {agency.agencyName}
-                  </option>
-                ))}
-              </select>
+              <div className="mt-2">
+                <InvoiceFilterSelect
+                  id="report-agency"
+                  value={reportFilters.agencyId}
+                  disabled={catalogsLoading}
+                  onChange={(value) => updateReportFilter("agencyId", value)}
+                  options={[
+                    { value: "", label: "Tất cả đại lý" },
+                    ...agencies.map((agency) => ({
+                      value: agency._id,
+                      label: agency.agencyName,
+                    })),
+                  ]}
+                />
+              </div>
             </div>
 
             <div>
@@ -1053,22 +910,21 @@ export default function HomePage() {
               >
                 Nhân viên
               </label>
-              <select
-                id="report-employee"
-                value={reportFilters.employeeId}
-                disabled={catalogsLoading}
-                onChange={(event) =>
-                  updateReportFilter("employeeId", event.target.value)
-                }
-                className="mt-2 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-50 disabled:text-slate-400"
-              >
-                <option value="">Tất cả nhân viên</option>
-                {employees.map((employee) => (
-                  <option key={employee._id} value={employee._id}>
-                    {employee.employeeName}
-                  </option>
-                ))}
-              </select>
+              <div className="mt-2">
+                <InvoiceFilterSelect
+                  id="report-employee"
+                  value={reportFilters.employeeId}
+                  disabled={catalogsLoading}
+                  onChange={(value) => updateReportFilter("employeeId", value)}
+                  options={[
+                    { value: "", label: "Tất cả nhân viên" },
+                    ...employees.map((employee) => ({
+                      value: employee._id,
+                      label: employee.employeeName,
+                    })),
+                  ]}
+                />
+              </div>
             </div>
 
             <div>
@@ -1078,22 +934,23 @@ export default function HomePage() {
               >
                 Phòng ban
               </label>
-              <select
-                id="report-department"
-                value={reportFilters.departmentId}
-                disabled={catalogsLoading}
-                onChange={(event) =>
-                  updateReportFilter("departmentId", event.target.value)
-                }
-                className="mt-2 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-50 disabled:text-slate-400"
-              >
-                <option value="">Tất cả phòng ban</option>
-                {departments.map((department) => (
-                  <option key={department._id} value={department._id}>
-                    {department.departmentName}
-                  </option>
-                ))}
-              </select>
+              <div className="mt-2">
+                <InvoiceFilterSelect
+                  id="report-department"
+                  value={reportFilters.departmentId}
+                  disabled={catalogsLoading}
+                  onChange={(value) =>
+                    updateReportFilter("departmentId", value)
+                  }
+                  options={[
+                    { value: "", label: "Tất cả phòng ban" },
+                    ...departments.map((department) => ({
+                      value: department._id,
+                      label: department.departmentName,
+                    })),
+                  ]}
+                />
+              </div>
             </div>
 
             <div>
@@ -1103,22 +960,21 @@ export default function HomePage() {
               >
                 Ngân hàng
               </label>
-              <select
-                id="report-bank"
-                value={reportFilters.bankId}
-                disabled={catalogsLoading}
-                onChange={(event) =>
-                  updateReportFilter("bankId", event.target.value)
-                }
-                className="mt-2 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-50 disabled:text-slate-400"
-              >
-                <option value="">Tất cả ngân hàng</option>
-                {banks.map((bank) => (
-                  <option key={bank._id} value={bank._id}>
-                    {bank.inv_buyerBankName}
-                  </option>
-                ))}
-              </select>
+              <div className="mt-2">
+                <InvoiceFilterSelect
+                  id="report-bank"
+                  value={reportFilters.bankId}
+                  disabled={catalogsLoading}
+                  onChange={(value) => updateReportFilter("bankId", value)}
+                  options={[
+                    { value: "", label: "Tất cả ngân hàng" },
+                    ...banks.map((bank) => ({
+                      value: bank._id,
+                      label: bank.inv_buyerBankName,
+                    })),
+                  ]}
+                />
+              </div>
             </div>
           </div>
 

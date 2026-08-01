@@ -22,6 +22,7 @@ import type { ReceiptInvoiceConfig } from "@/types/receiptInvoice"
 import AlertOption from "../alert/AlertOption"
 import AlertSuccess from "../alert/AlertSuccess"
 import AlertError from "../alert/AlertError"
+import MoneyInput from "../common/MoneyInput"
 import { SearchableSelect } from "../select/SearchableSelect"
 import {
   canStartInvoiceExport,
@@ -722,6 +723,7 @@ export default function InvoiceCreateForm({
         const totalPrice = unitPrice * (quantity || 1)
         const loadedInvReconciliation =
           (apiItem as any).invReconciliation ??
+          apiItem.revenue ??
           (index === 0 ? (initialInvoice as any).invReconciliation : undefined)
 
         return {
@@ -1367,8 +1369,8 @@ export default function InvoiceCreateForm({
         ma_thue: item.ma_thue,
         taxRate: item.taxRate,
         discountPercentage: roundInvoiceMoney(item.discountPercentage || 0),
-        // Khớp schema BE hiện tại của TransactionItem.
-        revenue: roundInvoiceMoney(item.revenue || 0),
+        // BE lưu giá đối soát của từng item trong trường revenue.
+        revenue: roundInvoiceMoney(item.invReconciliation ?? item.revenue ?? 0),
         capitalPrice: Number(item.capitalPrice || 0),
         totalSalary: roundInvoiceMoney(item.totalSalary || item.revenue || 0),
         accountingAccountCode: Number(item.accountingAccountCode || 0),
@@ -1396,7 +1398,9 @@ export default function InvoiceCreateForm({
       await onSaved?.(payload)
 
       showSuccessMessage(
-        mode === "edit" ? "Cập nhật hoá đơn thành công." : "Tạo hoá đơn thành công."
+        mode === "edit"
+          ? "Cập nhật hoá đơn thành công."
+          : "Tạo hoá đơn thành công."
       )
 
       setTimeout(() => {
@@ -1927,13 +1931,11 @@ export default function InvoiceCreateForm({
               <label className="mb-1 block text-[13px] font-medium text-slate-600">
                 Thu tiền
               </label>
-              <input
+              <MoneyInput
                 className={`${inputClass} text-right`}
                 value={general.paidAmount}
                 disabled={paymentFieldsDisabled || !general.isPaid}
-                onChange={(e) =>
-                  updateGeneral("paidAmount", toNumber(e.target.value))
-                }
+                onValueChange={(value) => updateGeneral("paidAmount", value)}
                 placeholder="Số tiền đã thu"
               />
               {general.isPaid && !paymentFieldsDisabled && (
@@ -2134,16 +2136,12 @@ export default function InvoiceCreateForm({
                   </td>
 
                   <td className="border-b border-r border-slate-200 px-2 py-2">
-                    <input
+                    <MoneyInput
                       className={`${inputClass} text-right`}
                       value={item.unitPrice}
                       disabled={mainFieldsDisabled || item.type === "Tặng"}
-                      onChange={(e) =>
-                        updateItem(
-                          item.id,
-                          "unitPrice",
-                          toNumber(e.target.value)
-                        )
+                      onValueChange={(value) =>
+                        updateItem(item.id, "unitPrice", value)
                       }
                     />
                   </td>
@@ -2177,31 +2175,23 @@ export default function InvoiceCreateForm({
                     />
                   </td>
                   <td className="border-b border-r border-slate-200 px-2 py-2">
-                    <input
+                    <MoneyInput
                       className={`${inputClass} text-right`}
                       value={item.discountAmount}
                       disabled={mainFieldsDisabled || mode !== "create"}
-                      onChange={(e) =>
-                        updateItem(
-                          item.id,
-                          "discountAmount",
-                          toNumber(e.target.value)
-                        )
+                      onValueChange={(value) =>
+                        updateItem(item.id, "discountAmount", value)
                       }
                       placeholder="0"
                     />
                   </td>
                   <td className="border-b border-r border-slate-200 px-2 py-2">
-                    <input
+                    <MoneyInput
                       className={`${inputClass} text-right`}
                       value={item.invReconciliation}
                       disabled={mainFieldsDisabled}
-                      onChange={(e) =>
-                        updateItem(
-                          item.id,
-                          "invReconciliation",
-                          toNumber(e.target.value)
-                        )
+                      onValueChange={(value) =>
+                        updateItem(item.id, "invReconciliation", value)
                       }
                       placeholder="0"
                     />
