@@ -255,6 +255,8 @@ export default function ProductPage() {
       {
         key: "inv_itemName",
         title: "Tên sản phẩm",
+        headerClassName: "text-left",
+        className: "text-left",
         render: (item) => (
           <p className="font-semibold text-slate-900">{item.inv_itemName}</p>
         ),

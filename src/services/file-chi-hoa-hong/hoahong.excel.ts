@@ -8,6 +8,7 @@ import {
   findRowContains,
   findTitleRowA,
   insertRows,
+  extractProductGroupCode,
   normalize,
   patchCellStyle,
   pickHeaderFromIndex,
@@ -257,10 +258,10 @@ const pickLoaiSanPhamHeader = (salesHeaders: string[], salesRows: any[]) => {
       if (!s) continue
       const hit =
         s === normalize("HD") ||
-        s === normalize("MTT") ||
+        s.startsWith(normalize("MTT")) ||
         s === normalize("TNCN") ||
         s === normalize("BHXH") ||
-        s === normalize("SMI") ||
+        s.startsWith(normalize("SMI")) ||
         s === normalize("CKS") ||
         s.includes(normalize("ICA")) ||
         s.includes("hddt") ||
@@ -333,7 +334,7 @@ const pickLoaiCodeHeader = (salesHeaders: string[], salesRows: any[]) => {
         s.includes(normalize("ICA")) ||
         s.startsWith(normalize("INT")) ||
         s.includes("KIOT") ||
-        s === normalize("MTT")
+        s.startsWith(normalize("MTT"))
       )
         sc -= 3
     }
@@ -369,7 +370,7 @@ const pickLoaiCksTextHeader = (
         s.startsWith(normalize("INT")) ||
         s.startsWith(normalize("TOKEN")) ||
         s.includes("KIOT") ||
-        s === normalize("MTT")
+        s.startsWith(normalize("MTT"))
       )
         sc += 5
 
@@ -532,12 +533,21 @@ export const validateHeaderMapHH = (H: ReturnType<typeof buildHeaderMapHH>) => {
   }
 }
 
+const matchesProductCode = (normalizedValue: string, code: string) => {
+  const base = normalize(code)
+  if (!base) return false
+  return (
+    normalizedValue === base ||
+    normalizedValue.startsWith(base) ||
+    normalize(extractProductGroupCode(normalizedValue)) === base
+  )
+}
+
 export const classifyProductToSectionHoaHong = (v: any): Sec => {
   const s = normalize(v)
-  const productCode = s.replace(/\d+$/, "")
 
   if (
-    productCode === normalize("HD") ||
+    matchesProductCode(s, "HD") ||
     s.includes("hddt") ||
     s.includes("hoadondientu") ||
     (s.includes("hoadon") && s.includes("dientu"))
@@ -545,25 +555,22 @@ export const classifyProductToSectionHoaHong = (v: any): Sec => {
     return "A"
 
   if (
-    productCode === normalize("MTT") ||
-    s.includes("maytinhtien") ||
-    s.includes("may tinh tien")
+    matchesProductCode(s, "MTT") ||
+    s.includes("maytinhtien")
   )
     return "B"
 
   if (
-    productCode === normalize("TNCN") ||
+    matchesProductCode(s, "TNCN") ||
     s.includes("tncn") ||
     s.includes("khautru") ||
-    s.includes("khau tru") ||
-    s.includes("chungtu") ||
-    s.includes("chung tu")
+    s.includes("chungtu")
   )
     return "C"
 
-  if (productCode === normalize("BHXH") || s.includes("bhxh")) return "D"
-  if (productCode === normalize("SMI") || s.includes("smi")) return "E"
-  if (productCode === normalize("XANG") || s.includes("xang")) return "F"
+  if (matchesProductCode(s, "BHXH") || s.includes("bhxh")) return "D"
+  if (matchesProductCode(s, "SMI") || s.includes("smi")) return "E"
+  if (matchesProductCode(s, "XANG") || s.includes("xang")) return "F"
 
   if (
     s.includes(normalize("ICA")) ||
@@ -572,7 +579,6 @@ export const classifyProductToSectionHoaHong = (v: any): Sec => {
     s.startsWith(normalize("TOKEN")) ||
     s.includes("cks") ||
     s.includes("chukyso") ||
-    s.includes("chu ky so") ||
     s.includes("chukiso")
   )
     return "G"

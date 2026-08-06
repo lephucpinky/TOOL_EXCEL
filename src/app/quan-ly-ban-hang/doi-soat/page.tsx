@@ -2,7 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react"
 import * as XLSX from "xlsx-js-style"
-import { normalize, type ExcelRow } from "@/utils/excel"
+import {
+  extractProductGroupCode,
+  normalize,
+  type ExcelRow,
+} from "@/utils/excel"
 import { exportChiHoaHongXlsx } from "@/services/file-chi-hoa-hong/exportChiHoaHong"
 
 import { SearchableSelect } from "@/components/select/SearchableSelect"
@@ -221,7 +225,7 @@ function parseSalesWorkbook(wb: XLSX.WorkBook): {
       const productCode = String(row[keyProduct] ?? "")
         .trim()
         .toUpperCase()
-      const groupCode = productCode.replace(/\d+$/, "") || productCode
+      const groupCode = extractProductGroupCode(productCode)
 
       if (!orderNumber || !productCode) return
 
@@ -243,7 +247,7 @@ function parseSalesWorkbook(wb: XLSX.WorkBook): {
       const productCode = String(row[keyProduct] ?? "")
         .trim()
         .toUpperCase()
-      const groupCode = productCode.replace(/\d+$/, "") || productCode
+      const groupCode = extractProductGroupCode(productCode)
       const group = productGroups.get(`${orderNumber}\u0000${groupCode}`)
 
       return (
@@ -892,6 +896,7 @@ export default function HomePage() {
                   value={reportFilters.agencyId}
                   disabled={catalogsLoading}
                   onChange={(value) => updateReportFilter("agencyId", value)}
+                  searchPlaceholder="Tìm đại lý..."
                   options={[
                     { value: "", label: "Tất cả đại lý" },
                     ...agencies.map((agency) => ({
@@ -916,6 +921,7 @@ export default function HomePage() {
                   value={reportFilters.employeeId}
                   disabled={catalogsLoading}
                   onChange={(value) => updateReportFilter("employeeId", value)}
+                  searchPlaceholder="Tìm nhân viên..."
                   options={[
                     { value: "", label: "Tất cả nhân viên" },
                     ...employees.map((employee) => ({
@@ -942,6 +948,7 @@ export default function HomePage() {
                   onChange={(value) =>
                     updateReportFilter("departmentId", value)
                   }
+                  searchPlaceholder="Tìm phòng ban..."
                   options={[
                     { value: "", label: "Tất cả phòng ban" },
                     ...departments.map((department) => ({
@@ -966,6 +973,7 @@ export default function HomePage() {
                   value={reportFilters.bankId}
                   disabled={catalogsLoading}
                   onChange={(value) => updateReportFilter("bankId", value)}
+                  searchPlaceholder="Tìm ngân hàng..."
                   options={[
                     { value: "", label: "Tất cả ngân hàng" },
                     ...banks.map((bank) => ({

@@ -40,6 +40,8 @@ type Props = {
   selectedRowIds?: string[]
   onSelectedRowIdsChange?: (ids: string[]) => void
   bulkActionLoading?: boolean
+  searchKeyword?: string
+  onSearchKeywordChange?: (keyword: string) => void
   pagination?: {
     currentPage: number
     pageSize: number
@@ -385,9 +387,12 @@ export default function InvoiceDataTable({
   selectedRowIds = [],
   onSelectedRowIdsChange,
   bulkActionLoading = false,
+  searchKeyword,
+  onSearchKeywordChange,
   pagination,
 }: Props) {
-  const [keyword, setKeyword] = useState("")
+  const isServerSearch = Boolean(onSearchKeywordChange)
+  const [keyword, setKeyword] = useState(searchKeyword ?? "")
   const [filterOpen, setFilterOpen] = useState(false)
   const [mounted, setMounted] = useState(false)
   const filterContainerRef = useRef<HTMLDivElement>(null)
@@ -526,6 +531,26 @@ export default function InvoiceDataTable({
   }, [])
 
   useEffect(() => {
+    if (searchKeyword === undefined) return
+    setKeyword(searchKeyword)
+  }, [searchKeyword])
+
+  useEffect(() => {
+    if (!onSearchKeywordChange) return
+
+    const nextKeyword = keyword.trim()
+    const currentKeyword = (searchKeyword ?? "").trim()
+
+    if (nextKeyword === currentKeyword) return
+
+    const timeoutId = window.setTimeout(() => {
+      onSearchKeywordChange(keyword)
+    }, 400)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [keyword, onSearchKeywordChange, searchKeyword])
+
+  useEffect(() => {
     if (!filterOpen) return
 
     const handlePointerDownOutside = (event: PointerEvent) => {
@@ -598,9 +623,10 @@ export default function InvoiceDataTable({
         .join(" ")
       const normalizedSearchText = normalizeFilterText(searchText)
 
-      const matchKeyword = searchValue
-        ? normalizedSearchText.includes(searchValue)
-        : true
+      const matchKeyword =
+        isServerSearch || !searchValue
+          ? true
+          : normalizedSearchText.includes(searchValue)
 
       const matchFromDate = fromDate
         ? Boolean(invoiceDate && invoiceDate >= fromDate)
@@ -693,6 +719,7 @@ export default function InvoiceDataTable({
     })
   }, [
     rows,
+    isServerSearch,
     keyword,
     fromDate,
     toDate,
@@ -725,6 +752,9 @@ export default function InvoiceDataTable({
     ? filteredRows
     : filteredRows.slice(startIndex, startIndex + effectivePageSize)
   const enableBulkSelection = Boolean(onSelectedRowIdsChange)
+  const displayTotalCount = isExternalPagination
+    ? totalItems
+    : filteredRows.length
 
   const summary = useMemo(() => {
     return filteredRows.reduce(
@@ -1142,6 +1172,7 @@ export default function InvoiceDataTable({
                         id="invoice-filter-agency"
                         value={draftAgencyFilter}
                         onChange={setDraftAgencyFilter}
+                        searchPlaceholder="Tìm đại lý..."
                         options={[
                           { value: "", label: "Tất cả đại lý" },
                           ...agencyOptions,
@@ -1168,7 +1199,7 @@ export default function InvoiceDataTable({
                     </div>
 
                     <div className="text-sm font-bold text-blue-700 sm:pl-[170px]">
-                      Tổng đơn hàng: {filteredRows.length}
+                      Tổng đơn hàng: {displayTotalCount}
                     </div>
                   </div>
                 </motion.div>
@@ -1186,7 +1217,11 @@ export default function InvoiceDataTable({
               setPage(1)
               setKeyword(e.target.value)
             }}
-            placeholder="Tìm theo MST, công ty, đại lý, nhân viên, sản phẩm..."
+            placeholder={
+              isServerSearch
+                ? "Tìm theo MST, tên công ty, số đơn hàng..."
+                : "Tìm theo MST, công ty, đại lý, nhân viên, sản phẩm..."
+            }
           />
 
           {hasActiveFilters && (
@@ -1203,7 +1238,7 @@ export default function InvoiceDataTable({
           <div className="ml-auto text-sm text-slate-500">
             Tổng:{" "}
             <span className="font-semibold text-slate-800">
-              {filteredRows.length}
+              {displayTotalCount}
             </span>{" "}
             hóa đơn
           </div>
@@ -1390,7 +1425,7 @@ export default function InvoiceDataTable({
             setPageSize(nextPageSize)
           })
         }
-        pageSizeOptions={pagination?.pageSizeOptions ?? [10, 20, 50, 100]}
+        pageSizeOptions={pagination?.pageSizeOptions ?? [50, 100, 200, 300]}
         syncUrl={pagination?.syncUrl}
       />
     </div>

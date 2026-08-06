@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
-import { usePathname, useRouter } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
 import { cn } from "@/lib/utils"
 
@@ -31,6 +31,7 @@ export default function Pagination({
 }: PaginationProps) {
   const router = useRouter()
   const pathName = usePathname()
+  const searchParams = useSearchParams()
   const totalPages = Math.max(Math.ceil(totalItem / itemPerPage), 1)
   const safePage = Math.max(1, Math.min(currentPage, totalPages))
   const startItem = totalItem === 0 ? 0 : (safePage - 1) * itemPerPage + 1
@@ -43,7 +44,11 @@ export default function Pagination({
 
   const updateUrl = (page: number, limit = itemPerPage) => {
     if (!syncUrl) return
-    router.push(`${pathName}?page=${page}&limit=${limit}`)
+
+    const params = new URLSearchParams(searchParams.toString())
+    params.set("page", String(page))
+    params.set("limit", String(limit))
+    router.push(`${pathName}?${params.toString()}`)
   }
 
   const handleChangePage = (page: number) => {

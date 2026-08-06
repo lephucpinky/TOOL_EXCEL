@@ -17,6 +17,16 @@ export const normalize = (s: any) =>
     .replace(/\s+/g, " ")
     .replace(/[^a-z0-9]+/g, "")
 
+/** MTT1/MTT2 → MTT, SMI1/SMI.SL → SMI (chỉ lấy cụm chữ cái đầu của mã SP) */
+export const extractProductGroupCode = (value: any) => {
+  const raw = String(value ?? "")
+    .trim()
+    .toUpperCase()
+  if (!raw) return ""
+  const match = raw.match(/^([A-Z]+)/)
+  return match?.[1] || raw
+}
+
 export const toNumber = (v: any) => {
   if (v == null || v === "") return 0
   if (typeof v === "number") return Number.isFinite(v) ? v : 0

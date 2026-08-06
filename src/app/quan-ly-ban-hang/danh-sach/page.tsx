@@ -1,9 +1,9 @@
 "use client"
 
 import Link from "next/link"
-import { useSearchParams } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { ReceiptText, Settings2 } from "lucide-react"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import InvoiceCreateForm from "@/components/minvoice/InvoiceCreateForm"
 import InvoiceDataTable from "@/components/minvoice/InvoiceDataTable"
@@ -47,10 +47,8 @@ import { APIGetReceiptInvoices } from "@/services/receiptInvoice"
 import * as invoiceHelper from "@/utils/invoice"
 import { buildCreateInvoiceApiBody } from "@/utils/invoicePayload"
 import {
-  DEFAULT_URL_LIMIT,
   DEFAULT_URL_PAGE,
-  getUrlPaginationParams,
-  URL_PAGE_SIZE_OPTIONS,
+  getPositiveInteger,
 } from "@/utils/pagination"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import {
@@ -89,9 +87,13 @@ type InvoiceListActionStatus =
 
 const NO_INVOICE_EXPORT_RESULT_MESSAGE =
   "Xuất hoá đơn không thành công, vui lòng thử lại sau."
+const INVOICE_PAGE_SIZE_OPTIONS = [50, 100, 200, 300]
+const INVOICE_DEFAULT_LIMIT = 50
 
 export default function InvoiceListPage() {
   const searchParams = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
   const dispatch = useAppDispatch()
   const {
     items: apiRows,
@@ -103,21 +105,50 @@ export default function InvoiceListPage() {
   const [pageLoading, setPageLoading] = useState(false)
   const loading = pageLoading || listLoading || submitLoading || deleteLoading
 
-  const { page: listPage, limit: listLimit } =
-    getUrlPaginationParams(searchParams)
+  const listPage = getPositiveInteger(
+    searchParams.get("page"),
+    DEFAULT_URL_PAGE
+  )
+  const listLimit = getPositiveInteger(
+    searchParams.get("limit"),
+    INVOICE_DEFAULT_LIMIT
+  )
+  const listSearch = String(searchParams.get("search") ?? "").trim()
   const listParams = useMemo(
     () => ({
       page: listPage,
       limit: listLimit,
+      ...(listSearch ? { search: listSearch } : {}),
     }),
-    [listPage, listLimit]
+    [listPage, listLimit, listSearch]
   )
   const [listPagination, setListPagination] = useState({
     page: DEFAULT_URL_PAGE,
-    limit: DEFAULT_URL_LIMIT,
+    limit: INVOICE_DEFAULT_LIMIT,
     total: 0,
     totalPages: 1,
   })
+
+  const handleSearchKeywordChange = useCallback(
+    (keyword: string) => {
+      const params = new URLSearchParams(searchParams.toString())
+      const nextSearch = keyword.trim()
+
+      if (nextSearch) params.set("search", nextSearch)
+      else params.delete("search")
+
+      params.set("page", "1")
+      params.set("limit", String(listLimit || INVOICE_DEFAULT_LIMIT))
+
+      const nextQuery = params.toString()
+      const currentQuery = searchParams.toString()
+
+      if (nextQuery === currentQuery) return
+
+      router.push(nextQuery ? `${pathname}?${nextQuery}` : pathname)
+    },
+    [listLimit, pathname, router, searchParams]
+  )
 
   const [mode, setMode] = useState<PageMode>("list")
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(
@@ -708,7 +739,7 @@ export default function InvoiceListPage() {
 
   useEffect(() => {
     void handleGetSaleTransactions()
-  }, [listPage, listLimit])
+  }, [listPage, listLimit, listSearch])
 
   useEffect(() => {
     void handleGetReceiptConfigs()
@@ -2235,13 +2266,15 @@ export default function InvoiceListPage() {
                 selectedRowIds={selectedBulkInvoiceIds}
                 onSelectedRowIdsChange={setSelectedBulkInvoiceIds}
                 bulkActionLoading={bulkInvoiceActionLoading}
+                searchKeyword={listSearch}
+                onSearchKeywordChange={handleSearchKeywordChange}
                 pagination={{
                   currentPage: listPage,
                   pageSize: listLimit,
                   totalItems: listPagination.total,
                   onPageChange: () => undefined,
                   onPageSizeChange: () => undefined,
-                  pageSizeOptions: URL_PAGE_SIZE_OPTIONS,
+                  pageSizeOptions: INVOICE_PAGE_SIZE_OPTIONS,
                   syncUrl: true,
                 }}
               />

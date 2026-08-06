@@ -13,6 +13,7 @@ export type SaleTransactionListParams = {
   employeeId?: string
   departmentId?: string
   bankId?: string
+  search?: string
 }
 
 export type SaleTransactionReportExportParams = {
