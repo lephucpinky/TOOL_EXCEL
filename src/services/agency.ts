@@ -1,4 +1,5 @@
-import type { AgencyPayload } from "@/types/agency"
+import type { Agency, AgencyPayload } from "@/types/agency"
+import { fetchAllPages } from "@/utils/pagination"
 import axiosInstance from "./axiosInstance"
 
 type AgencyRequestPayload = AgencyPayload
@@ -41,6 +42,16 @@ const APIGetAgencies = async (params?: AgencyListParams) => {
     data: [],
     status: response.status,
   }
+}
+
+const APIGetAllAgencies = async (params?: AgencyListParams) => {
+  const data = await fetchAllPages<Agency, AgencyListParams>(
+    APIGetAgencies,
+    params,
+    { pageSize: 100 }
+  )
+
+  return { data, status: 200 }
 }
 
 const APIGetAgencyById = async (id: string) => {
@@ -101,6 +112,7 @@ const APIDeleteAgency = async (id: string) => {
 export {
   APICreateAgency,
   APIGetAgencies,
+  APIGetAllAgencies,
   APIGetAgencyById,
   APIUpdateAgency,
   APIDeleteAgency,

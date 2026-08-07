@@ -29,6 +29,7 @@ type InvoiceFilterDatePickerProps = {
   id: string
   value: string
   onChange: (value: string) => void
+  disabled?: boolean
 }
 
 const WEEKDAY_LABELS = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"]
@@ -37,6 +38,7 @@ export default function InvoiceFilterDatePicker({
   id,
   value,
   onChange,
+  disabled = false,
 }: InvoiceFilterDatePickerProps) {
   const [open, setOpen] = useState(false)
   const selectedDate = useMemo(() => {
@@ -59,6 +61,8 @@ export default function InvoiceFilterDatePicker({
   }, [visibleMonth])
 
   const handleOpenChange = (nextOpen: boolean) => {
+    if (disabled) return
+
     if (nextOpen) {
       setVisibleMonth(startOfMonth(selectedDate || new Date()))
     }
@@ -79,17 +83,19 @@ export default function InvoiceFilterDatePicker({
         <button
           id={id}
           type="button"
+          disabled={disabled}
           className={cn(
-            "group flex h-11 w-full items-center justify-between rounded-lg border border-slate-200 bg-white px-3 text-left text-sm outline-none transition",
+            "group flex h-8 w-full items-center justify-between rounded border border-slate-200 bg-white px-2 text-left text-[13px] outline-none transition",
             "hover:border-blue-300 hover:bg-blue-50/40 focus:border-blue-500 focus:ring-2 focus:ring-blue-100",
-            selectedDate ? "font-medium text-slate-800" : "text-slate-400"
+            selectedDate ? "font-medium text-slate-800" : "text-slate-400",
+            "disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 disabled:hover:border-slate-200 disabled:hover:bg-slate-100"
           )}
         >
           <span>
             {selectedDate ? format(selectedDate, "dd/MM/yyyy") : "Chọn ngày"}
           </span>
-          <span className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-50 text-slate-500 transition group-hover:bg-white group-hover:text-blue-600">
-            <CalendarDays size={17} />
+          <span className="flex h-6 w-6 items-center justify-center rounded text-slate-500 transition group-hover:text-blue-600 group-disabled:text-slate-400">
+            <CalendarDays size={15} />
           </span>
         </button>
       </PopoverTrigger>

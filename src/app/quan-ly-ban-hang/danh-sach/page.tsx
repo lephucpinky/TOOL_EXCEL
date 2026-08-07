@@ -114,13 +114,72 @@ export default function InvoiceListPage() {
     INVOICE_DEFAULT_LIMIT
   )
   const listSearch = String(searchParams.get("search") ?? "").trim()
+  const listAgencyId = String(searchParams.get("agencyId") ?? "").trim()
+  const listRequestIdRef = useRef(0)
+  const listQueryRef = useRef({
+    page: listPage,
+    limit: listLimit,
+    search: listSearch,
+    agencyId: listAgencyId,
+  })
+
+  listQueryRef.current = {
+    page: listPage,
+    limit: listLimit,
+    search: listSearch,
+    agencyId: listAgencyId,
+  }
+
+  const pushListQuery = useCallback(
+    (
+      patch: Partial<{
+        page: number
+        limit: number
+        search: string
+        agencyId: string
+      }>
+    ) => {
+      const current = listQueryRef.current
+      const next = {
+        page: patch.page ?? current.page,
+        limit: patch.limit ?? current.limit,
+        search:
+          patch.search !== undefined ? patch.search.trim() : current.search,
+        agencyId:
+          patch.agencyId !== undefined
+            ? patch.agencyId.trim()
+            : current.agencyId,
+      }
+
+      listQueryRef.current = next
+
+      const params = new URLSearchParams()
+      params.set("page", String(Math.max(next.page, 1)))
+      params.set("limit", String(Math.max(next.limit, 1)))
+      if (next.search) params.set("search", next.search)
+      if (next.agencyId) params.set("agencyId", next.agencyId)
+
+      const nextQuery = params.toString()
+      const currentQuery =
+        typeof window !== "undefined"
+          ? window.location.search.replace(/^\?/, "")
+          : searchParams.toString()
+
+      if (nextQuery === currentQuery) return
+
+      router.push(nextQuery ? `${pathname}?${nextQuery}` : pathname)
+    },
+    [pathname, router, searchParams]
+  )
+
   const listParams = useMemo(
     () => ({
       page: listPage,
       limit: listLimit,
       ...(listSearch ? { search: listSearch } : {}),
+      ...(listAgencyId ? { agencyId: listAgencyId } : {}),
     }),
-    [listPage, listLimit, listSearch]
+    [listPage, listLimit, listSearch, listAgencyId]
   )
   const [listPagination, setListPagination] = useState({
     page: DEFAULT_URL_PAGE,
@@ -128,27 +187,52 @@ export default function InvoiceListPage() {
     total: 0,
     totalPages: 1,
   })
+  const listTablePagination = useMemo(
+    () => ({
+      currentPage: listPage,
+      pageSize: listLimit,
+      totalItems: listPagination.total,
+      onPageChange: () => undefined,
+      onPageSizeChange: () => undefined,
+      pageSizeOptions: INVOICE_PAGE_SIZE_OPTIONS,
+      syncUrl: true,
+    }),
+    [listPage, listLimit, listPagination.total]
+  )
 
   const handleSearchKeywordChange = useCallback(
     (keyword: string) => {
-      const params = new URLSearchParams(searchParams.toString())
-      const nextSearch = keyword.trim()
-
-      if (nextSearch) params.set("search", nextSearch)
-      else params.delete("search")
-
-      params.set("page", "1")
-      params.set("limit", String(listLimit || INVOICE_DEFAULT_LIMIT))
-
-      const nextQuery = params.toString()
-      const currentQuery = searchParams.toString()
-
-      if (nextQuery === currentQuery) return
-
-      router.push(nextQuery ? `${pathname}?${nextQuery}` : pathname)
+      pushListQuery({
+        search: keyword.trim(),
+        page: 1,
+        limit: listLimit || INVOICE_DEFAULT_LIMIT,
+      })
     },
-    [listLimit, pathname, router, searchParams]
+    [listLimit, pushListQuery]
   )
+
+  const handleAgencyFilterChange = useCallback(
+    (agencyId: string) => {
+      const nextAgencyId = agencyId.trim()
+      if (nextAgencyId === listQueryRef.current.agencyId) return
+
+      pushListQuery({
+        agencyId: nextAgencyId,
+        page: 1,
+        limit: listLimit || INVOICE_DEFAULT_LIMIT,
+      })
+    },
+    [listLimit, pushListQuery]
+  )
+
+  const handleClearListFilters = useCallback(() => {
+    pushListQuery({
+      search: "",
+      agencyId: "",
+      page: 1,
+      limit: listLimit || INVOICE_DEFAULT_LIMIT,
+    })
+  }, [listLimit, pushListQuery])
 
   const [mode, setMode] = useState<PageMode>("list")
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(
@@ -666,8 +750,18 @@ export default function InvoiceListPage() {
     runRefresh(0)
   }
   const handleGetSaleTransactions = async () => {
+    const requestId = ++listRequestIdRef.current
+
     try {
       setPageLoading(true)
+      replaceInvoiceRows(() => [])
+      setListPagination((current) => ({
+        ...current,
+        page: listParams.page,
+        limit: listParams.limit,
+        total: 0,
+        totalPages: 1,
+      }))
 
       const previousRows = apiRowsRef.current
       const previousRowMap = new Map(
@@ -675,9 +769,9 @@ export default function InvoiceListPage() {
       )
 
       const response = await APIGetSaleTransactions(listParams)
-      const rows = response.data
+      if (requestId !== listRequestIdRef.current) return
 
-      const nextRows = rows.map((row) => {
+      const nextRows = response.data.map((row) => {
         const fallback = previousRowMap.get(row._id)
 
         return mergeInvoicePaymentState(
@@ -692,7 +786,7 @@ export default function InvoiceListPage() {
       const total = Math.max(Number(response.total ?? nextRows.length), 0)
       const limit = Math.max(Number(response.limit ?? listParams.limit), 1)
       const totalPages = Math.max(
-        Number(response.totalPages ?? Math.ceil(total / limit)),
+        Number(response.totalPages ?? Math.max(Math.ceil(total / limit), 1)),
         1
       )
 
@@ -703,6 +797,8 @@ export default function InvoiceListPage() {
         totalPages,
       })
     } catch (error) {
+      if (requestId !== listRequestIdRef.current) return
+
       console.error("APIGetSaleTransactions error:", error)
       replaceInvoiceRows(() => [])
       setListPagination((current) => ({
@@ -716,7 +812,9 @@ export default function InvoiceListPage() {
         getErrorMessage(error, "Không thể tải danh sách hóa đơn")
       )
     } finally {
-      setPageLoading(false)
+      if (requestId === listRequestIdRef.current) {
+        setPageLoading(false)
+      }
     }
   }
 
@@ -738,8 +836,9 @@ export default function InvoiceListPage() {
   }
 
   useEffect(() => {
+    setPageLoading(true)
     void handleGetSaleTransactions()
-  }, [listPage, listLimit, listSearch])
+  }, [listPage, listLimit, listSearch, listAgencyId])
 
   useEffect(() => {
     void handleGetReceiptConfigs()
@@ -2268,15 +2367,10 @@ export default function InvoiceListPage() {
                 bulkActionLoading={bulkInvoiceActionLoading}
                 searchKeyword={listSearch}
                 onSearchKeywordChange={handleSearchKeywordChange}
-                pagination={{
-                  currentPage: listPage,
-                  pageSize: listLimit,
-                  totalItems: listPagination.total,
-                  onPageChange: () => undefined,
-                  onPageSizeChange: () => undefined,
-                  pageSizeOptions: INVOICE_PAGE_SIZE_OPTIONS,
-                  syncUrl: true,
-                }}
+                agencyFilterId={listAgencyId}
+                onAgencyFilterChange={handleAgencyFilterChange}
+                onClearServerFilters={handleClearListFilters}
+                pagination={listTablePagination}
               />
             </div>
           </>

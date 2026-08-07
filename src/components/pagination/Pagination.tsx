@@ -45,10 +45,23 @@ export default function Pagination({
   const updateUrl = (page: number, limit = itemPerPage) => {
     if (!syncUrl) return
 
-    const params = new URLSearchParams(searchParams.toString())
+    const params = new URLSearchParams(
+      typeof window !== "undefined"
+        ? window.location.search
+        : searchParams.toString()
+    )
     params.set("page", String(page))
     params.set("limit", String(limit))
-    router.push(`${pathName}?${params.toString()}`)
+
+    const nextQuery = params.toString()
+    const currentQuery =
+      typeof window !== "undefined"
+        ? window.location.search.replace(/^\?/, "")
+        : searchParams.toString()
+
+    if (nextQuery === currentQuery) return
+
+    router.push(`${pathName}?${nextQuery}`)
   }
 
   const handleChangePage = (page: number) => {

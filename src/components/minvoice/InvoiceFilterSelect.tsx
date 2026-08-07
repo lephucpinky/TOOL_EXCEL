@@ -97,7 +97,7 @@ export default function InvoiceFilterSelect({
           data-invoice-filter-select
           data-state={open ? "open" : "closed"}
           className={cn(
-            "group flex h-11 w-full items-center justify-between rounded-lg border border-slate-200 bg-white px-3 text-left text-sm font-medium text-slate-700 outline-none transition",
+            "group flex h-8 w-full items-center justify-between rounded border border-slate-200 bg-white px-2 text-left text-[13px] font-medium text-slate-700 outline-none transition",
             "hover:border-blue-300 hover:bg-blue-50/40 focus:border-blue-500 focus:ring-2 focus:ring-blue-100",
             "data-[state=open]:border-blue-500 data-[state=open]:bg-blue-50/40 data-[state=open]:ring-2 data-[state=open]:ring-blue-100",
             "disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
@@ -106,8 +106,8 @@ export default function InvoiceFilterSelect({
           <span className="min-w-0 flex-1 truncate">
             {selected?.label || options[0]?.label || "Chọn..."}
           </span>
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-50 text-slate-500 transition group-hover:bg-white group-hover:text-blue-600 group-data-[state=open]:rotate-180 group-data-[state=open]:bg-white group-data-[state=open]:text-blue-600">
-            <ChevronDown size={17} />
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-slate-500 transition group-hover:text-blue-600 group-data-[state=open]:rotate-180 group-data-[state=open]:text-blue-600">
+            <ChevronDown size={15} />
           </span>
         </button>
       </PopoverTrigger>

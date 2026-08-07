@@ -25,6 +25,9 @@ import { cn } from "@/lib/utils"
 import InvoiceFilterSelect from "./InvoiceFilterSelect"
 import InvoiceDatePicker from "./InvoiceFilterDatePicker"
 import { ToolbarButton } from "./InvoiceToolbar"
+import { APIGetAllAgencies } from "@/services/agency"
+import type { Agency } from "@/types/agency"
+
 type Props = {
   rows: InvoiceApiRow[]
   loading?: boolean
@@ -42,6 +45,9 @@ type Props = {
   bulkActionLoading?: boolean
   searchKeyword?: string
   onSearchKeywordChange?: (keyword: string) => void
+  agencyFilterId?: string
+  onAgencyFilterChange?: (agencyId: string) => void
+  onClearServerFilters?: () => void
   pagination?: {
     currentPage: number
     pageSize: number
@@ -124,6 +130,7 @@ const EXACT_MATCH_COLUMN_KEYS = new Set<InvoiceColumnFilterKey>([
   "inv_invoiceIssuedDate",
   "orderCreateStatus",
   "exportInvoiceStatus",
+  "agencyId",
   "paid",
   "paidDate",
 ])
@@ -309,7 +316,7 @@ function InvoiceColumnFilterControl({
 }: InvoiceColumnFilterControlProps) {
   const isActive = Boolean(appliedValue)
   const controlClassName = cn(
-    "h-11 w-full rounded-lg border bg-white px-3 text-sm font-normal text-slate-800 outline-none transition placeholder:text-slate-400",
+    "h-8 w-full rounded border bg-white px-2 text-[13px] font-normal text-slate-800 outline-none transition placeholder:text-slate-400",
     "hover:border-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100",
     isActive ? "border-blue-400 bg-blue-50/40" : "border-slate-300"
   )
@@ -332,7 +339,7 @@ function InvoiceColumnFilterControl({
     return (
       <div
         className={cn(
-          "[&_button]:h-11",
+          "[&_button]:h-8",
           isActive && "[&_button]:border-blue-400 [&_button]:bg-blue-50/40"
         )}
       >
@@ -389,13 +396,17 @@ export default function InvoiceDataTable({
   bulkActionLoading = false,
   searchKeyword,
   onSearchKeywordChange,
+  agencyFilterId,
+  onAgencyFilterChange,
+  onClearServerFilters,
   pagination,
 }: Props) {
-  const isServerSearch = Boolean(onSearchKeywordChange)
+  const isServerSearch = Boolean(onSearchKeywordChange || onAgencyFilterChange)
   const [keyword, setKeyword] = useState(searchKeyword ?? "")
   const [filterOpen, setFilterOpen] = useState(false)
   const [mounted, setMounted] = useState(false)
   const filterContainerRef = useRef<HTMLDivElement>(null)
+  const [agencyCatalog, setAgencyCatalog] = useState<Agency[]>([])
 
   const [draftFromDate, setDraftFromDate] = useState("")
   const [draftToDate, setDraftToDate] = useState("")
@@ -431,22 +442,28 @@ export default function InvoiceDataTable({
   const agencyOptions = useMemo(() => {
     const optionMap = new Map<string, string>()
 
+    agencyCatalog.forEach((agency) => {
+      const agencyId = agency._id
+      const agencyName = agency.agencyName || agency.inv_agencyName || agencyId
+      if (!agencyId || !agencyName) return
+      optionMap.set(agencyId, agencyName)
+    })
+
     rows.forEach((invoice) => {
       const agencyName = getAgencyName(invoice.agencyId)
-      const agencyId = invoiceHelper.getId(invoice.agencyId) || agencyName
-
+      const agencyId = invoiceHelper.getId(invoice.agencyId)
       if (!agencyId || !agencyName) return
-
-      optionMap.set(agencyId, agencyName)
+      if (!optionMap.has(agencyId)) optionMap.set(agencyId, agencyName)
     })
 
     return Array.from(optionMap.entries())
       .map(([value, label]) => ({ value, label }))
       .sort((a, b) => a.label.localeCompare(b.label, "vi"))
-  }, [rows])
+  }, [agencyCatalog, rows])
 
   const hasActiveFilters = Boolean(
     keyword ||
+      agencyFilterId ||
       fromDate ||
       toDate ||
       exportStatusFilter ||
@@ -473,6 +490,44 @@ export default function InvoiceDataTable({
     setDraftColumnFilters(createEmptyColumnFilters())
 
     setPage(1)
+
+    if (onClearServerFilters) {
+      onClearServerFilters()
+      return
+    }
+
+    pagination?.onPageChange(1)
+    onSearchKeywordChange?.("")
+    onAgencyFilterChange?.("")
+  }
+
+  const handleAgencySelectChange = (nextAgencyId: string) => {
+    const normalizedAgencyId = nextAgencyId.trim()
+    const currentAgencyId = (agencyFilterId ?? agencyFilter).trim()
+    const agencyChanged = normalizedAgencyId !== currentAgencyId
+
+    setAgencyFilter(normalizedAgencyId)
+    setDraftAgencyFilter(normalizedAgencyId)
+    setColumnFilters((current) =>
+      current.agencyId === normalizedAgencyId
+        ? current
+        : { ...current, agencyId: normalizedAgencyId }
+    )
+    setDraftColumnFilters((current) =>
+      current.agencyId === normalizedAgencyId
+        ? current
+        : { ...current, agencyId: normalizedAgencyId }
+    )
+
+    if (!agencyChanged) return
+
+    setPage(1)
+
+    if (onAgencyFilterChange) {
+      onAgencyFilterChange(normalizedAgencyId)
+      return
+    }
+
     pagination?.onPageChange(1)
   }
 
@@ -480,6 +535,11 @@ export default function InvoiceDataTable({
     key: InvoiceColumnFilterKey,
     value: string
   ) => {
+    if (key === "agencyId") {
+      handleAgencySelectChange(value)
+      return
+    }
+
     setDraftColumnFilters((current) => ({ ...current, [key]: value }))
   }
 
@@ -487,6 +547,11 @@ export default function InvoiceDataTable({
     key: InvoiceColumnFilterKey,
     value: string
   ) => {
+    if (key === "agencyId") {
+      handleAgencySelectChange(value)
+      return
+    }
+
     setColumnFilters((current) => ({ ...current, [key]: value }))
     setPage(1)
     pagination?.onPageChange(1)
@@ -495,26 +560,38 @@ export default function InvoiceDataTable({
   useEffect(() => {
     const hasPendingColumnFilter = (
       Object.keys(draftColumnFilters) as InvoiceColumnFilterKey[]
-    ).some((key) => draftColumnFilters[key] !== columnFilters[key])
+    ).some(
+      (key) =>
+        key !== "agencyId" && draftColumnFilters[key] !== columnFilters[key]
+    )
 
     if (!hasPendingColumnFilter) return
 
     const timeoutId = window.setTimeout(() => {
-      setColumnFilters({ ...draftColumnFilters })
+      setColumnFilters((current) => {
+        const nextFilters = { ...draftColumnFilters }
+        // Giữ agency theo URL/server, tránh debounce ghi đè gây loop
+        if (onAgencyFilterChange) {
+          nextFilters.agencyId = current.agencyId
+        }
+        return nextFilters
+      })
       setPage(1)
-      pagination?.onPageChange(1)
+      if (!onAgencyFilterChange) {
+        pagination?.onPageChange(1)
+      }
     }, 500)
 
     return () => window.clearTimeout(timeoutId)
-  }, [columnFilters, draftColumnFilters, pagination])
+    // Không phụ thuộc `pagination` (object mới mỗi render từ parent → loop)
+  }, [columnFilters, draftColumnFilters, onAgencyFilterChange])
 
   const handleApplyFilters = () => {
     setFromDate(draftFromDate)
     setToDate(draftToDate)
     setExportStatusFilter(draftExportStatusFilter)
     setOrderCreateFilter(draftOrderCreateFilter)
-    setAgencyFilter(draftAgencyFilter)
-    setPage(1)
+    handleAgencySelectChange(draftAgencyFilter)
     setFilterOpen(false)
   }
 
@@ -531,9 +608,50 @@ export default function InvoiceDataTable({
   }, [])
 
   useEffect(() => {
+    let cancelled = false
+
+    void (async () => {
+      try {
+        const response = await APIGetAllAgencies()
+        if (cancelled) return
+        setAgencyCatalog(Array.isArray(response.data) ? response.data : [])
+      } catch {
+        if (!cancelled) setAgencyCatalog([])
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
     if (searchKeyword === undefined) return
     setKeyword(searchKeyword)
   }, [searchKeyword])
+
+  useEffect(() => {
+    if (agencyFilterId === undefined) return
+
+    const nextAgencyId = agencyFilterId.trim()
+
+    setAgencyFilter((current) =>
+      current === nextAgencyId ? current : nextAgencyId
+    )
+    setDraftAgencyFilter((current) =>
+      current === nextAgencyId ? current : nextAgencyId
+    )
+    setColumnFilters((current) =>
+      current.agencyId === nextAgencyId
+        ? current
+        : { ...current, agencyId: nextAgencyId }
+    )
+    setDraftColumnFilters((current) =>
+      current.agencyId === nextAgencyId
+        ? current
+        : { ...current, agencyId: nextAgencyId }
+    )
+  }, [agencyFilterId])
 
   useEffect(() => {
     if (!onSearchKeywordChange) return
@@ -549,6 +667,27 @@ export default function InvoiceDataTable({
 
     return () => window.clearTimeout(timeoutId)
   }, [keyword, onSearchKeywordChange, searchKeyword])
+
+  useEffect(() => {
+    if (!onSearchKeywordChange) return
+
+    const textValues = (
+      Object.entries(columnFilters) as [InvoiceColumnFilterKey, string][]
+    )
+      .filter(
+        ([key, value]) => value.trim() && !EXACT_MATCH_COLUMN_KEYS.has(key)
+      )
+      .map(([, value]) => value.trim())
+
+    // Exact-match (agencyId,...) khong duoc ghi de / xoa search keyword
+    if (textValues.length === 0) return
+
+    const nextKeyword = textValues[textValues.length - 1]
+
+    setKeyword((current) =>
+      current.trim() === nextKeyword ? current : nextKeyword
+    )
+  }, [columnFilters, onSearchKeywordChange])
 
   useEffect(() => {
     if (!filterOpen) return
@@ -647,7 +786,10 @@ export default function InvoiceDataTable({
             ? !orderCreated
             : true
 
-      const matchAgency = agencyFilter ? agencyId === agencyFilter : true
+      const matchAgency =
+        onAgencyFilterChange || !agencyFilter
+          ? true
+          : agencyId === agencyFilter
 
       const paymentState = getInvoicePaymentState(invoice)
       const paidDate = paymentState.isCollected
@@ -666,7 +808,7 @@ export default function InvoiceDataTable({
         inv_invoiceIssuedDate: invoiceDate,
         orderCreateStatus: orderCreated ? "created" : "not_created",
         exportInvoiceStatus: invoiceStatus,
-        agencyId: agencyName,
+        agencyId,
         inv_buyerTaxCode: String(invoice.inv_buyerTaxCode || ""),
         companyName: String(
           invoice.inv_buyerLegalName || invoice.inv_buyerDisplayName || ""
@@ -688,6 +830,16 @@ export default function InvoiceDataTable({
         Object.entries(columnFilters) as [InvoiceColumnFilterKey, string][]
       ).every(([key, filterValue]) => {
         if (!filterValue) return true
+
+        // Dai ly da loc phia BE qua agencyId, khong loc lai o client
+        if (key === "agencyId" && onAgencyFilterChange) {
+          return true
+        }
+
+        // Text text đã gửi lên BE (search); chỉ giữ exact-match ở client
+        if (isServerSearch && !EXACT_MATCH_COLUMN_KEYS.has(key)) {
+          return true
+        }
 
         const normalizedCellValue = normalizeFilterText(columnValues[key])
         const normalizedFilterValue = normalizeFilterText(filterValue)
@@ -727,6 +879,7 @@ export default function InvoiceDataTable({
     orderCreateFilter,
     agencyFilter,
     columnFilters,
+    onAgencyFilterChange,
   ])
 
   useEffect(() => {
@@ -803,6 +956,18 @@ export default function InvoiceDataTable({
 
   const columns: DataTableColumn<InvoiceApiRow>[] = [
     {
+      key: "activationDate",
+      title: "Ngày kích hoạt",
+      filter: renderColumnFilter("activationDate", "Ngày kích hoạt", {
+        inputType: "date",
+      }),
+      className: "whitespace-nowrap text-center min-w-[150px]",
+      headerClassName: "text-center",
+      render: (invoice) => {
+        return formatDisplayDate(invoice.activationDate)
+      },
+    },
+    {
       key: "createdAt",
       title: "Ngày tạo",
       filter: renderColumnFilter("createdAt", "Ngày tạo", {
@@ -833,18 +998,7 @@ export default function InvoiceDataTable({
         return textValue
       },
     },
-    {
-      key: "activationDate",
-      title: "Ngày kích hoạt",
-      filter: renderColumnFilter("activationDate", "Ngày kích hoạt", {
-        inputType: "date",
-      }),
-      className: "whitespace-nowrap text-center min-w-[150px]",
-      headerClassName: "text-center",
-      render: (invoice) => {
-        return formatDisplayDate(invoice.activationDate)
-      },
-    },
+    
     {
       key: "invoiceNumber",
       title: "Số hoá đơn",
@@ -921,22 +1075,25 @@ export default function InvoiceDataTable({
     {
       key: "agencyId",
       title: "Tên Đại lý",
-      filter: renderColumnFilter("agencyId", "Tên Đại lý"),
-      className: "min-w-[150px]",
+      filter: renderColumnFilter("agencyId", "Tên Đại lý", {
+        options: agencyOptions,
+      }),
+      className: "min-w-[180px] text-left",
+      headerClassName: "text-center",
       render: (invoice) => getAgencyName(invoice.agencyId) || "-",
     },
     {
       key: "inv_buyerTaxCode",
       title: "MST",
       filter: renderColumnFilter("inv_buyerTaxCode", "MST"),
-      className: "whitespace-nowrap",
+      className: "whitespace-nowrap min-w-[140px]",
       render: (invoice) => invoice.inv_buyerTaxCode || "-",
     },
     {
       key: "companyName",
       title: "Tên công ty",
       filter: renderColumnFilter("companyName", "Tên công ty"),
-      className: "min-w-[400px] text-left",
+      className: "min-w-[320px] max-w-[420px] text-left",
       render: (invoice) =>
         invoice.inv_buyerLegalName || invoice.inv_buyerDisplayName || "-",
     },
@@ -959,7 +1116,8 @@ export default function InvoiceDataTable({
       key: "productName",
       title: "Tên SP",
       filter: renderColumnFilter("productName", "Tên SP"),
-      className: "min-w-[200px]",
+      headerClassName: "text-center",
+      className: "min-w-[200px] text-left",
       render: (invoice) => getProductName(invoice.items?.[0]?.productId) || "-",
     },
     {
@@ -967,7 +1125,7 @@ export default function InvoiceDataTable({
       title: "Tổng giá trị",
       filter: renderColumnFilter("inv_TotalAmountWithoutVAT", "Tổng giá trị"),
       className: "whitespace-nowrap min-w-[150px] text-right ",
-      headerClassName: "text-right",
+      headerClassName: "text-center",
       render: (invoice) =>
         MONEY_FORMATTER.format(Number(invoice.inv_TotalAmount || 0)),
     },
@@ -976,7 +1134,7 @@ export default function InvoiceDataTable({
       title: "Tổng xuất HĐ",
       filter: renderColumnFilter("inv_TotalAmount", "Tổng xuất HĐ"),
       className: "whitespace-nowrap text-right min-w-[120px] ",
-      headerClassName: "text-right",
+      headerClassName: "text-center",
       render: (invoice) =>
         MONEY_FORMATTER.format(getInvoiceExportedAmount(invoice)),
     },
@@ -990,7 +1148,7 @@ export default function InvoiceDataTable({
           { value: "not_collected", label: "Chưa thu" },
         ],
       }),
-      className: "text-center",
+      className: "min-w-[120px] text-center",
       headerClassName: "text-center",
       render: (invoice) => {
         const { isCollected } = getInvoicePaymentState(invoice)
@@ -1029,7 +1187,7 @@ export default function InvoiceDataTable({
       title: "Số tiền thu",
       filter: renderColumnFilter("amountCollected", "Số tiền thu"),
       className: "whitespace-nowrap text-right min-w-[120px] ",
-      headerClassName: "text-right",
+      headerClassName: "text-center",
       render: (invoice) =>
         MONEY_FORMATTER.format(getInvoicePaymentState(invoice).paidAmount),
     },
@@ -1037,8 +1195,8 @@ export default function InvoiceDataTable({
       key: "paidAmount",
       title: "Số tiền chênh lệch",
       filter: renderColumnFilter("paidAmount", "Số tiền chênh lệch"),
-      className: "whitespace-nowrap text-center min-w-[150px] ",
-      headerClassName: "text-right",
+      className: "whitespace-nowrap text-right min-w-[150px] ",
+      headerClassName: "text-center",
       render: (invoice) => {
         const remainingAmount = getInvoicePaymentState(invoice).remainingAmount
 
@@ -1210,20 +1368,6 @@ export default function InvoiceDataTable({
         )}
       <div className="relative z-40">
         <div className="flex flex-wrap items-center gap-2">
-          <input
-            className="h-9 w-full max-w-[360px] rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-indigo-500"
-            value={keyword}
-            onChange={(e) => {
-              setPage(1)
-              setKeyword(e.target.value)
-            }}
-            placeholder={
-              isServerSearch
-                ? "Tìm theo MST, tên công ty, số đơn hàng..."
-                : "Tìm theo MST, công ty, đại lý, nhân viên, sản phẩm..."
-            }
-          />
-
           {hasActiveFilters && (
             <button
               type="button"
@@ -1235,7 +1379,13 @@ export default function InvoiceDataTable({
             </button>
           )}
 
-          <div className="ml-auto text-sm text-slate-500">
+          <div className="ml-auto flex items-center gap-2 text-sm text-slate-500">
+            {loading && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 ring-1 ring-blue-100">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Đang tìm...
+              </span>
+            )}
             Tổng:{" "}
             <span className="font-semibold text-slate-800">
               {displayTotalCount}

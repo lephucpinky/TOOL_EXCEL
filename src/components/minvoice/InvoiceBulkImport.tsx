@@ -12,7 +12,7 @@ import {
 
 import AlertError from "@/components/alert/AlertError"
 import AlertSuccess from "@/components/alert/AlertSuccess"
-import { APIGetAgencies } from "@/services/agency"
+import { APIGetAllAgencies } from "@/services/agency"
 import { APIGetBanks } from "@/services/bank"
 import { APIGetAllProducts } from "@/services/product"
 import { APICreateSaleTransaction } from "@/services/saleTransaction"
@@ -99,7 +99,7 @@ export default function InvoiceBulkImport({
         setCatalogLoading(true)
 
         const [agencyRes, productRes, bankRes] = await Promise.all([
-          APIGetAgencies(),
+          APIGetAllAgencies(),
           APIGetAllProducts(),
           APIGetBanks(),
         ])

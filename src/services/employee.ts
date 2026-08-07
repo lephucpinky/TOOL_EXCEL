@@ -1,3 +1,5 @@
+import type { Employee } from "@/types/employee"
+import { fetchAllPages } from "@/utils/pagination"
 import axiosInstance from "./axiosInstance"
 
 const APICreateEmployee = async (data: any) => {
@@ -34,6 +36,16 @@ const APIGetEmployees = async (params?: any) => {
   }
 
   return response
+}
+
+const APIGetAllEmployees = async (params?: any) => {
+  const data = await fetchAllPages<Employee, Record<string, unknown>>(
+    APIGetEmployees,
+    params,
+    { pageSize: 100 }
+  )
+
+  return { data, status: 200 }
 }
 
 const APIGetEmployeeById = async (id: string) => {
@@ -97,6 +109,7 @@ const APIDeleteEmployee = async (id: string) => {
 export {
   APICreateEmployee,
   APIGetEmployees,
+  APIGetAllEmployees,
   APIGetEmployeeById,
   APIUpdateEmployee,
   APIDeleteEmployee,

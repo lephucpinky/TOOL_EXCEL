@@ -1,3 +1,5 @@
+import type { Department } from "@/types/department"
+import { fetchAllPages } from "@/utils/pagination"
 import axiosInstance from "./axiosInstance"
 
 const APICreateDepartment = async (data: any) => {
@@ -39,6 +41,16 @@ const APIGetDepartments = async (params?: any) => {
   }
 
   return response
+}
+
+const APIGetAllDepartments = async (params?: any) => {
+  const data = await fetchAllPages<Department, Record<string, unknown>>(
+    APIGetDepartments,
+    params,
+    { pageSize: 100 }
+  )
+
+  return { data, status: 200 }
 }
 
 const APIGetDepartmentById = async (id: string) => {
@@ -102,6 +114,7 @@ const APIDeleteDepartment = async (id: string) => {
 export {
   APICreateDepartment,
   APIGetDepartments,
+  APIGetAllDepartments,
   APIGetDepartmentById,
   APIUpdateDepartment,
   APIDeleteDepartment,

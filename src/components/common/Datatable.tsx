@@ -10,7 +10,7 @@ import {
   type ReactNode,
   type WheelEvent,
 } from "react"
-import { Download, Eye, Loader2, Pencil, Plus, Trash2 } from "lucide-react"
+import { Download, Eye, FileSearch, Loader2, Pencil, Plus, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -22,7 +22,6 @@ import {
 } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
 
-import SkeletonTable from "../skeleton/SkeletonTable"
 import Pagination from "../pagination/Pagination"
 
 const DEFAULT_PAGE_SIZE_OPTIONS = [10, 50, 100, 200, 300]
@@ -152,9 +151,11 @@ export function DataTable<T>({
     titleTable || children || onClickAddNew || showExportButton
   )
   const selectionColWidth = "w-[48px] min-w-[48px] max-w-[48px]"
-  const firstColWidth = "w-[126px] min-w-[126px] max-w-[126px]"
+  const firstColWidth = "w-[150px] min-w-[150px] max-w-[150px]"
   const firstDataColumnLeft = hasSelection ? "left-[48px]" : "left-0"
   const actionColWidth = "w-[260px] min-w-[260px] max-w-[260px]"
+  const tableColSpan =
+    columns.length + (hasSelection ? 1 : 0) + (hasActions ? 1 : 0)
   const stickyCoverBase =
     "overflow-visible before:pointer-events-none before:absolute before:inset-y-0 before:z-0 before:bg-inherit before:content-['']"
   const leftStickyCover = "overflow-hidden"
@@ -463,10 +464,7 @@ export function DataTable<T>({
         </div>
       )}
 
-      {loading ? (
-        <SkeletonTable />
-      ) : (
-        <div className="rounded-md">
+      <div className="rounded-md">
           <div
             ref={tableScrollRef}
             onPointerDown={handleTablePointerDown}
@@ -491,7 +489,7 @@ export function DataTable<T>({
               "[&::-webkit-scrollbar-thumb:hover]:bg-slate-400"
             )}
           >
-            <table className="relative w-full min-w-[860px] caption-bottom border-separate border-spacing-0 text-sm shadow-2xl">
+            <table className="relative w-max min-w-full caption-bottom border-separate border-spacing-0 text-sm shadow-2xl">
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   {hasSelection && (
@@ -508,7 +506,9 @@ export function DataTable<T>({
                           indeterminate={
                             someVisibleRowsSelected && !allVisibleRowsSelected
                           }
-                          disabled={selectableVisibleRowKeys.length === 0}
+                          disabled={
+                            loading || selectableVisibleRowKeys.length === 0
+                          }
                           title="Chọn tất cả dòng đang hiển thị"
                           ariaLabel="Chọn tất cả dòng đang hiển thị"
                           onChange={handleToggleAllVisibleRows}
@@ -532,6 +532,7 @@ export function DataTable<T>({
                           isFirstColumn && "z-30",
                           !hasActions && isLastDataColumn && rightStickyCover,
                           !hasActions && isLastDataColumn && "right-0 z-50",
+                          column.className,
                           column.headerClassName
                         )}
                       >
@@ -565,10 +566,10 @@ export function DataTable<T>({
                         className={cn(
                           leftStickyCover,
                           selectionColWidth,
-                          "sticky left-0 top-10 z-40 h-16 border-b border-slate-200 bg-slate-50 p-2"
+                          "sticky left-0 top-10 z-40 h-auto border-b border-slate-200 bg-slate-50 px-2 py-1"
                         )}
                       >
-                        <div className="h-11" />
+                        <div className="h-8" />
                       </TableHead>
                     )}
 
@@ -580,17 +581,18 @@ export function DataTable<T>({
                         <TableHead
                           key={`${column.key}-filter`}
                           className={cn(
-                            "sticky top-10 z-20 h-16 border-b border-slate-200 bg-slate-50 p-2 font-normal text-slate-700",
+                            "sticky top-10 z-20 h-auto border-b border-slate-200 bg-slate-50 px-2 py-1 font-normal text-slate-700",
                             isFirstColumn && leftStickyCover,
                             isFirstColumn && firstColWidth,
                             isFirstColumn && firstDataColumnLeft,
                             isFirstColumn && "z-30",
                             !hasActions && isLastDataColumn && rightStickyCover,
-                            !hasActions && isLastDataColumn && "right-0 z-50"
+                            !hasActions && isLastDataColumn && "right-0 z-50",
+                            column.className
                           )}
                         >
                           <div className="relative z-10">
-                            {column.filter ?? <div className="h-11" />}
+                            {column.filter ?? <div className="h-8" />}
                           </div>
                         </TableHead>
                       )
@@ -601,10 +603,10 @@ export function DataTable<T>({
                         className={cn(
                           rightStickyCover,
                           actionColWidth,
-                          "sticky right-0 top-10 z-[80] h-16 border-b border-slate-200 bg-slate-50 p-2"
+                          "sticky right-0 top-10 z-[80] h-auto border-b border-slate-200 bg-slate-50 px-2 py-1"
                         )}
                       >
-                        <div className="h-11" />
+                        <div className="h-8" />
                       </TableHead>
                     )}
                   </TableRow>
@@ -612,7 +614,59 @@ export function DataTable<T>({
               </TableHeader>
 
               <TableBody>
-                {visibleRows.length > 0 ? (
+                {(loading || visibleRows.length === 0) && (
+                  <TableRow
+                    aria-hidden
+                    className="pointer-events-none h-0 hover:bg-transparent"
+                  >
+                    {hasSelection && (
+                      <TableCell
+                        className={cn(
+                          selectionColWidth,
+                          "h-0 border-0 p-0"
+                        )}
+                      />
+                    )}
+                    {columns.map((column, index) => (
+                      <TableCell
+                        key={`width-lock-${column.key}`}
+                        className={cn(
+                          "h-0 border-0 p-0",
+                          index === 0 && firstColWidth,
+                          column.className
+                        )}
+                      />
+                    ))}
+                    {hasActions && (
+                      <TableCell
+                        className={cn(actionColWidth, "h-0 border-0 p-0")}
+                      />
+                    )}
+                  </TableRow>
+                )}
+
+                {loading ? (
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell
+                      colSpan={tableColSpan}
+                      className="border-b border-slate-100 bg-gradient-to-b from-slate-50 to-white px-3 py-10"
+                    >
+                      <div className="flex flex-col items-center justify-center gap-3">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-50 text-blue-600 shadow-sm ring-1 ring-blue-100">
+                          <Loader2 className="h-6 w-6 animate-spin" />
+                        </div>
+                        <div className="text-center">
+                          <p className="text-sm font-semibold text-slate-700">
+                            Đang tìm kiếm dữ liệu...
+                          </p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            Vui lòng chờ trong giây lát
+                          </p>
+                        </div>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : visibleRows.length > 0 ? (
                   visibleRows.map((item, index) => {
                     const rowIndex = getRenderRowIndex(index)
                     const rowKey = getResolvedRowKey(item, rowIndex)
@@ -778,16 +832,24 @@ export function DataTable<T>({
                     )
                   })
                 ) : (
-                  <TableRow>
+                  <TableRow className="hover:bg-transparent">
                     <TableCell
-                      colSpan={
-                        columns.length +
-                        (hasSelection ? 1 : 0) +
-                        (hasActions ? 1 : 0)
-                      }
-                      className="h-24 text-center text-sm font-medium text-slate-500"
+                      colSpan={tableColSpan}
+                      className="border-b border-slate-100 bg-slate-50/40 px-3 py-10"
                     >
-                      {emptyText}
+                      <div className="flex flex-col items-center justify-center gap-3">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-400 ring-1 ring-slate-200">
+                          <FileSearch className="h-6 w-6" />
+                        </div>
+                        <div className="text-center">
+                          <p className="text-sm font-semibold text-slate-600">
+                            {emptyText}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-400">
+                            Thử đổi từ khóa hoặc xóa bộ lọc để xem thêm kết quả
+                          </p>
+                        </div>
+                      </div>
                     </TableCell>
                   </TableRow>
                 )}
@@ -795,7 +857,6 @@ export function DataTable<T>({
             </table>
           </div>
         </div>
-      )}
 
       {isPaginationEnabled && (
         <Pagination

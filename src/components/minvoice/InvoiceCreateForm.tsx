@@ -10,9 +10,9 @@ import type { Department } from "@/types/department"
 import type { Employee } from "@/types/employee"
 import type { Product } from "@/types/product"
 
-import { APIGetAgencies } from "@/services/agency"
-import { APIGetDepartments } from "@/services/department"
-import { APIGetEmployees } from "@/services/employee"
+import { APIGetAllAgencies } from "@/services/agency"
+import { APIGetAllDepartments } from "@/services/department"
+import { APIGetAllEmployees } from "@/services/employee"
 import { APIGetAllProducts } from "@/services/product"
 import { APIGetBanks } from "@/services/bank"
 import { APIGetCompanyInfo } from "@/services/companyInfo"
@@ -24,6 +24,8 @@ import AlertSuccess from "../alert/AlertSuccess"
 import AlertError from "../alert/AlertError"
 import MoneyInput from "../common/MoneyInput"
 import { SearchableSelect } from "../select/SearchableSelect"
+import InvoiceFilterSelect from "./InvoiceFilterSelect"
+import InvoiceFilterDatePicker from "./InvoiceFilterDatePicker"
 import {
   canStartInvoiceExport,
   createItemId,
@@ -476,9 +478,9 @@ export default function InvoiceCreateForm({
 
         const [agencyRes, departmentRes, employeeRes, productRes, bankRes] =
           await Promise.all([
-            APIGetAgencies(),
-            APIGetDepartments(),
-            APIGetEmployees(),
+            APIGetAllAgencies(),
+            APIGetAllDepartments(),
+            APIGetAllEmployees(),
             APIGetAllProducts(),
             APIGetBanks(),
           ])
@@ -1675,23 +1677,29 @@ export default function InvoiceCreateForm({
 
           <div className="grid gap-3 xl:grid-cols-4">
             <div>
-              <label className="mb-1 block text-[13px] font-medium text-slate-600">
+              <label
+                htmlFor="invoice-create-activation-date"
+                className="mb-1 block text-[13px] font-medium text-slate-600"
+              >
                 Ngày kích hoạt
               </label>
-              <input
-                className={inputClass}
-                type="date"
+              <InvoiceFilterDatePicker
+                id="invoice-create-activation-date"
                 value={general.invoiceDate}
                 disabled={invoiceDateFieldDisabled}
-                onChange={(e) => updateGeneral("invoiceDate", e.target.value)}
+                onChange={(value) => updateGeneral("invoiceDate", value)}
               />
             </div>
 
             <div>
-              <label className="mb-1 block text-[13px] font-medium text-slate-600">
+              <label
+                htmlFor="invoice-create-agency"
+                className="mb-1 block text-[13px] font-medium text-slate-600"
+              >
                 Đại lý
               </label>
-              <SearchableSelect
+              <InvoiceFilterSelect
+                id="invoice-create-agency"
                 options={agencySelectOptions}
                 value={general.agency?._id || ""}
                 onChange={(value) => {
@@ -1699,19 +1707,21 @@ export default function InvoiceCreateForm({
                     agencyOptions.find((item) => item._id === value) || null
                   updateGeneral("agency", agency)
                 }}
-                placeholder="Chọn đại lý"
                 searchPlaceholder="Tìm đại lý..."
                 emptyText="Không tìm thấy đại lý"
                 disabled={catalogLoading || mainFieldsDisabled}
-                className={invoiceSelectClass}
               />
             </div>
 
             <div>
-              <label className="mb-1 block text-[13px] font-medium text-slate-600">
+              <label
+                htmlFor="invoice-create-department"
+                className="mb-1 block text-[13px] font-medium text-slate-600"
+              >
                 Phòng ban
               </label>
-              <SearchableSelect
+              <InvoiceFilterSelect
+                id="invoice-create-department"
                 options={departmentSelectOptions}
                 value={general.department?._id || ""}
                 onChange={(value) => {
@@ -1719,19 +1729,21 @@ export default function InvoiceCreateForm({
                     departmentOptions.find((item) => item._id === value) || null
                   updateGeneral("department", department)
                 }}
-                placeholder="Chọn phòng ban"
                 searchPlaceholder="Tìm phòng ban..."
                 emptyText="Không tìm thấy phòng ban"
                 disabled={catalogLoading || mainFieldsDisabled}
-                className={invoiceSelectClass}
               />
             </div>
 
             <div>
-              <label className="mb-1 block text-[13px] font-medium text-slate-600">
+              <label
+                htmlFor="invoice-create-employee"
+                className="mb-1 block text-[13px] font-medium text-slate-600"
+              >
                 NVKD
               </label>
-              <SearchableSelect
+              <InvoiceFilterSelect
+                id="invoice-create-employee"
                 options={employeeSelectOptions}
                 value={general.employee?._id || ""}
                 onChange={(value) => {
@@ -1740,11 +1752,9 @@ export default function InvoiceCreateForm({
 
                   updateGeneral("employee", employee)
                 }}
-                placeholder="Chọn nhân viên"
                 searchPlaceholder="Tìm nhân viên..."
                 emptyText="Không tìm thấy nhân viên"
                 disabled={catalogLoading || mainFieldsDisabled}
-                className={invoiceSelectClass}
               />
             </div>
 
@@ -1946,15 +1956,17 @@ export default function InvoiceCreateForm({
             </div>
 
             <div>
-              <label className="mb-1 block text-[13px] font-medium text-slate-600">
+              <label
+                htmlFor="invoice-create-paid-date"
+                className="mb-1 block text-[13px] font-medium text-slate-600"
+              >
                 Ngày thu tiền
               </label>
-              <input
-                className={inputClass}
-                type="date"
+              <InvoiceFilterDatePicker
+                id="invoice-create-paid-date"
                 value={general.paidDate}
                 disabled={paymentFieldsDisabled}
-                onChange={(e) => updateGeneral("paidDate", e.target.value)}
+                onChange={(value) => updateGeneral("paidDate", value)}
               />
             </div>
 
@@ -2398,15 +2410,11 @@ export default function InvoiceCreateForm({
               >
                 Ngày xuất hóa đơn
               </label>
-              <input
+              <InvoiceFilterDatePicker
                 id="invoice-form-export-date"
-                className={inputClass}
-                type="date"
                 value={selectedExportInvoiceDate}
-                min={exportInvoiceMinDate || undefined}
-                max={exportInvoiceMaxDate}
                 disabled={exportInvoiceLoading}
-                onChange={(e) => setSelectedExportInvoiceDate(e.target.value)}
+                onChange={setSelectedExportInvoiceDate}
               />
               <p className="text-xs text-slate-500">
                 Ngày hợp lệ: {exportInvoiceMinDate || "..."} -{" "}
