@@ -24,6 +24,14 @@ import AlertSuccess from "../alert/AlertSuccess"
 import AlertError from "../alert/AlertError"
 import MoneyInput from "../common/MoneyInput"
 import { SearchableSelect } from "../select/SearchableSelect"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select"
 import InvoiceFilterSelect from "./InvoiceFilterSelect"
 import InvoiceFilterDatePicker from "./InvoiceFilterDatePicker"
 import {
@@ -47,7 +55,13 @@ import {
   roundInvoiceMoney,
 } from "@/utils/invoice"
 import { toNumber } from "@/utils/excel"
-import { InvoiceApiRow, InvoiceStatus } from "@/types/invoice"
+import {
+  INVOICE_ITEM_TYPES,
+  InvoiceApiRow,
+  InvoiceStatus,
+  normalizeInvoiceItemType,
+  type InvoiceItemType,
+} from "@/types/invoice"
 type InvoiceScreenMode = "create" | "edit" | "detail"
 
 type InvoiceGeneralForm = {
@@ -78,7 +92,7 @@ type InvoiceItemForm = {
   productName: string
   unit: string
   quantity: number
-  type: string
+  type: InvoiceItemType | ""
   unitPrice: number
   discountAmount: number
   discountPercentage: number
@@ -104,6 +118,8 @@ type Props = {
   ) => void | Promise<unknown>
   onUpdateMInvoice?: (row: InvoiceApiRow) => void | Promise<unknown>
   updateMInvoiceLoading?: boolean
+  onCancelInvoice?: (row: InvoiceApiRow) => void | Promise<unknown>
+  cancelInvoiceLoading?: boolean
   mode?: InvoiceScreenMode
   initialInvoice?: InvoiceApiRow | null
   receiptConfig?: ReceiptInvoiceConfig | null
@@ -125,18 +141,14 @@ const emailRequiredMessage = "Vui lòng nhập Email."
 const emailInvalidMessage = "Email không hợp lệ."
 
 const invoiceSelectClass = `${inputClass} justify-between font-normal shadow-none hover:bg-white hover:text-slate-800`
-const productCodeSelectClass = `${invoiceSelectClass} min-w-[260px]`
-const productCodeSelectContentClass = "w-[380px] max-w-[calc(100vw-32px)]"
 
 const receiptConfigSelectClass =
   "h-8 w-[280px] justify-between rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700 shadow-none hover:bg-white hover:text-slate-700 focus:border-indigo-500 disabled:bg-slate-100"
 
-const itemTypeOptions = [
-  { value: "Mới", label: "Mới" },
-  { value: "Gia hạn", label: "Gia hạn" },
-  { value: "Tặng", label: "Tặng" },
-  { value: "Khác", label: "Khác" },
-]
+const itemTypeOptions = INVOICE_ITEM_TYPES.map((type) => ({
+  value: type,
+  label: type,
+}))
 
 function resolveAgencyEmployee(
   agency: Agency | null,
@@ -212,6 +224,8 @@ export default function InvoiceCreateForm({
   onExported,
   onUpdateMInvoice,
   updateMInvoiceLoading = false,
+  onCancelInvoice,
+  cancelInvoiceLoading = false,
   mode = "create",
   initialInvoice = null,
   receiptConfig = null,
@@ -226,6 +240,7 @@ export default function InvoiceCreateForm({
   const invoiceStatusDisplayLabel =
     String(initialInvoice?.invoiceStatusVi || "").trim() ||
     invoiceStatusLabel[invoiceStatus]
+  const isDraftInvoice = invoiceStatus === InvoiceStatus.DRAFT
   const isIssuedInvoice = invoiceStatus === InvoiceStatus.ISSUED
   const isIssuingInvoice = invoiceStatus === InvoiceStatus.ISSUING
   const isCancelledInvoice = invoiceStatus === InvoiceStatus.CANCELLED
@@ -296,7 +311,7 @@ export default function InvoiceCreateForm({
       productName: "",
       unit: "kg",
       quantity: 1,
-      type: "Mới",
+      type: "",
       unitPrice: 0,
       discountAmount: 0,
       discountPercentage: 0,
@@ -634,7 +649,7 @@ export default function InvoiceCreateForm({
             productName: resolvedProduct.inv_itemName || "",
             unit: resolvedProduct.inv_unitCode || "kg",
             quantity,
-            type: "Mới",
+            type: "Khác",
             unitPrice,
             discountAmount: loadedDiscountAmount,
             discountPercentage: loadedDiscountPercentage
@@ -747,7 +762,7 @@ export default function InvoiceCreateForm({
             apiItem.inv_unitCode ||
             "kg",
           quantity: quantity || 1,
-          type: apiItem.type || apiItem.itemType || "Mới",
+          type: normalizeInvoiceItemType(apiItem.type ?? apiItem.itemType),
           unitPrice,
           discountAmount: loadedDiscountAmount,
           discountPercentage: loadedDiscountPercentage
@@ -1184,7 +1199,7 @@ export default function InvoiceCreateForm({
         if (key === "type") {
           return {
             ...item,
-            type: String(value),
+            type: value as InvoiceItemForm["type"],
             unitPrice: String(value) === "Tặng" ? 0 : item.unitPrice,
             discountAmount: String(value) === "Tặng" ? 0 : item.discountAmount,
           }
@@ -1207,7 +1222,7 @@ export default function InvoiceCreateForm({
         productName: "",
         unit: "kg",
         quantity: 1,
-        type: "Mới",
+        type: "",
         unitPrice: 0,
         discountAmount: 0,
         discountPercentage: getAgencyDiscountPercentage(selectedAgency),
@@ -1359,6 +1374,7 @@ export default function InvoiceCreateForm({
       inv_discountPercentage: roundInvoiceMoney(invoiceDiscountPercentage),
       items: validItems.map((item) => ({
         productId: getId(item.product),
+        type: item.type as InvoiceItemType,
         product: item.product,
         productCode: item.productCode,
         productName: item.productName,
@@ -2088,7 +2104,8 @@ export default function InvoiceCreateForm({
                   </td>
 
                   <td className="min-w-[280px] border-b border-r border-slate-200 px-2 py-2">
-                    <SearchableSelect
+                    <InvoiceFilterSelect
+                      id={`invoice-item-product-${index}`}
                       options={productCodeSelectOptions}
                       value={item.product?._id || ""}
                       onChange={(value) => {
@@ -2099,12 +2116,9 @@ export default function InvoiceCreateForm({
 
                         updateItem(item.id, "product", product)
                       }}
-                      placeholder="Chọn mã hàng"
                       searchPlaceholder="Tìm mã hàng..."
                       emptyText="Không tìm thấy mã hàng"
                       disabled={catalogLoading || mainFieldsDisabled}
-                      className={productCodeSelectClass}
-                      contentClassName={productCodeSelectContentClass}
                     />
                   </td>
 
@@ -2134,17 +2148,38 @@ export default function InvoiceCreateForm({
                     />
                   </td>
 
-                  <td className="border-b border-r border-slate-200 px-2 py-2">
-                    <SearchableSelect
-                      options={itemTypeOptions}
-                      value={item.type}
-                      onChange={(value) => updateItem(item.id, "type", value)}
-                      placeholder="Chọn loại"
-                      searchPlaceholder="Tìm loại..."
-                      emptyText="Không tìm thấy loại"
+                  <td className="border-b border-r border-slate-200 px-2 py-2 align-top">
+                    <Select
+                      value={item.type || undefined}
+                      onValueChange={(value) =>
+                        updateItem(item.id, "type", value as InvoiceItemType)
+                      }
                       disabled={mainFieldsDisabled}
-                      className={invoiceSelectClass}
-                    />
+                    >
+                      <SelectTrigger
+                        aria-label={`Loại dòng ${index + 1}`}
+                        className={`${invoiceSelectClass} rounded-lg border-slate-200 bg-white px-3 text-sm font-normal shadow-sm hover:border-blue-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100`}
+                      >
+                        <SelectValue placeholder="Chọn loại" />
+                      </SelectTrigger>
+                      <SelectContent
+                        position="popper"
+                        sideOffset={6}
+                        className="z-[1000] min-w-[var(--radix-select-trigger-width)] rounded-lg border-slate-200 bg-white shadow-xl"
+                      >
+                        <SelectGroup>
+                          {itemTypeOptions.map((option) => (
+                            <SelectItem
+                              key={option.value}
+                              value={option.value}
+                              className="cursor-pointer rounded-md py-2 pl-3 pr-8 text-sm focus:bg-blue-50 focus:text-blue-700 data-[state=checked]:bg-blue-50 data-[state=checked]:font-semibold data-[state=checked]:text-blue-700"
+                            >
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
                   </td>
 
                   <td className="border-b border-r border-slate-200 px-2 py-2">
@@ -2295,51 +2330,69 @@ export default function InvoiceCreateForm({
               Sửa
             </button>
 
-            {(alreadyExported ||
-              (isIssuingInvoice &&
-                Boolean(initialInvoice?.inv_invoiceCreatedId))) &&
-            initialInvoice &&
-            onUpdateMInvoice ? (
+            {isDraftInvoice && initialInvoice && onCancelInvoice && (
               <button
-                onClick={() => {
-                  void onUpdateMInvoice(initialInvoice)
-                }}
-                disabled={updateMInvoiceLoading || isIssuingInvoice}
-                className="inline-flex items-center justify-center gap-2 rounded border border-blue-500 bg-blue-50 px-5 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={() => void onCancelInvoice(initialInvoice)}
+                disabled={cancelInvoiceLoading}
+                className="inline-flex items-center justify-center gap-2 rounded border border-red-500 bg-red-50 px-5 py-2 text-sm font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {updateMInvoiceLoading || isIssuingInvoice ? (
+                {cancelInvoiceLoading ? (
                   <>
                     <Loader2 size={16} className="animate-spin" />
-                    Đang cập nhật...
+                    Đang huỷ...
                   </>
                 ) : (
-                  "Cập nhật hóa đơn"
-                )}
-              </button>
-            ) : (
-              <button
-                onClick={openExportInvoiceDateDialog}
-                disabled={
-                  exportInvoiceLoading || isIssuingInvoice || !canExportInvoice
-                }
-                className="inline-flex items-center justify-center gap-2 rounded border border-emerald-500 bg-emerald-50 px-5 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isCancelledInvoice ? (
-                  "Hóa đơn đã hủy"
-                ) : alreadyExported ? (
-                  "Đã xuất hóa đơn"
-                ) : exportInvoiceLoading || isIssuingInvoice ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    Đang xuất...
-                  </>
-                ) : invoiceStatus === InvoiceStatus.FAILED ? (
-                  "Xuất lại hóa đơn"
-                ) : (
-                  "Xuất hóa đơn"
+                  "Huỷ phiếu"
                 )}
               </button>
             )}
+
+            {!isCancelledInvoice &&
+              ((alreadyExported ||
+                (isIssuingInvoice &&
+                  Boolean(initialInvoice?.inv_invoiceCreatedId))) &&
+              initialInvoice &&
+              onUpdateMInvoice ? (
+                <button
+                  onClick={() => {
+                    void onUpdateMInvoice(initialInvoice)
+                  }}
+                  disabled={updateMInvoiceLoading || isIssuingInvoice}
+                  className="inline-flex items-center justify-center gap-2 rounded border border-blue-500 bg-blue-50 px-5 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {updateMInvoiceLoading || isIssuingInvoice ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Đang cập nhật...
+                    </>
+                  ) : (
+                    "Cập nhật hóa đơn"
+                  )}
+                </button>
+              ) : (
+                <button
+                  onClick={openExportInvoiceDateDialog}
+                  disabled={
+                    exportInvoiceLoading ||
+                    isIssuingInvoice ||
+                    !canExportInvoice
+                  }
+                  className="inline-flex items-center justify-center gap-2 rounded border border-emerald-500 bg-emerald-50 px-5 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {alreadyExported ? (
+                    "Đã xuất hóa đơn"
+                  ) : exportInvoiceLoading || isIssuingInvoice ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Đang xuất...
+                    </>
+                  ) : invoiceStatus === InvoiceStatus.FAILED ? (
+                    "Xuất lại hóa đơn"
+                  ) : (
+                    "Xuất hóa đơn"
+                  )}
+                </button>
+              ))}
           </>
         ) : mode === "edit" ? (
           <>

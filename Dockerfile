@@ -8,7 +8,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN yarn install
+RUN npm ci
 
 # Copy the rest of the application code
 COPY . .
@@ -28,7 +28,7 @@ COPY --from=build /app/.next ./.next
 COPY --from=build /app/public ./public
 
 # Install only production dependencies
-RUN yarn install --production
+RUN npm ci --omit=dev
 
 # Expose the port the app runs on
 EXPOSE 3000

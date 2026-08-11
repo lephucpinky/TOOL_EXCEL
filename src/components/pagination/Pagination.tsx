@@ -5,6 +5,14 @@ import { ChevronLeft, ChevronRight } from "lucide-react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
 import { cn } from "@/lib/utils"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 interface PaginationProps {
   currentPage: number
@@ -123,17 +131,34 @@ export default function Pagination({
     >
       <div className="flex items-center gap-3">
         <span className="font-medium">Số dòng:</span>
-        <select
-          value={itemPerPage}
-          onChange={(event) => handlePageSizeChange(event.target.value)}
-          className="h-10 w-[80px] rounded-lg border border-slate-200 bg-white px-4 text-sm shadow-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+        <Select
+          value={String(itemPerPage)}
+          onValueChange={handlePageSizeChange}
         >
-          {pageSizeOptions.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger
+            aria-label="Số dòng mỗi trang"
+            className="h-10 w-24 rounded-lg border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-blue-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent
+            position="popper"
+            sideOffset={6}
+            className="z-[1000] min-w-[var(--radix-select-trigger-width)] rounded-lg border-slate-200 bg-white shadow-xl"
+          >
+            <SelectGroup>
+              {pageSizeOptions.map((option) => (
+                <SelectItem
+                  key={option}
+                  value={String(option)}
+                  className="cursor-pointer rounded-md py-2 pl-3 pr-8 text-sm focus:bg-blue-50 focus:text-blue-700 data-[state=checked]:bg-blue-50 data-[state=checked]:font-semibold data-[state=checked]:text-blue-700"
+                >
+                  {option}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="flex flex-wrap items-center justify-center gap-5">

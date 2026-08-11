@@ -1,5 +1,5 @@
 import axiosInstance from "./axiosInstance"
-import type { InvoiceApiRow } from "@/types/invoice"
+import { normalizeInvoiceItemType, type InvoiceApiRow } from "@/types/invoice"
 import { fetchAllPages } from "@/utils/pagination"
 
 export type SaleTransactionListParams = {
@@ -291,6 +291,7 @@ const buildUpdateSaleTransactionPayload = (
       if (!productId.trim()) return []
 
       const nextItem: Record<string, unknown> = { productId: productId.trim() }
+      nextItem.type = normalizeInvoiceItemType(row.type)
       const quantity = Number(row.quantity ?? row.inv_quantity)
       const price = Number(row.price ?? row.unitPrice)
       const revenue = Number(row.revenue)
@@ -464,6 +465,19 @@ const APIUpdateSaleTransactionBank = async (
   }
 }
 
+const APICancelSaleTransactionInvoice = async (
+  id: string
+): Promise<SaleTransactionItemResponse> => {
+  const response = await axiosInstance.patch<
+    SaleTransactionItemBody | InvoiceApiRow
+  >(`/sale-transaction/${id}/cancel-invoice`)
+
+  return {
+    data: readInvoiceRow(response.data),
+    status: response.status,
+  }
+}
+
 const APIDeleteSaleTransaction = async (
   id: string
 ): Promise<SaleTransactionItemResponse> => {
@@ -515,6 +529,7 @@ export {
   APIGetSaleTransactionById,
   APIUpdateSaleTransaction,
   APIUpdateSaleTransactionBank,
+  APICancelSaleTransactionInvoice,
   APIDeleteSaleTransaction,
   APIExportSaleTransactionReport,
   APISendSaleTransactionReceipt,

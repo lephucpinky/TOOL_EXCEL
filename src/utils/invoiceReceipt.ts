@@ -92,7 +92,7 @@ export const invoiceStatusLabel: Record<InvoiceStatusValue, string> = {
   [InvoiceStatus.ISSUING]: "Đang xuất hóa đơn",
   [InvoiceStatus.ISSUED]: "Đã xuất hóa đơn",
   [InvoiceStatus.FAILED]: "Xuất thất bại",
-  [InvoiceStatus.CANCELLED]: "Đã hủy",
+  [InvoiceStatus.CANCELLED]: "Đã huỷ",
 }
 
 export const invoiceStatusClass: Record<InvoiceStatusValue, string> = {

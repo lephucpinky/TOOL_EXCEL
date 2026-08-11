@@ -18,10 +18,23 @@ export enum InvoicePaymentStatus {
   PAID = "PAID",
 }
 
+export const INVOICE_ITEM_TYPES = ["Mới", "Gia hạn", "Tặng", "Khác"] as const
+
+export type InvoiceItemType = (typeof INVOICE_ITEM_TYPES)[number]
+
+export function normalizeInvoiceItemType(value: unknown): InvoiceItemType {
+  const normalizedValue = String(value || "").trim()
+
+  return INVOICE_ITEM_TYPES.includes(normalizedValue as InvoiceItemType)
+    ? (normalizedValue as InvoiceItemType)
+    : "Khác"
+}
+
 export type InvoiceItem = {
   _id?: string
   productId?: Product | string | null
   product?: Product | string | null
+  type?: InvoiceItemType
   quantity?: number
   inv_quantity?: number
   price?: number

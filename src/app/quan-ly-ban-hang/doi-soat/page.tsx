@@ -9,7 +9,6 @@ import {
 } from "@/utils/excel"
 import { exportChiHoaHongXlsx } from "@/services/file-chi-hoa-hong/exportChiHoaHong"
 
-import { SearchableSelect } from "@/components/select/SearchableSelect"
 import InvoiceFilterDatePicker from "@/components/minvoice/InvoiceFilterDatePicker"
 import InvoiceFilterSelect from "@/components/minvoice/InvoiceFilterSelect"
 import { exportXuatHoaDonXlsx } from "@/services/file-xuatHD/exportXuatHD"
@@ -316,7 +315,7 @@ export default function HomePage() {
 
   const dealerOptions = useMemo(
     () => [
-      { value: ALL_VALUE, label: "Tất cả" },
+      { value: ALL_VALUE, label: "Tất cả đại lý" },
       ...dealers.map((d) => ({ value: d, label: d })),
     ],
     [dealers]
@@ -729,11 +728,11 @@ export default function HomePage() {
                 Tên đại lý
               </label>
               <div className="mt-2">
-                <SearchableSelect
+                <InvoiceFilterSelect
+                  id="dealer-name"
                   options={dealerOptions}
-                  value={dealerName || undefined}
-                  onChange={(v) => setDealerName(v)}
-                  placeholder="Chọn đại lý..."
+                  value={dealerName}
+                  onChange={setDealerName}
                   searchPlaceholder="Tìm đại lý..."
                   emptyText="Không tìm thấy đại lý"
                   disabled={!dealers.length}

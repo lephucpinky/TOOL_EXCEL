@@ -10,7 +10,15 @@ import {
   type ReactNode,
   type WheelEvent,
 } from "react"
-import { Download, Eye, FileSearch, Loader2, Pencil, Plus, Trash2 } from "lucide-react"
+import {
+  Download,
+  Eye,
+  FileSearch,
+  Loader2,
+  Pencil,
+  Plus,
+  Trash2,
+} from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -75,6 +83,7 @@ export interface DataTableProps<T> {
   onExportExcel?: () => void
   isExportLoading?: boolean
   showExportButton?: boolean
+  enableVerticalDragScroll?: boolean
 }
 
 function getDefaultRowKey<T>(item: T, index: number) {
@@ -143,6 +152,7 @@ export function DataTable<T>({
   onExportExcel,
   isExportLoading = false,
   showExportButton = false,
+  enableVerticalDragScroll = false,
 }: DataTableProps<T>) {
   const hasActions = Boolean(onView || onEdit || onDelete || renderActions)
   const hasSelection = Boolean(selectable && onSelectedRowKeysChange)
@@ -259,10 +269,13 @@ export function DataTable<T>({
   const isTableDragCandidateRef = useRef(false)
   const isTableDraggingRef = useRef(false)
   const dragStartXRef = useRef(0)
+  const dragStartYRef = useRef(0)
   const dragStartScrollLeftRef = useRef(0)
+  const dragStartScrollTopRef = useRef(0)
   const dragMovedRef = useRef(false)
   const dragPointerIdRef = useRef<number | null>(null)
   const pendingScrollLeftRef = useRef(0)
+  const pendingScrollTopRef = useRef(0)
   const dragAnimationFrameRef = useRef<number | null>(null)
 
   const isInteractiveTarget = (target: EventTarget | null) => {
@@ -284,6 +297,9 @@ export function DataTable<T>({
       scrollElement
     ) {
       scrollElement.scrollLeft = pendingScrollLeftRef.current
+      if (enableVerticalDragScroll) {
+        scrollElement.scrollTop = pendingScrollTopRef.current
+      }
     }
 
     isTableDragCandidateRef.current = false
@@ -311,7 +327,9 @@ export function DataTable<T>({
     dragMovedRef.current = false
     dragPointerIdRef.current = event.pointerId
     dragStartXRef.current = event.clientX
+    dragStartYRef.current = event.clientY
     dragStartScrollLeftRef.current = scrollElement.scrollLeft
+    dragStartScrollTopRef.current = scrollElement.scrollTop
   }
 
   const handleTablePointerMove = (event: PointerEvent<HTMLDivElement>) => {
@@ -321,10 +339,14 @@ export function DataTable<T>({
     const scrollElement = tableScrollRef.current
     if (!scrollElement) return
 
-    const distance = event.clientX - dragStartXRef.current
+    const distanceX = event.clientX - dragStartXRef.current
+    const distanceY = event.clientY - dragStartYRef.current
+    const dragDistance = enableVerticalDragScroll
+      ? Math.hypot(distanceX, distanceY)
+      : Math.abs(distanceX)
 
     if (!isTableDraggingRef.current) {
-      if (Math.abs(distance) <= 6) return
+      if (dragDistance <= 6) return
 
       isTableDraggingRef.current = true
       dragMovedRef.current = true
@@ -332,11 +354,17 @@ export function DataTable<T>({
       scrollElement.classList.add("cursor-grabbing", "select-none")
     }
 
-    pendingScrollLeftRef.current = dragStartScrollLeftRef.current - distance
+    pendingScrollLeftRef.current = dragStartScrollLeftRef.current - distanceX
+    if (enableVerticalDragScroll) {
+      pendingScrollTopRef.current = dragStartScrollTopRef.current - distanceY
+    }
 
     if (dragAnimationFrameRef.current === null) {
       dragAnimationFrameRef.current = window.requestAnimationFrame(() => {
         scrollElement.scrollLeft = pendingScrollLeftRef.current
+        if (enableVerticalDragScroll) {
+          scrollElement.scrollTop = pendingScrollTopRef.current
+        }
         dragAnimationFrameRef.current = null
       })
     }
@@ -465,55 +493,111 @@ export function DataTable<T>({
       )}
 
       <div className="rounded-md">
-          <div
-            ref={tableScrollRef}
-            onPointerDown={handleTablePointerDown}
-            onPointerMove={handleTablePointerMove}
-            onPointerUp={handleTablePointerUp}
-            onPointerCancel={handleTablePointerUp}
-            onPointerLeave={() => {
-              if (!isTableDraggingRef.current) stopTableDrag()
-            }}
-            onClickCapture={handleTableClickCapture}
-            onWheel={handleTableWheel}
-            className={cn(
-              "relative isolate max-h-[600px] cursor-grab overflow-auto rounded-md",
-              "overscroll-contain [&_[data-table-copyable]]:cursor-text [&_[data-table-copyable]]:select-text",
-              "[scrollbar-width:thin]",
-              "[scrollbar-color:#cbd5e1_transparent]",
-              "[&::-webkit-scrollbar]:h-2",
-              "[&::-webkit-scrollbar]:w-2",
-              "[&::-webkit-scrollbar-track]:bg-transparent",
-              "[&::-webkit-scrollbar-thumb]:rounded-full",
-              "[&::-webkit-scrollbar-thumb]:bg-slate-300",
-              "[&::-webkit-scrollbar-thumb:hover]:bg-slate-400"
-            )}
-          >
-            <table className="relative w-max min-w-full caption-bottom border-separate border-spacing-0 text-sm shadow-2xl">
-              <TableHeader>
+        <div
+          ref={tableScrollRef}
+          onPointerDown={handleTablePointerDown}
+          onPointerMove={handleTablePointerMove}
+          onPointerUp={handleTablePointerUp}
+          onPointerCancel={handleTablePointerUp}
+          onPointerLeave={() => {
+            if (!isTableDraggingRef.current) stopTableDrag()
+          }}
+          onClickCapture={handleTableClickCapture}
+          onWheel={handleTableWheel}
+          className={cn(
+            "relative isolate max-h-[600px] cursor-grab overflow-auto rounded-md",
+            "overscroll-contain [&_[data-table-copyable]]:cursor-text [&_[data-table-copyable]]:select-text",
+            "[scrollbar-width:thin]",
+            "[scrollbar-color:#cbd5e1_transparent]",
+            "[&::-webkit-scrollbar]:h-2",
+            "[&::-webkit-scrollbar]:w-2",
+            "[&::-webkit-scrollbar-track]:bg-transparent",
+            "[&::-webkit-scrollbar-thumb]:rounded-full",
+            "[&::-webkit-scrollbar-thumb]:bg-slate-300",
+            "[&::-webkit-scrollbar-thumb:hover]:bg-slate-400"
+          )}
+        >
+          <table className="relative w-max min-w-full caption-bottom border-separate border-spacing-0 text-sm shadow-2xl">
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                {hasSelection && (
+                  <TableHead
+                    className={cn(
+                      leftStickyCover,
+                      selectionColWidth,
+                      "sticky left-0 top-0 z-40 h-10 bg-[#2869B4] px-3 text-center font-semibold text-white"
+                    )}
+                  >
+                    <div className="relative z-10 flex items-center justify-center">
+                      <SelectionCheckbox
+                        checked={allVisibleRowsSelected}
+                        indeterminate={
+                          someVisibleRowsSelected && !allVisibleRowsSelected
+                        }
+                        disabled={
+                          loading || selectableVisibleRowKeys.length === 0
+                        }
+                        title="Chọn tất cả dòng đang hiển thị"
+                        ariaLabel="Chọn tất cả dòng đang hiển thị"
+                        onChange={handleToggleAllVisibleRows}
+                      />
+                    </div>
+                  </TableHead>
+                )}
+
+                {columns.map((column, index) => {
+                  const isFirstColumn = index === 0
+                  const isLastDataColumn = index === columns.length - 1
+
+                  return (
+                    <TableHead
+                      key={column.key}
+                      className={cn(
+                        "sticky top-0 z-20 h-10 bg-[#2869B4] px-3 text-center font-semibold text-white",
+                        isFirstColumn && leftStickyCover,
+                        isFirstColumn && firstColWidth,
+                        isFirstColumn && firstDataColumnLeft,
+                        isFirstColumn && "z-30",
+                        !hasActions && isLastDataColumn && rightStickyCover,
+                        !hasActions && isLastDataColumn && "right-0 z-50",
+                        column.className,
+                        column.headerClassName
+                      )}
+                    >
+                      <span
+                        data-table-copyable
+                        className="relative z-10 select-text"
+                      >
+                        {column.title}
+                      </span>
+                    </TableHead>
+                  )
+                })}
+
+                {hasActions && (
+                  <TableHead
+                    className={cn(
+                      rightStickyCover,
+                      "sticky right-0 top-0 z-[80] h-10 bg-[#2869B4] px-3 text-center font-semibold text-white",
+                      actionColWidth
+                    )}
+                  >
+                    <div className="relative z-10">Thao tác</div>
+                  </TableHead>
+                )}
+              </TableRow>
+
+              {hasColumnFilters && (
                 <TableRow className="hover:bg-transparent">
                   {hasSelection && (
                     <TableHead
                       className={cn(
                         leftStickyCover,
                         selectionColWidth,
-                        "sticky left-0 top-0 z-40 h-10 bg-[#2869B4] px-3 text-center font-semibold text-white"
+                        "sticky left-0 top-10 z-40 h-auto border-b border-slate-200 bg-slate-50 px-2 py-1"
                       )}
                     >
-                      <div className="relative z-10 flex items-center justify-center">
-                        <SelectionCheckbox
-                          checked={allVisibleRowsSelected}
-                          indeterminate={
-                            someVisibleRowsSelected && !allVisibleRowsSelected
-                          }
-                          disabled={
-                            loading || selectableVisibleRowKeys.length === 0
-                          }
-                          title="Chọn tất cả dòng đang hiển thị"
-                          ariaLabel="Chọn tất cả dòng đang hiển thị"
-                          onChange={handleToggleAllVisibleRows}
-                        />
-                      </div>
+                      <div className="h-8" />
                     </TableHead>
                   )}
 
@@ -523,25 +607,21 @@ export function DataTable<T>({
 
                     return (
                       <TableHead
-                        key={column.key}
+                        key={`${column.key}-filter`}
                         className={cn(
-                          "sticky top-0 z-20 h-10 bg-[#2869B4] px-3 text-center font-semibold text-white",
+                          "sticky top-10 z-20 h-auto border-b border-slate-200 bg-slate-50 px-2 py-1 font-normal text-slate-700",
                           isFirstColumn && leftStickyCover,
                           isFirstColumn && firstColWidth,
                           isFirstColumn && firstDataColumnLeft,
                           isFirstColumn && "z-30",
                           !hasActions && isLastDataColumn && rightStickyCover,
                           !hasActions && isLastDataColumn && "right-0 z-50",
-                          column.className,
-                          column.headerClassName
+                          column.className
                         )}
                       >
-                        <span
-                          data-table-copyable
-                          className="relative z-10 select-text"
-                        >
-                          {column.title}
-                        </span>
+                        <div className="relative z-10">
+                          {column.filter ?? <div className="h-8" />}
+                        </div>
                       </TableHead>
                     )
                   })}
@@ -550,313 +630,257 @@ export function DataTable<T>({
                     <TableHead
                       className={cn(
                         rightStickyCover,
-                        "sticky right-0 top-0 z-[80] h-10 bg-[#2869B4] px-3 text-center font-semibold text-white",
-                        actionColWidth
+                        actionColWidth,
+                        "sticky right-0 top-10 z-[80] h-auto border-b border-slate-200 bg-slate-50 px-2 py-1"
                       )}
                     >
-                      <div className="relative z-10">Thao tác</div>
+                      <div className="h-8" />
                     </TableHead>
                   )}
                 </TableRow>
+              )}
+            </TableHeader>
 
-                {hasColumnFilters && (
-                  <TableRow className="hover:bg-transparent">
-                    {hasSelection && (
-                      <TableHead
-                        className={cn(
-                          leftStickyCover,
-                          selectionColWidth,
-                          "sticky left-0 top-10 z-40 h-auto border-b border-slate-200 bg-slate-50 px-2 py-1"
-                        )}
-                      >
-                        <div className="h-8" />
-                      </TableHead>
-                    )}
+            <TableBody>
+              {(loading || visibleRows.length === 0) && (
+                <TableRow
+                  aria-hidden
+                  className="pointer-events-none h-0 hover:bg-transparent"
+                >
+                  {hasSelection && (
+                    <TableCell
+                      className={cn(selectionColWidth, "h-0 border-0 p-0")}
+                    />
+                  )}
+                  {columns.map((column, index) => (
+                    <TableCell
+                      key={`width-lock-${column.key}`}
+                      className={cn(
+                        "h-0 border-0 p-0",
+                        index === 0 && firstColWidth,
+                        column.className
+                      )}
+                    />
+                  ))}
+                  {hasActions && (
+                    <TableCell
+                      className={cn(actionColWidth, "h-0 border-0 p-0")}
+                    />
+                  )}
+                </TableRow>
+              )}
 
-                    {columns.map((column, index) => {
-                      const isFirstColumn = index === 0
-                      const isLastDataColumn = index === columns.length - 1
+              {loading ? (
+                <TableRow className="hover:bg-transparent">
+                  <TableCell
+                    colSpan={tableColSpan}
+                    className="bg-gradient-to-b border-b border-slate-100 from-slate-50 to-white px-3 py-10"
+                  >
+                    <div className="flex flex-col items-center justify-center gap-3">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-50 text-blue-600 shadow-sm ring-1 ring-blue-100">
+                        <Loader2 className="h-6 w-6 animate-spin" />
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm font-semibold text-slate-700">
+                          Đang tìm kiếm dữ liệu...
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Vui lòng chờ trong giây lát
+                        </p>
+                      </div>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : visibleRows.length > 0 ? (
+                visibleRows.map((item, index) => {
+                  const rowIndex = getRenderRowIndex(index)
+                  const rowKey = getResolvedRowKey(item, rowIndex)
+                  const rowSelectable =
+                    !isRowSelectable || isRowSelectable(item)
+                  const rowBg =
+                    rowIndex % 2 === 0
+                      ? "bg-White group-hover:bg-blue-50"
+                      : "bg-slate-50/60 group-hover:bg-blue-50"
+                  const stickyRowBg =
+                    rowIndex % 2 === 0
+                      ? "bg-white group-hover:bg-blue-50"
+                      : "bg-slate-50 group-hover:bg-blue-50"
 
-                      return (
-                        <TableHead
-                          key={`${column.key}-filter`}
+                  return (
+                    <TableRow className="group text-center" key={rowKey}>
+                      {hasSelection && (
+                        <TableCell
                           className={cn(
-                            "sticky top-10 z-20 h-auto border-b border-slate-200 bg-slate-50 px-2 py-1 font-normal text-slate-700",
-                            isFirstColumn && leftStickyCover,
-                            isFirstColumn && firstColWidth,
-                            isFirstColumn && firstDataColumnLeft,
-                            isFirstColumn && "z-30",
-                            !hasActions && isLastDataColumn && rightStickyCover,
-                            !hasActions && isLastDataColumn && "right-0 z-50",
-                            column.className
+                            leftStickyCover,
+                            selectionColWidth,
+                            "sticky left-0 z-30 border-b border-slate-100 px-3 py-3 text-center align-middle transition-colors",
+                            stickyRowBg
                           )}
                         >
-                          <div className="relative z-10">
-                            {column.filter ?? <div className="h-8" />}
+                          <div className="relative z-10 flex items-center justify-center">
+                            <SelectionCheckbox
+                              checked={selectedRowKeySet.has(rowKey)}
+                              disabled={!rowSelectable}
+                              title={
+                                rowSelectable
+                                  ? "Chọn dòng"
+                                  : "Không thể chọn dòng này"
+                              }
+                              ariaLabel="Chọn dòng"
+                              onChange={(checked) =>
+                                handleToggleRow(rowKey, checked)
+                              }
+                            />
                           </div>
-                        </TableHead>
-                      )
-                    })}
+                        </TableCell>
+                      )}
 
-                    {hasActions && (
-                      <TableHead
-                        className={cn(
-                          rightStickyCover,
-                          actionColWidth,
-                          "sticky right-0 top-10 z-[80] h-auto border-b border-slate-200 bg-slate-50 px-2 py-1"
-                        )}
-                      >
-                        <div className="h-8" />
-                      </TableHead>
-                    )}
-                  </TableRow>
-                )}
-              </TableHeader>
+                      {columns.map((column, columnIndex) => {
+                        const isFirstColumn = columnIndex === 0
+                        const isLastDataColumn =
+                          columnIndex === columns.length - 1
 
-              <TableBody>
-                {(loading || visibleRows.length === 0) && (
-                  <TableRow
-                    aria-hidden
-                    className="pointer-events-none h-0 hover:bg-transparent"
+                        return (
+                          <TableCell
+                            key={column.key}
+                            className={cn(
+                              "border-b border-slate-100 px-3 py-3 align-middle text-slate-700 transition-colors",
+                              isFirstColumn || (!hasActions && isLastDataColumn)
+                                ? stickyRowBg
+                                : rowBg,
+                              isFirstColumn && leftStickyCover,
+                              isFirstColumn && firstColWidth,
+                              isFirstColumn && firstDataColumnLeft,
+                              isFirstColumn &&
+                                "sticky z-20 font-medium text-slate-800",
+                              !hasActions &&
+                                isLastDataColumn &&
+                                rightStickyCover,
+                              !hasActions &&
+                                isLastDataColumn &&
+                                "sticky right-0 z-40",
+                              column.className
+                            )}
+                          >
+                            {isFirstColumn ||
+                            (!hasActions && isLastDataColumn) ? (
+                              <div
+                                data-table-copyable
+                                className="relative z-10 inline-block max-w-full select-text"
+                              >
+                                {column.render
+                                  ? column.render(item, rowIndex)
+                                  : String(
+                                      (item as Record<string, unknown>)[
+                                        column.key
+                                      ] ?? ""
+                                    )}
+                              </div>
+                            ) : (
+                              <div
+                                data-table-copyable
+                                className="inline-block max-w-full select-text"
+                              >
+                                {column.render
+                                  ? column.render(item, rowIndex)
+                                  : String(
+                                      (item as Record<string, unknown>)[
+                                        column.key
+                                      ] ?? ""
+                                    )}
+                              </div>
+                            )}
+                          </TableCell>
+                        )
+                      })}
+
+                      {hasActions && (
+                        <TableCell
+                          className={cn(
+                            rightStickyCover,
+                            "sticky right-0 z-[60] border-b border-slate-100 px-3 py-2 transition-colors",
+                            rowIndex % 2 === 0
+                              ? "bg-white group-hover:bg-blue-50"
+                              : "bg-slate-50 group-hover:bg-blue-50",
+                            actionColWidth
+                          )}
+                        >
+                          <div className="relative z-10 flex w-full items-center justify-center gap-2 whitespace-nowrap px-1 [&>div]:contents">
+                            {onView && (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  onView(item)
+                                }}
+                                title="Xem"
+                                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+                              >
+                                <Eye size={15} />
+                              </button>
+                            )}
+
+                            {renderActions?.(item)}
+
+                            {onEdit && (!canEdit || canEdit(item)) && (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  onEdit(item)
+                                }}
+                                title="Sửa"
+                                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-blue-200 bg-blue-50 text-blue-600 shadow-sm transition hover:border-blue-400 hover:bg-blue-100 hover:text-blue-700"
+                              >
+                                <Pencil size={15} />
+                              </button>
+                            )}
+
+                            {onDelete && (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  onDelete(item)
+                                }}
+                                title="Xóa"
+                                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-red-200 bg-red-50 text-red-600 shadow-sm transition hover:border-red-400 hover:bg-red-100 hover:text-red-700"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            )}
+                          </div>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  )
+                })
+              ) : (
+                <TableRow className="hover:bg-transparent">
+                  <TableCell
+                    colSpan={tableColSpan}
+                    className="border-b border-slate-100 bg-slate-50/40 px-3 py-10"
                   >
-                    {hasSelection && (
-                      <TableCell
-                        className={cn(
-                          selectionColWidth,
-                          "h-0 border-0 p-0"
-                        )}
-                      />
-                    )}
-                    {columns.map((column, index) => (
-                      <TableCell
-                        key={`width-lock-${column.key}`}
-                        className={cn(
-                          "h-0 border-0 p-0",
-                          index === 0 && firstColWidth,
-                          column.className
-                        )}
-                      />
-                    ))}
-                    {hasActions && (
-                      <TableCell
-                        className={cn(actionColWidth, "h-0 border-0 p-0")}
-                      />
-                    )}
-                  </TableRow>
-                )}
-
-                {loading ? (
-                  <TableRow className="hover:bg-transparent">
-                    <TableCell
-                      colSpan={tableColSpan}
-                      className="border-b border-slate-100 bg-gradient-to-b from-slate-50 to-white px-3 py-10"
-                    >
-                      <div className="flex flex-col items-center justify-center gap-3">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-50 text-blue-600 shadow-sm ring-1 ring-blue-100">
-                          <Loader2 className="h-6 w-6 animate-spin" />
-                        </div>
-                        <div className="text-center">
-                          <p className="text-sm font-semibold text-slate-700">
-                            Đang tìm kiếm dữ liệu...
-                          </p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            Vui lòng chờ trong giây lát
-                          </p>
-                        </div>
+                    <div className="flex flex-col items-center justify-center gap-3">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-400 ring-1 ring-slate-200">
+                        <FileSearch className="h-6 w-6" />
                       </div>
-                    </TableCell>
-                  </TableRow>
-                ) : visibleRows.length > 0 ? (
-                  visibleRows.map((item, index) => {
-                    const rowIndex = getRenderRowIndex(index)
-                    const rowKey = getResolvedRowKey(item, rowIndex)
-                    const rowSelectable =
-                      !isRowSelectable || isRowSelectable(item)
-                    const rowBg =
-                      rowIndex % 2 === 0
-                        ? "bg-White group-hover:bg-blue-50"
-                        : "bg-slate-50/60 group-hover:bg-blue-50"
-                    const stickyRowBg =
-                      rowIndex % 2 === 0
-                        ? "bg-white group-hover:bg-blue-50"
-                        : "bg-slate-50 group-hover:bg-blue-50"
-
-                    return (
-                      <TableRow className="group text-center" key={rowKey}>
-                        {hasSelection && (
-                          <TableCell
-                            className={cn(
-                              leftStickyCover,
-                              selectionColWidth,
-                              "sticky left-0 z-30 border-b border-slate-100 px-3 py-3 text-center align-middle transition-colors",
-                              stickyRowBg
-                            )}
-                          >
-                            <div className="relative z-10 flex items-center justify-center">
-                              <SelectionCheckbox
-                                checked={selectedRowKeySet.has(rowKey)}
-                                disabled={!rowSelectable}
-                                title={
-                                  rowSelectable
-                                    ? "Chọn dòng"
-                                    : "Không thể chọn dòng này"
-                                }
-                                ariaLabel="Chọn dòng"
-                                onChange={(checked) =>
-                                  handleToggleRow(rowKey, checked)
-                                }
-                              />
-                            </div>
-                          </TableCell>
-                        )}
-
-                        {columns.map((column, columnIndex) => {
-                          const isFirstColumn = columnIndex === 0
-                          const isLastDataColumn =
-                            columnIndex === columns.length - 1
-
-                          return (
-                            <TableCell
-                              key={column.key}
-                              className={cn(
-                                "border-b border-slate-100 px-3 py-3 align-middle text-slate-700 transition-colors",
-                                isFirstColumn ||
-                                  (!hasActions && isLastDataColumn)
-                                  ? stickyRowBg
-                                  : rowBg,
-                                isFirstColumn && leftStickyCover,
-                                isFirstColumn && firstColWidth,
-                                isFirstColumn && firstDataColumnLeft,
-                                isFirstColumn &&
-                                  "sticky z-20 font-medium text-slate-800",
-                                !hasActions &&
-                                  isLastDataColumn &&
-                                  rightStickyCover,
-                                !hasActions &&
-                                  isLastDataColumn &&
-                                  "sticky right-0 z-40",
-                                column.className
-                              )}
-                            >
-                              {isFirstColumn ||
-                              (!hasActions && isLastDataColumn) ? (
-                                <div
-                                  data-table-copyable
-                                  className="relative z-10 inline-block max-w-full select-text"
-                                >
-                                  {column.render
-                                    ? column.render(item, rowIndex)
-                                    : String(
-                                        (item as Record<string, unknown>)[
-                                          column.key
-                                        ] ?? ""
-                                      )}
-                                </div>
-                              ) : (
-                                <div
-                                  data-table-copyable
-                                  className="inline-block max-w-full select-text"
-                                >
-                                  {column.render
-                                    ? column.render(item, rowIndex)
-                                    : String(
-                                        (item as Record<string, unknown>)[
-                                          column.key
-                                        ] ?? ""
-                                      )}
-                                </div>
-                              )}
-                            </TableCell>
-                          )
-                        })}
-
-                        {hasActions && (
-                          <TableCell
-                            className={cn(
-                              rightStickyCover,
-                              "sticky right-0 z-[60] border-b border-slate-100 px-3 py-2 transition-colors",
-                              rowIndex % 2 === 0
-                                ? "bg-white group-hover:bg-blue-50"
-                                : "bg-slate-50 group-hover:bg-blue-50",
-                              actionColWidth
-                            )}
-                          >
-                            <div className="relative z-10 flex w-full items-center justify-center gap-2 whitespace-nowrap px-1 [&>div]:contents">
-                              {onView && (
-                                <button
-                                  type="button"
-                                  onClick={(event) => {
-                                    event.stopPropagation()
-                                    onView(item)
-                                  }}
-                                  title="Xem"
-                                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
-                                >
-                                  <Eye size={15} />
-                                </button>
-                              )}
-
-                              {renderActions?.(item)}
-
-                              {onEdit && (!canEdit || canEdit(item)) && (
-                                <button
-                                  type="button"
-                                  onClick={(event) => {
-                                    event.stopPropagation()
-                                    onEdit(item)
-                                  }}
-                                  title="Sửa"
-                                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-blue-200 bg-blue-50 text-blue-600 shadow-sm transition hover:border-blue-400 hover:bg-blue-100 hover:text-blue-700"
-                                >
-                                  <Pencil size={15} />
-                                </button>
-                              )}
-
-                              {onDelete && (
-                                <button
-                                  type="button"
-                                  onClick={(event) => {
-                                    event.stopPropagation()
-                                    onDelete(item)
-                                  }}
-                                  title="Xóa"
-                                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-red-200 bg-red-50 text-red-600 shadow-sm transition hover:border-red-400 hover:bg-red-100 hover:text-red-700"
-                                >
-                                  <Trash2 size={15} />
-                                </button>
-                              )}
-                            </div>
-                          </TableCell>
-                        )}
-                      </TableRow>
-                    )
-                  })
-                ) : (
-                  <TableRow className="hover:bg-transparent">
-                    <TableCell
-                      colSpan={tableColSpan}
-                      className="border-b border-slate-100 bg-slate-50/40 px-3 py-10"
-                    >
-                      <div className="flex flex-col items-center justify-center gap-3">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-400 ring-1 ring-slate-200">
-                          <FileSearch className="h-6 w-6" />
-                        </div>
-                        <div className="text-center">
-                          <p className="text-sm font-semibold text-slate-600">
-                            {emptyText}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-400">
-                            Thử đổi từ khóa hoặc xóa bộ lọc để xem thêm kết quả
-                          </p>
-                        </div>
+                      <div className="text-center">
+                        <p className="text-sm font-semibold text-slate-600">
+                          {emptyText}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-400">
+                          Thử đổi từ khóa hoặc xóa bộ lọc để xem thêm kết quả
+                        </p>
                       </div>
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </table>
-          </div>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </table>
         </div>
+      </div>
 
       {isPaginationEnabled && (
         <Pagination

@@ -1,4 +1,4 @@
-import type { InvoiceApiRow } from "@/types/invoice"
+import { normalizeInvoiceItemType, type InvoiceApiRow } from "@/types/invoice"
 import { toNumber } from "@/utils/excel"
 import { getId } from "@/utils/invoice"
 
@@ -69,6 +69,7 @@ export function buildCreateInvoiceApiBody(
 
         return {
           productId,
+          type: normalizeInvoiceItemType(item.type),
           quantity,
           price: toNumber(item.price ?? item.unitPrice ?? 0),
           revenue: toNumber(item.revenue),

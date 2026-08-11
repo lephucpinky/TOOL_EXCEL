@@ -9,6 +9,7 @@ import {
 } from "@/types/invoice"
 import { DataTable, type DataTableColumn } from "../common/Datatable"
 import {
+  Ban,
   Copy,
   FileText,
   HandCoins,
@@ -40,6 +41,8 @@ type Props = {
   onCopyInvoice?: (row: InvoiceApiRow) => void | Promise<unknown>
   onViewMInvoicePdf?: (row: InvoiceApiRow) => void
   onCollectPayment?: (row: InvoiceApiRow) => void
+  onCancelInvoice?: (row: InvoiceApiRow) => void
+  cancellingInvoiceId?: string | null
   selectedRowIds?: string[]
   onSelectedRowIdsChange?: (ids: string[]) => void
   bulkActionLoading?: boolean
@@ -140,6 +143,14 @@ function getInvoiceStatusDisplayLabel(invoice: InvoiceApiRow) {
     String(invoice.invoiceStatusVi || "").trim() ||
     invoiceHelper.invoiceStatusLabel[invoiceHelper.getInvoiceStatus(invoice)]
   )
+}
+
+function getInvoiceCreationStatus(invoice: InvoiceApiRow) {
+  const status = invoiceHelper.getInvoiceStatus(invoice)
+
+  if (status === InvoiceStatus.CANCELLED) return "cancelled"
+  if (status === InvoiceStatus.ISSUED) return "created"
+  return "not_created"
 }
 
 function getMInvoiceCreatedId(invoice?: InvoiceApiRow | null) {
@@ -391,6 +402,8 @@ export default function InvoiceDataTable({
   onCopyInvoice,
   onViewMInvoicePdf,
   onCollectPayment,
+  onCancelInvoice,
+  cancellingInvoiceId = null,
   selectedRowIds = [],
   onSelectedRowIdsChange,
   bulkActionLoading = false,
@@ -787,9 +800,7 @@ export default function InvoiceDataTable({
             : true
 
       const matchAgency =
-        onAgencyFilterChange || !agencyFilter
-          ? true
-          : agencyId === agencyFilter
+        onAgencyFilterChange || !agencyFilter ? true : agencyId === agencyFilter
 
       const paymentState = getInvoicePaymentState(invoice)
       const paidDate = paymentState.isCollected
@@ -806,7 +817,7 @@ export default function InvoiceDataTable({
         ),
         invoiceNumber: String(invoice.invoiceNumber || ""),
         inv_invoiceIssuedDate: invoiceDate,
-        orderCreateStatus: orderCreated ? "created" : "not_created",
+        orderCreateStatus: getInvoiceCreationStatus(invoice),
         exportInvoiceStatus: invoiceStatus,
         agencyId,
         inv_buyerTaxCode: String(invoice.inv_buyerTaxCode || ""),
@@ -967,38 +978,38 @@ export default function InvoiceDataTable({
         return formatDisplayDate(invoice.activationDate)
       },
     },
-    {
-      key: "createdAt",
-      title: "Ngày tạo",
-      filter: renderColumnFilter("createdAt", "Ngày tạo", {
-        inputType: "date",
-      }),
-      className: "whitespace-nowrap text-center min-w-[150px]",
-      headerClassName: "text-center",
-      render: (invoice) => {
-        const value = invoice.createdAt
+    // {
+    //   key: "createdAt",
+    //   title: "Ngày tạo",
+    //   filter: renderColumnFilter("createdAt", "Ngày tạo", {
+    //     inputType: "date",
+    //   }),
+    //   className: "whitespace-nowrap text-center min-w-[150px]",
+    //   headerClassName: "text-center",
+    //   render: (invoice) => {
+    //     const value = invoice.createdAt
 
-        if (!value) return "-"
+    //     if (!value) return "-"
 
-        const textValue = String(value).trim()
-        const match = textValue.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
+    //     const textValue = String(value).trim()
+    //     const match = textValue.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
 
-        if (match) return `${match[1]}/${match[2]}/${match[3]}`
+    //     if (match) return `${match[1]}/${match[2]}/${match[3]}`
 
-        const date = new Date(textValue)
+    //     const date = new Date(textValue)
 
-        if (!Number.isNaN(date.getTime())) {
-          return new Intl.DateTimeFormat("vi-VN", {
-            day: "2-digit",
-            month: "2-digit",
-            year: "numeric",
-          }).format(date)
-        }
+    //     if (!Number.isNaN(date.getTime())) {
+    //       return new Intl.DateTimeFormat("vi-VN", {
+    //         day: "2-digit",
+    //         month: "2-digit",
+    //         year: "numeric",
+    //       }).format(date)
+    //     }
 
-        return textValue
-      },
-    },
-    
+    //     return textValue
+    //   },
+    // },
+
     {
       key: "invoiceNumber",
       title: "Số hoá đơn",
@@ -1026,22 +1037,27 @@ export default function InvoiceDataTable({
         options: [
           { value: "created", label: "Đã tạo" },
           { value: "not_created", label: "Chưa tạo" },
+          { value: "cancelled", label: "Đã huỷ" },
         ],
       }),
       className: "whitespace-nowrap text-center min-w-[150px]",
       headerClassName: "text-center",
       render: (invoice) => {
-        const orderCreated = Boolean(String(invoice.orderNumber || "").trim())
+        const creationStatus = getInvoiceCreationStatus(invoice)
+        const isCancelled = creationStatus === "cancelled"
+        const isCreated = creationStatus === "created"
 
         return (
           <span
             className={`inline-flex min-w-[90px] justify-center rounded-full border px-2.5 py-1 text-xs font-semibold ${
-              orderCreated
-                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                : "border-slate-200 bg-slate-50 text-slate-600"
+              isCancelled
+                ? "border-red-200 bg-red-50 text-red-700"
+                : isCreated
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : "border-slate-200 bg-slate-50 text-slate-600"
             }`}
           >
-            {orderCreated ? "Đã tạo" : "Chưa tạo"}
+            {isCancelled ? "Đã huỷ" : isCreated ? "Đã tạo" : "Chưa tạo"}
           </span>
         )
       },
@@ -1055,7 +1071,7 @@ export default function InvoiceDataTable({
           { value: InvoiceStatus.ISSUING, label: "Đang xuất hóa đơn" },
           { value: InvoiceStatus.ISSUED, label: "Đã xuất hóa đơn" },
           { value: InvoiceStatus.FAILED, label: "Xuất thất bại" },
-          { value: InvoiceStatus.CANCELLED, label: "Đã hủy" },
+          { value: InvoiceStatus.CANCELLED, label: "Đã huỷ" },
         ],
       }),
       className: "whitespace-nowrap text-center min-w-[160px]",
@@ -1294,7 +1310,7 @@ export default function InvoiceDataTable({
                           },
                           {
                             value: InvoiceStatus.CANCELLED,
-                            label: "Đã hủy",
+                            label: "Đã huỷ",
                           },
                         ]}
                       />
@@ -1405,6 +1421,7 @@ export default function InvoiceDataTable({
         selectedRowKeys={selectedRowIds}
         onSelectedRowKeysChange={onSelectedRowIdsChange}
         isRowSelectable={canSelectInvoice}
+        enableVerticalDragScroll
         onView={onView}
         onEdit={onEdit}
         canEdit={(invoice) => {
@@ -1418,10 +1435,12 @@ export default function InvoiceDataTable({
           const status = invoiceHelper.getInvoiceStatus(invoice)
           const isExporting = exportingInvoiceId === invoice._id
           const isUpdatingMInvoice = updatingMInvoiceId === invoice._id
+          const isCancellingInvoice = cancellingInvoiceId === invoice._id
           const isProcessing =
             status === InvoiceStatus.ISSUING ||
             isExporting ||
-            isUpdatingMInvoice
+            isUpdatingMInvoice ||
+            isCancellingInvoice
           const canCollectPayment =
             status === InvoiceStatus.DRAFT || status === InvoiceStatus.ISSUED
 
@@ -1440,7 +1459,7 @@ export default function InvoiceDataTable({
 
           return (
             <>
-              {onCopyInvoice && (
+              {status !== InvoiceStatus.CANCELLED && onCopyInvoice && (
                 <button
                   type="button"
                   onClick={(e) => {
@@ -1451,6 +1470,20 @@ export default function InvoiceDataTable({
                   className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-violet-200 bg-violet-50 text-violet-700 shadow-sm transition hover:border-violet-400 hover:bg-violet-100 hover:text-violet-800"
                 >
                   <Copy size={15} />
+                </button>
+              )}
+
+              {status === InvoiceStatus.DRAFT && onCancelInvoice && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onCancelInvoice(invoice)
+                  }}
+                  title="Huỷ phiếu"
+                  className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2 text-xs font-semibold text-red-700 shadow-sm transition hover:border-red-400 hover:bg-red-100 hover:text-red-800"
+                >
+                  <Ban size={15} />
                 </button>
               )}
 

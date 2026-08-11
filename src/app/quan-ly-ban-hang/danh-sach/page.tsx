@@ -33,7 +33,7 @@ import AlertError from "@/components/alert/AlertError"
 
 import { APIGetBanks } from "@/services/bank"
 import {
-  APIDeleteSaleTransaction,
+  APICancelSaleTransactionInvoice,
   APIGetSaleTransactions,
 } from "@/services/saleTransaction"
 import {
@@ -46,10 +46,7 @@ import { APIGetReceiptInvoices } from "@/services/receiptInvoice"
 
 import * as invoiceHelper from "@/utils/invoice"
 import { buildCreateInvoiceApiBody } from "@/utils/invoicePayload"
-import {
-  DEFAULT_URL_PAGE,
-  getPositiveInteger,
-} from "@/utils/pagination"
+import { DEFAULT_URL_PAGE, getPositiveInteger } from "@/utils/pagination"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import {
   createSaleTransactionThunk,
@@ -250,8 +247,13 @@ export default function InvoiceListPage() {
     invoiceHelper.getFixedReceiptConfigOptionValue()
   )
 
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  const [cancelInvoiceDialogOpen, setCancelInvoiceDialogOpen] = useState(false)
+  const [pendingCancelInvoiceId, setPendingCancelInvoiceId] = useState<
+    string | null
+  >(null)
+  const [cancellingInvoiceId, setCancellingInvoiceId] = useState<string | null>(
+    null
+  )
 
   const [exportingInvoiceId, setExportingInvoiceId] = useState<string | null>(
     null
@@ -948,68 +950,89 @@ export default function InvoiceListPage() {
     setMode("bulk-import")
   }
 
-  const handleDelete = () => {
-    const id = selectedInvoiceId
-
-    if (!id) {
-      showErrorMessage("Vui lòng mở chi tiết hoặc chọn hóa đơn cần xóa trước.")
+  const handleCancelInvoice = (invoice: InvoiceApiRow) => {
+    if (!invoice?._id) {
+      showErrorMessage("Không tìm thấy phiếu cần huỷ.")
       return
     }
 
-    setPendingDeleteId(id)
-    setDeleteDialogOpen(true)
+    if (invoiceHelper.getInvoiceStatus(invoice) !== InvoiceStatus.DRAFT) {
+      showErrorMessage(
+        "Chỉ phiếu đã tạo nhưng chưa xuất hoá đơn mới được phép huỷ."
+      )
+      return
+    }
+
+    setPendingCancelInvoiceId(invoice._id)
+    setCancelInvoiceDialogOpen(true)
   }
 
-  const handleConfirmDelete = async () => {
-    const id = pendingDeleteId || selectedInvoiceId
+  const handleConfirmCancelInvoice = async () => {
+    const id = pendingCancelInvoiceId
 
     if (!id) {
-      showErrorMessage("Không tìm thấy hóa đơn cần hủy.")
-      setDeleteDialogOpen(false)
+      showErrorMessage("Không tìm thấy phiếu cần huỷ.")
+      setCancelInvoiceDialogOpen(false)
+      return
+    }
+
+    const currentInvoice = apiRowsRef.current.find((row) => row._id === id)
+
+    if (
+      !currentInvoice ||
+      invoiceHelper.getInvoiceStatus(currentInvoice) !== InvoiceStatus.DRAFT
+    ) {
+      showErrorMessage(
+        "Chỉ phiếu đã tạo nhưng chưa xuất hoá đơn mới được phép huỷ."
+      )
+      setCancelInvoiceDialogOpen(false)
+      setPendingCancelInvoiceId(null)
       return
     }
 
     try {
-      setPageLoading(true)
-      setDeleteDialogOpen(false)
+      setCancellingInvoiceId(id)
+      setCancelInvoiceDialogOpen(false)
 
-      const res = await APIDeleteSaleTransaction(id)
+      const res = await APICancelSaleTransactionInvoice(id)
 
       if (res?.status === 200 || res?.status === 201 || res?.status === 204) {
-        const detail = res.data
-
-        replaceInvoiceRows((prev) =>
-          prev.map((row) => {
-            if (row._id !== id) return row
-
-            return mergeInvoicePaymentState(
-              {
-                ...row,
-                ...(detail || {}),
-                invoiceStatus:
-                  detail?.invoiceStatus ||
-                  row.invoiceStatus ||
-                  InvoiceStatus.CANCELLED,
-                updatedAt: new Date().toISOString(),
-              },
-              row
-            )
-          })
+        const cancelledInvoice = mergeInvoicePaymentState(
+          applyDepartmentOverride({
+            ...currentInvoice,
+            ...(res.data || {}),
+            _id: id,
+            invoiceStatus: InvoiceStatus.CANCELLED,
+            invoiceStatusVi: "Đã huỷ",
+            updatedAt: new Date().toISOString(),
+          }),
+          currentInvoice
         )
 
-        showSuccessMessage("Hủy hóa đơn thành công!")
-        setSelectedInvoiceId(null)
-        setMode("list")
+        upsertInvoiceRow(cancelledInvoice)
+        cancelInvoiceRefresh(id)
+        showSuccessMessage("Huỷ phiếu thành công!")
         return
       }
 
-      showErrorMessage("Hủy hóa đơn thất bại!")
+      showErrorMessage("Huỷ phiếu thất bại!")
     } catch (error) {
-      console.error("APIDeleteSaleTransaction error:", error)
-      showErrorMessage(getErrorMessage(error, "Hủy hóa đơn thất bại!"))
+      console.error("APICancelSaleTransactionInvoice error:", error)
+      const errorMessage = getErrorMessage(error, "Huỷ phiếu thất bại!")
+      const isDraftOnlyError = errorMessage
+        .toLowerCase()
+        .includes(
+          "only draft invoices that have not been issued can be canceled"
+        )
+
+      showErrorMessage(
+        isDraftOnlyError
+          ? "Chỉ phiếu đã tạo nhưng chưa xuất hoá đơn mới được phép huỷ."
+          : errorMessage
+      )
     } finally {
-      setPageLoading(false)
-      setPendingDeleteId(null)
+      setCancellingInvoiceId(null)
+      setPendingCancelInvoiceId(null)
     }
   }
 
@@ -2362,6 +2385,8 @@ export default function InvoiceListPage() {
                 updatingMInvoiceId={updatingMInvoiceId}
                 onViewMInvoicePdf={handleViewMInvoicePdf}
                 onCollectPayment={handleOpenCollectPayment}
+                onCancelInvoice={handleCancelInvoice}
+                cancellingInvoiceId={cancellingInvoiceId}
                 selectedRowIds={selectedBulkInvoiceIds}
                 onSelectedRowIdsChange={setSelectedBulkInvoiceIds}
                 bulkActionLoading={bulkInvoiceActionLoading}
@@ -2404,6 +2429,8 @@ export default function InvoiceListPage() {
             onExported={handleInvoiceExported}
             onUpdateMInvoice={handleUpdateMInvoiceFromList}
             updateMInvoiceLoading={updatingMInvoiceId === selectedInvoice._id}
+            onCancelInvoice={handleCancelInvoice}
+            cancelInvoiceLoading={cancellingInvoiceId === selectedInvoice._id}
             exportInvoiceMinDate={exportInvoiceMinDate}
             exportInvoiceMaxDate={exportInvoiceMaxDate}
           />
@@ -2569,13 +2596,13 @@ export default function InvoiceListPage() {
       )}
 
       <AlertOption
-        isOpen={deleteDialogOpen}
-        onOpenChange={setDeleteDialogOpen}
-        onConfirm={handleConfirmDelete}
-        title="Xác nhận hủy hóa đơn"
-        description="Bạn có chắc chắn muốn hủy hóa đơn này? Hóa đơn sẽ chuyển sang trạng thái CANCELLED."
-        confirmText="Hủy hóa đơn"
-        cancelText="Hủy"
+        isOpen={cancelInvoiceDialogOpen}
+        onOpenChange={setCancelInvoiceDialogOpen}
+        onConfirm={handleConfirmCancelInvoice}
+        title="Xác nhận huỷ phiếu"
+        description="Bạn có chắc chắn muốn huỷ phiếu này không? Phiếu đã huỷ sẽ không được đưa vào báo cáo."
+        confirmText="Huỷ phiếu"
+        cancelText="Đóng"
         tone="destructive"
       />
 

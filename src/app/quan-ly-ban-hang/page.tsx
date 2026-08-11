@@ -200,19 +200,22 @@ export default function Page() {
         const partial = collectedAmount > 0 && !paid
 
         acc.totalInvoices += 1
-        acc.totalRevenue += totalAmount
-        acc.collected += collectedAmount
-        acc.remaining += totalAmount - collectedAmount
+
+        if (status !== InvoiceStatus.CANCELLED) {
+          acc.totalRevenue += totalAmount
+          acc.collected += collectedAmount
+          acc.remaining += totalAmount - collectedAmount
+
+          if (paid) acc.paid += 1
+          else if (partial) acc.partial += 1
+          else acc.unpaid += 1
+        }
 
         if (status === InvoiceStatus.ISSUED) acc.issued += 1
         else if (status === InvoiceStatus.DRAFT) acc.draft += 1
         else if (status === InvoiceStatus.ISSUING) acc.issuing += 1
         else if (status === InvoiceStatus.FAILED) acc.failed += 1
         else if (status === InvoiceStatus.CANCELLED) acc.cancelled += 1
-
-        if (paid) acc.paid += 1
-        else if (partial) acc.partial += 1
-        else acc.unpaid += 1
 
         return acc
       },
@@ -237,8 +240,8 @@ export default function Page() {
         ? Math.min((summary.collected / summary.totalRevenue) * 100, 100)
         : 0
     const averageInvoice =
-      summary.totalInvoices > 0
-        ? summary.totalRevenue / summary.totalInvoices
+      summary.totalInvoices - summary.cancelled > 0
+        ? summary.totalRevenue / (summary.totalInvoices - summary.cancelled)
         : 0
 
     const now = new Date()
@@ -260,6 +263,10 @@ export default function Page() {
     >()
 
     invoices.forEach((row) => {
+      if (invoiceHelper.getInvoiceStatus(row) === InvoiceStatus.CANCELLED) {
+        return
+      }
+
       const invoiceDate = getInvoiceDate(row)
       const totalAmount = getInvoiceTotal(row)
       const collectedAmount = getCollectedAmount(row)
@@ -428,7 +435,7 @@ export default function Page() {
                 title="Tổng doanh thu"
                 value={formatMoney(dashboard.summary.totalRevenue)}
                 subtitle={`${numberFormatter.format(
-                  dashboard.summary.totalInvoices
+                  dashboard.summary.totalInvoices - dashboard.summary.cancelled
                 )} hóa đơn`}
                 icon={<TrendingUp size={20} />}
                 tone="blue"

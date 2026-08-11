@@ -12,6 +12,15 @@ import {
 
 import AlertError from "@/components/alert/AlertError"
 import AlertSuccess from "@/components/alert/AlertSuccess"
+import InvoiceFilterDatePicker from "@/components/minvoice/InvoiceFilterDatePicker"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { APIGetAllAgencies } from "@/services/agency"
 import { APIGetBanks } from "@/services/bank"
 import { APIGetAllProducts } from "@/services/product"
@@ -19,6 +28,7 @@ import { APICreateSaleTransaction } from "@/services/saleTransaction"
 import { getErrorMessage } from "@/store/utils/crud"
 import type { Agency } from "@/types/agency"
 import type { Bank } from "@/types/bank"
+import { INVOICE_ITEM_TYPES, type InvoiceItemType } from "@/types/invoice"
 import type { ReceiptInvoiceConfig } from "@/types/receiptInvoice"
 import { normalize, toNumber as toExcelNumber } from "@/utils/excel"
 import {
@@ -137,6 +147,12 @@ export default function InvoiceBulkImport({
 
       const agencyCode = cleanText(row.agencyCode)
       const productCode = cleanText(row.productCode)
+      const rawItemType = cleanText(row.itemType)
+      const itemType = (
+        INVOICE_ITEM_TYPES.includes(rawItemType as InvoiceItemType)
+          ? rawItemType
+          : "Khác"
+      ) as InvoiceItemType
       const fixedReceiptConfig =
         receiptConfigs[0] || FIXED_RECEIPT_INVOICE_CONFIG
       const invoiceSeries =
@@ -241,6 +257,14 @@ export default function InvoiceBulkImport({
       if (productCode && !product) {
         errors.push(`Không tìm thấy sản phẩm cho giá trị "${productCode}".`)
       }
+      if (
+        rawItemType &&
+        !INVOICE_ITEM_TYPES.includes(rawItemType as InvoiceItemType)
+      ) {
+        errors.push(
+          `Loại "${rawItemType}" không hợp lệ. Chỉ nhận: ${INVOICE_ITEM_TYPES.join(", ")}.`
+        )
+      }
 
       if (!rawQuantity) {
         errors.push("Thiếu số lượng sản phẩm.")
@@ -265,11 +289,11 @@ export default function InvoiceBulkImport({
         Math.abs(totalAmount - invoiceTotalAmount),
       ]
 
-      if (amountDifferences.some((difference) => difference > 1)) {
-        warnings.push(
-          "Số tiền trong file chênh với đơn giá hoặc thuế suất của sản phẩm. Hệ thống sẽ tính lại tiền trước VAT, VAT và tổng thanh toán theo danh mục sản phẩm."
-        )
-      }
+      // if (amountDifferences.some((difference) => difference > 1)) {
+      //   warnings.push(
+      //     "Số tiền trong file chênh với đơn giá hoặc thuế suất của sản phẩm. Hệ thống sẽ tính lại tiền trước VAT, VAT và tổng thanh toán theo danh mục sản phẩm."
+      //   )
+      // }
 
       if (buyerBankName && !bank) {
         warnings.push(
@@ -312,6 +336,7 @@ export default function InvoiceBulkImport({
               items: [
                 {
                   productId: product._id,
+                  type: itemType,
                   product,
                   productCode: product.inv_itemProduct,
                   productName: product.inv_itemName,
@@ -339,6 +364,7 @@ export default function InvoiceBulkImport({
         lineCode: row.lineCode,
         agencyCode,
         productCode,
+        itemType,
         buyerCompany,
         buyerTaxCode,
         buyerEmail,
@@ -405,6 +431,7 @@ export default function InvoiceBulkImport({
     try {
       const fields: Array<keyof typeof COLUMN_ALIASES> = [
         ...REQUIRED_COLUMNS,
+        "itemType",
         "discountPercentage",
         "discountAmount",
       ]
@@ -522,6 +549,9 @@ export default function InvoiceBulkImport({
         ),
         productCode: cleanText(
           pickCellValue(row, headerIndex, COLUMN_ALIASES.productCode)
+        ),
+        itemType: cleanText(
+          pickCellValue(row, headerIndex, COLUMN_ALIASES.itemType)
         ),
         currency: cleanText(
           pickCellValue(row, headerIndex, COLUMN_ALIASES.currency)
@@ -972,20 +1002,20 @@ export default function InvoiceBulkImport({
             </div>
           ) : (
             <div className="mt-5 overflow-auto rounded-2xl border border-slate-200">
-              <table className="min-w-[2050px] text-sm">
+              <table className="min-w-[2190px] text-sm">
                 <thead className="bg-slate-50 text-slate-700">
                   <tr>
-                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-left font-semibold">
-                      Dòng
-                    </th>
-                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-left font-semibold">
-                      Mã dòng
+                    <th className="w-[60px] whitespace-nowrap border-b border-slate-200 px-3 py-3 text-center font-semibold">
+                      STT
                     </th>
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-left font-semibold">
                       Mã đại lý
                     </th>
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-left font-semibold">
                       Sản phẩm
+                    </th>
+                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-left font-semibold">
+                      Loại
                     </th>
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-left font-semibold">
                       Đơn vị mua
@@ -1045,24 +1075,8 @@ export default function InvoiceBulkImport({
                                 : "bg-rose-50/50"
                         }
                       >
-                        <td className="border-b border-slate-100 px-3 py-3 align-top font-semibold text-slate-700">
-                          {row.rowNumber}
-                        </td>
-                        <td className="border-b border-slate-100 px-3 py-3 align-top">
-                          <input
-                            value={cleanText(
-                              sourceRow?.lineCode || row.lineCode
-                            )}
-                            onChange={(event) =>
-                              updateImportRow(
-                                row.id,
-                                "lineCode",
-                                event.target.value
-                              )
-                            }
-                            disabled={rowDisabled}
-                            className="h-8 w-28 rounded border border-slate-300 bg-white px-2 text-xs text-slate-800 outline-none focus:border-indigo-500 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500"
-                          />
+                        <td className="border-b border-slate-100 px-3 py-3 text-center align-top font-semibold text-slate-700">
+                          {index + 1}
                         </td>
                         <td className="border-b border-slate-100 px-3 py-3 align-top">
                           <input
@@ -1108,6 +1122,41 @@ export default function InvoiceBulkImport({
                                   .join(" - ")
                               : "Chưa map sản phẩm"}
                           </div>
+                        </td>
+                        <td className="border-b border-slate-100 px-3 py-3 align-top">
+                          <Select
+                            value={cleanText(
+                              sourceRow?.itemType || row.itemType
+                            )}
+                            onValueChange={(value) =>
+                              updateImportRow(row.id, "itemType", value)
+                            }
+                            disabled={rowDisabled}
+                          >
+                            <SelectTrigger
+                              aria-label={`Loại dòng ${index + 1}`}
+                              className="h-8 w-32 rounded-lg border-slate-200 bg-white px-3 text-xs font-semibold text-slate-800 shadow-sm hover:border-blue-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                            >
+                              <SelectValue placeholder="Chọn loại" />
+                            </SelectTrigger>
+                            <SelectContent
+                              position="popper"
+                              sideOffset={6}
+                              className="z-[1000] min-w-[var(--radix-select-trigger-width)] rounded-lg border-slate-200 bg-white shadow-xl"
+                            >
+                              <SelectGroup>
+                                {INVOICE_ITEM_TYPES.map((type) => (
+                                  <SelectItem
+                                    key={type}
+                                    value={type}
+                                    className="cursor-pointer rounded-md py-2 pl-3 pr-8 text-sm focus:bg-blue-50 focus:text-blue-700 data-[state=checked]:bg-blue-50 data-[state=checked]:font-semibold data-[state=checked]:text-blue-700"
+                                  >
+                                    {type}
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                            </SelectContent>
+                          </Select>
                         </td>
                         <td className="border-b border-slate-100 px-3 py-3 align-top">
                           <input
@@ -1190,25 +1239,22 @@ export default function InvoiceBulkImport({
                           />
                         </td>
                         <td className="border-b border-slate-100 px-3 py-3 align-top">
-                          <input
-                            type="date"
-                            value={
-                              normalizeDateInput(
-                                cleanText(
-                                  sourceRow?.invoiceDate || row.invoiceDate
-                                )
-                              ) || ""
-                            }
-                            onChange={(event) =>
-                              updateImportRow(
-                                row.id,
-                                "invoiceDate",
-                                event.target.value
-                              )
-                            }
-                            disabled={rowDisabled}
-                            className="h-8 w-36 rounded border border-slate-300 bg-white px-2 text-xs text-slate-800 outline-none focus:border-indigo-500 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500"
-                          />
+                          <div className="w-40">
+                            <InvoiceFilterDatePicker
+                              id={`bulk-invoice-date-${row.id}`}
+                              value={
+                                normalizeDateInput(
+                                  cleanText(
+                                    sourceRow?.invoiceDate || row.invoiceDate
+                                  )
+                                ) || ""
+                              }
+                              onChange={(value) =>
+                                updateImportRow(row.id, "invoiceDate", value)
+                              }
+                              disabled={rowDisabled}
+                            />
+                          </div>
                         </td>
                         <td className="border-b border-slate-100 px-3 py-3 align-top">
                           <input

@@ -1,6 +1,7 @@
 import type { Agency } from "@/types/agency"
 import type { Bank } from "@/types/bank"
 import type { Employee } from "@/types/employee"
+import type { InvoiceItemType } from "@/types/invoice"
 import type { Product } from "@/types/product"
 import { normalize } from "@/utils/excel"
 
@@ -17,6 +18,7 @@ export type BulkImportExcelRow = {
   lineCode: string
   agencyCode: string
   productCode: string
+  itemType: string
   currency: string
   exchangeRate: string | number
   invoiceSeries: string
@@ -48,6 +50,7 @@ export type PreparedImportRow = {
   lineCode: string
   agencyCode: string
   productCode: string
+  itemType: InvoiceItemType
   buyerCompany: string
   buyerTaxCode: string
   buyerEmail: string
@@ -79,6 +82,7 @@ export const COLUMN_ALIASES = {
     "Mã dịch vụ",
     "Tên dịch vụ",
   ],
+  itemType: ["Loại", "Loại sản phẩm", "Loại hàng"],
   currency: ["Mã tiền tệ", "Tiền tệ"],
   exchangeRate: ["Tỷ giá"],
   invoiceSeries: ["Ký hiệu hóa đơn"],

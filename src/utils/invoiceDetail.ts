@@ -1,6 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { InvoiceApiRow, InvoicePaymentStatus } from "@/types/invoice"
+import {
+  InvoiceApiRow,
+  InvoicePaymentStatus,
+  normalizeInvoiceItemType,
+} from "@/types/invoice"
 import {
   normalizeDateInput,
   normalizeInvoiceTaxCode,
@@ -30,6 +34,7 @@ function buildPayloadItems(payload: any) {
     return {
       productId: item.product || item.productId || null,
       product: item.product || item.productId || null,
+      type: normalizeInvoiceItemType(item.type ?? item.itemType),
       quantity: hasQuantity
         ? toNumber(item.quantity)
         : hasInvQuantity
@@ -69,6 +74,12 @@ export function hydrateSaleTransactionDetail(
 
           return {
             ...item,
+            type: normalizeInvoiceItemType(
+              item?.type ??
+                item?.itemType ??
+                payloadItem?.type ??
+                fallbackItem?.type
+            ),
             productId: preferDisplayValue(
               item?.productId,
               payloadItem?.productId,
@@ -147,7 +158,10 @@ export function hydrateSaleTransactionDetail(
         })
       : payloadItems.length
         ? payloadItems
-        : fallback?.items || []
+        : (fallback?.items || []).map((item) => ({
+            ...item,
+            type: normalizeInvoiceItemType(item.type),
+          }))
 
   const totalItemQuantity = mergedItems.reduce((sum: number, item: any) => {
     return sum + toNumber(item?.inv_quantity ?? item?.quantity ?? 0)
