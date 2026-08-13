@@ -34,6 +34,7 @@ import AlertError from "@/components/alert/AlertError"
 import { APIGetBanks } from "@/services/bank"
 import {
   APICancelSaleTransactionInvoice,
+  APIGetSaleTransactionById,
   APIGetSaleTransactions,
 } from "@/services/saleTransaction"
 import {
@@ -1166,9 +1167,14 @@ export default function InvoiceListPage() {
 
     const safeRow = mergeInvoicePaymentState(row, row)
     const rowCollectedAmount = getInvoiceDefaultCollectPaymentAmount(safeRow)
+    const existingRowCollectedAmount = getInvoiceAmountCollected(safeRow)
 
     setCollectPaymentTarget(safeRow)
-    setCollectPaymentBankId(invoiceHelper.getId(safeRow.bankId))
+    setCollectPaymentBankId(
+      existingRowCollectedAmount > 0
+        ? invoiceHelper.getId(safeRow.bankId)
+        : ""
+    )
     setCollectPaymentDate(getInvoicePaidDateInput(safeRow))
     setCollectPaymentAmount(
       rowCollectedAmount > 0
@@ -1183,7 +1189,7 @@ export default function InvoiceListPage() {
 
       const [bankRes, detailRes] = await Promise.all([
         APIGetBanks(),
-        dispatch(fetchSaleTransactionByIdThunk(row._id)).unwrap(),
+        APIGetSaleTransactionById(row._id).then((response) => response.data),
       ])
 
       const nextTarget = detailRes?._id
@@ -1221,9 +1227,19 @@ export default function InvoiceListPage() {
         nextBanks.unshift(currentBank)
       }
 
+      const defaultBank = nextBanks.find(
+        (bank) => bank.inv_buyerBankName.trim().toUpperCase().includes("VCB")
+      )
+      const existingAmountCollected = getInvoiceAmountCollected(nextTarget)
+      const currentBankId = invoiceHelper.getId(nextTarget.bankId)
+
       setCollectPaymentTarget(nextTarget)
       setCollectPaymentBanks(nextBanks)
-      setCollectPaymentBankId(invoiceHelper.getId(nextTarget.bankId))
+      setCollectPaymentBankId(
+        existingAmountCollected > 0
+          ? currentBankId || defaultBank?._id || ""
+          : defaultBank?._id || ""
+      )
       setCollectPaymentDate(getInvoicePaidDateInput(nextTarget))
       setCollectPaymentAmount(
         nextTargetCollectedAmount > 0
@@ -1259,8 +1275,9 @@ export default function InvoiceListPage() {
     const selectedBank = collectPaymentBanks.find(
       (bank) => bank._id === collectPaymentBankId
     )
+    const isClearingPayment = !collectPaymentBankId
 
-    if (!selectedBank?._id) {
+    if (!isClearingPayment && !selectedBank?._id) {
       showErrorMessage("Vui lòng chọn ngân hàng thu tiền.")
       return
     }
@@ -1269,12 +1286,12 @@ export default function InvoiceListPage() {
     const paidAmount =
       invoiceHelper.parsePaymentAmountInput(collectPaymentAmount)
 
-    if (!paidDate) {
+    if (!isClearingPayment && !paidDate) {
       showErrorMessage("Vui lòng chọn ngày thu tiền.")
       return
     }
 
-    if (paidAmount <= 0) {
+    if (!isClearingPayment && paidAmount <= 0) {
       showErrorMessage("Vui lòng nhập tổng tiền thu hợp lệ.")
       return
     }
@@ -1337,20 +1354,23 @@ export default function InvoiceListPage() {
         )
       }
 
-      const bankDetail = await dispatch(
-        updateSaleTransactionBankThunk({
-          id: target._id,
-          bankId: selectedBank._id,
-          amountCollected: paidAmount,
-        })
-      ).unwrap()
+      const bankDetail = isClearingPayment
+        ? null
+        : await dispatch(
+            updateSaleTransactionBankThunk({
+              id: target._id,
+              bankId: selectedBank?._id || "",
+              amountCollected: paidAmount,
+            })
+          ).unwrap()
 
       const paidDateDetail = await dispatch(
         updateSaleTransactionThunk({
           id: target._id,
           payload: {
-            amountCollected: paidAmount,
-            paidDate,
+            amountCollected: isClearingPayment ? 0 : paidAmount,
+            paidDate: isClearingPayment ? null : paidDate,
+            inv_buyerBankName: isClearingPayment ? "" : undefined,
             items: paymentItems,
           },
         })
@@ -1368,24 +1388,30 @@ export default function InvoiceListPage() {
           ? toSafeNumber(detail.amountCollected)
           : 0
       const nextAmountCollected =
-        detailAmountCollected > 0 ? detailAmountCollected : paidAmount
+        isClearingPayment
+          ? 0
+          : detailAmountCollected > 0
+            ? detailAmountCollected
+            : paidAmount
 
       const nextDetail = mergeInvoicePaymentState(
         {
           ...target,
           ...detail,
 
-          bankId: selectedBank,
-          inv_buyerBankName: selectedBank.inv_buyerBankName,
+          bankId: isClearingPayment ? undefined : selectedBank,
+          inv_buyerBankName: isClearingPayment
+            ? ""
+            : selectedBank?.inv_buyerBankName || "",
 
           inv_TotalAmount: totalAmount,
           amountCollected: nextAmountCollected,
           paidAmount: nextAmountCollected,
-          isPaid: totalAmount > 0 && nextAmountCollected >= totalAmount,
+          isPaid: nextAmountCollected > 0,
           paymentStatus: getPaymentStatus(totalAmount, nextAmountCollected),
 
-          paidDate,
-          paymentDate: paidDate,
+          paidDate: isClearingPayment ? null : paidDate,
+          paymentDate: isClearingPayment ? undefined : paidDate,
 
           invoiceStatus:
             detail.invoiceStatus ||
@@ -1393,7 +1419,7 @@ export default function InvoiceListPage() {
             invoiceHelper.getInvoiceStatus(target),
           updatedAt: new Date().toISOString(),
         },
-        target
+        isClearingPayment ? null : target
       )
 
       replaceInvoiceRows((prev) =>
@@ -1411,7 +1437,11 @@ export default function InvoiceListPage() {
       setCollectPaymentDate(getTodayDate())
       setCollectPaymentBanks([])
 
-      showSuccessMessage("Thu tiền thành công!")
+      showSuccessMessage(
+        isClearingPayment
+          ? "Đã chuyển hóa đơn về chưa thu."
+          : "Cập nhật thu tiền thành công!"
+      )
     } catch (error) {
       console.error("CONFIRM_COLLECT_PAYMENT_ERROR", error)
       showErrorMessage(getErrorMessage(error, "Thu tiền thất bại."))
@@ -1471,9 +1501,7 @@ export default function InvoiceListPage() {
               inv_buyerBankName: payload.inv_buyerBankName || "",
               amountCollected: nextAmountCollected,
               paidAmount: nextAmountCollected,
-              isPaid:
-                editingTotalAmount > 0 &&
-                nextAmountCollected >= editingTotalAmount,
+              isPaid: nextAmountCollected > 0,
               paymentStatus: getPaymentStatus(
                 editingTotalAmount,
                 nextAmountCollected

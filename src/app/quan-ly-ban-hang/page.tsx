@@ -196,8 +196,7 @@ export default function Page() {
         const totalAmount = getInvoiceTotal(row)
         const collectedAmount = getCollectedAmount(row)
         const status = invoiceHelper.getInvoiceStatus(row)
-        const paid = totalAmount > 0 && collectedAmount >= totalAmount
-        const partial = collectedAmount > 0 && !paid
+        const paid = collectedAmount > 0
 
         acc.totalInvoices += 1
 
@@ -207,7 +206,6 @@ export default function Page() {
           acc.remaining += totalAmount - collectedAmount
 
           if (paid) acc.paid += 1
-          else if (partial) acc.partial += 1
           else acc.unpaid += 1
         }
 
@@ -230,7 +228,6 @@ export default function Page() {
         failed: 0,
         cancelled: 0,
         paid: 0,
-        partial: 0,
         unpaid: 0,
       }
     )
@@ -342,17 +339,12 @@ export default function Page() {
 
   const paymentItems: StatusItem[] = [
     {
-      label: "Đã thu đủ",
+      label: "Đã thu",
       value: dashboard.summary.paid,
       color: "bg-cyan-500",
       badgeClass: "bg-cyan-50 text-cyan-700",
     },
-    // {
-    //   label: "Thu một phần",
-    //   value: dashboard.summary.partial,
-    //   color: "bg-violet-500",
-    //   badgeClass: "bg-violet-50 text-violet-700",
-    // },
+
     {
       label: "Chưa thu",
       value: dashboard.summary.unpaid,
@@ -451,7 +443,7 @@ export default function Page() {
                 title="Còn phải thu"
                 value={formatMoney(dashboard.summary.remaining)}
                 subtitle={`${numberFormatter.format(
-                  dashboard.summary.partial + dashboard.summary.unpaid
+                  dashboard.summary.unpaid
                 )} hóa đơn còn công nợ`}
                 icon={<Clock3 size={20} />}
                 tone="amber"

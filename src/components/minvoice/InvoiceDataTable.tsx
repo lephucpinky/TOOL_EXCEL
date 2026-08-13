@@ -282,35 +282,29 @@ function getInvoiceExportedAmount(invoice: InvoiceApiRow) {
 
 function getInvoicePaymentState(invoice: InvoiceApiRow) {
   const totalAmount = invoiceHelper.toNumber(invoice.inv_TotalAmount)
-  const exportedAmount = getInvoiceExportedAmount(invoice)
-  const rawCollected = Math.max(
-    invoiceHelper.toNumber(invoice.amountCollected),
-    invoiceHelper.toNumber(invoice.paidAmount)
+  const hasAmountCollected =
+    invoice.amountCollected !== undefined && invoice.amountCollected !== null
+  const hasPaidAmount =
+    invoice.paidAmount !== undefined && invoice.paidAmount !== null
+  const rawCollected = invoiceHelper.toNumber(
+    hasAmountCollected ? invoice.amountCollected : invoice.paidAmount
   )
   const isPaidFromApi =
     invoice.isPaid === true ||
     invoice.paymentStatus === InvoicePaymentStatus.PAID
-  const isCollectedFromApi =
-    isPaidFromApi || invoice.paymentStatus === InvoicePaymentStatus.PARTIAL
   const actualPaidAmount =
-    isPaidFromApi && rawCollected <= 0 ? totalAmount : Math.max(rawCollected, 0)
-  const rawSuggestedPaidAmount = invoiceHelper.toNumber(
-    invoice.suggestedAmountCollected
-  )
-  const suggestedPaidAmount =
-    rawSuggestedPaidAmount > 0 ? rawSuggestedPaidAmount : exportedAmount
-  const isPaid =
-    totalAmount > 0 && (isPaidFromApi || actualPaidAmount >= totalAmount)
-  const isCollected = isCollectedFromApi || actualPaidAmount > 0
-  const paidAmount =
-    actualPaidAmount > 0 ? actualPaidAmount : suggestedPaidAmount
+    !hasAmountCollected && !hasPaidAmount && isPaidFromApi
+      ? totalAmount
+      : Math.max(rawCollected, 0)
+  const isPaid = actualPaidAmount > 0
+  const isCollected = actualPaidAmount > 0
 
   return {
     isPaid,
     isCollected,
     actualPaidAmount,
-    paidAmount,
-    remainingAmount: totalAmount - paidAmount,
+    paidAmount: actualPaidAmount,
+    remainingAmount: totalAmount - actualPaidAmount,
     outstandingAmount: totalAmount - actualPaidAmount,
   }
 }

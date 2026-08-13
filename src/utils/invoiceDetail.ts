@@ -210,11 +210,9 @@ export function hydrateSaleTransactionDetail(
 
   const remainingAmount = totalAmount - amountCollected
   const paymentStatus =
-    totalAmount > 0 && amountCollected >= totalAmount
+    amountCollected > 0
       ? InvoicePaymentStatus.PAID
-      : amountCollected > 0
-        ? InvoicePaymentStatus.PARTIAL
-        : InvoicePaymentStatus.UNPAID
+      : InvoicePaymentStatus.UNPAID
   const payloadHasActivationDate = Object.prototype.hasOwnProperty.call(
     payload || {},
     "activationDate"
@@ -287,11 +285,7 @@ export function hydrateSaleTransactionDetail(
         return sum + toNumber(item?.revenue)
       }, 0),
     items: mergedItems,
-    isPaid:
-      detail.isPaid ??
-      payload?.isPaid ??
-      fallback?.isPaid ??
-      (totalAmount > 0 && amountCollected >= totalAmount),
+    isPaid: amountCollected > 0,
     paymentStatus,
 
     amountCollected,

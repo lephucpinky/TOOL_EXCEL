@@ -121,15 +121,11 @@ export const applyDepartmentOverride = (
 }
 
 export const getPaymentStatus = (
-  totalAmount: number,
+  _totalAmount: number,
   amountCollected: number
 ): InvoicePaymentStatus => {
-  if (totalAmount > 0 && amountCollected >= totalAmount) {
-    return InvoicePaymentStatus.PAID
-  }
-
   if (amountCollected > 0) {
-    return InvoicePaymentStatus.PARTIAL
+    return InvoicePaymentStatus.PAID
   }
 
   return InvoicePaymentStatus.UNPAID
@@ -206,12 +202,14 @@ export const getPaymentAmountFromInvoice = (
   const totalAmount = getInvoiceTotalAmount(invoice, fallback)
 
   for (const candidate of [invoice, fallback]) {
-    const amount = getFirstPositiveNumberField(
-      [candidate],
-      PAYMENT_AMOUNT_FIELDS
-    )
+    for (const field of PAYMENT_AMOUNT_FIELDS) {
+      if (!hasOwnField(candidate, field) || !isFilledValue(candidate[field])) {
+        continue
+      }
 
-    if (amount > 0) return amount
+      return Math.max(toSafeNumber(candidate[field]), 0)
+    }
+
     if (totalAmount > 0 && isInvoiceMarkedPaid(candidate)) return totalAmount
   }
 
@@ -249,7 +247,7 @@ export const mergeInvoicePaymentState = (
           ? totalAmount
           : 0
 
-  const isPaid = totalAmount > 0 && amountCollected >= totalAmount
+  const isPaid = amountCollected > 0
 
   const paidDate =
     invoice.paidDate ||
@@ -293,11 +291,7 @@ export const getInvoiceDefaultCollectPaymentAmount = (
 ) => {
   const amountCollected = getInvoiceAmountCollected(invoice)
 
-  if (amountCollected > 0) {
-    return amountCollected
-  }
-
-  return getSuggestedPaymentAmountFromInvoice(invoice)
+  return amountCollected > 0 ? amountCollected : getInvoiceTotalAmount(invoice)
 }
 
 export const getInvoicePaidDateInput = (invoice?: InvoiceApiRow | null) => {

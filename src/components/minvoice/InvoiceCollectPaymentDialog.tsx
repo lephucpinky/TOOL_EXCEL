@@ -2,6 +2,7 @@
 
 import { Banknote, CheckCircle2, Loader2, X } from "lucide-react"
 
+import InvoiceFilterSelect from "@/components/minvoice/InvoiceFilterSelect"
 import type { Bank } from "@/types/bank"
 import type { InvoiceApiRow } from "@/types/invoice"
 
@@ -151,21 +152,27 @@ export default function InvoiceCollectPaymentDialog({
             <label className="mb-1.5 block text-sm font-semibold text-slate-700">
               Ngân hàng
             </label>
-            <select
-              className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-slate-100"
+            <InvoiceFilterSelect
+              id="collect-payment-bank"
+              options={[
+                {
+                  value: "",
+                  label: loadingBanks
+                    ? "Đang tải ngân hàng..."
+                    : "Chưa chọn ngân hàng",
+                },
+                ...banks.map((bank) => ({
+                  value: bank._id,
+                  label: bank.inv_buyerBankName,
+                })),
+              ]}
               value={bankId}
               disabled={loadingBanks || saving}
-              onChange={(event) => onBankChange(event.target.value)}
-            >
-              <option value="">
-                {loadingBanks ? "Đang tải ngân hàng..." : "Chọn ngân hàng"}
-              </option>
-              {banks.map((bank) => (
-                <option key={bank._id} value={bank._id}>
-                  {bank.inv_buyerBankName}
-                </option>
-              ))}
-            </select>
+              onChange={onBankChange}
+              searchPlaceholder="Tìm ngân hàng..."
+              emptyText="Không tìm thấy ngân hàng"
+              contentClassName="z-[10000]"
+            />
           </div>
         </div>
 
@@ -182,7 +189,11 @@ export default function InvoiceCollectPaymentDialog({
           <button
             type="button"
             onClick={onConfirm}
-            disabled={saving || loadingBanks || !amountValue || !paidDateValue}
+            disabled={
+              saving ||
+              loadingBanks ||
+              (Boolean(bankId) && (!amountValue || !paidDateValue))
+            }
             className="inline-flex h-10 min-w-[120px] items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {saving ? (

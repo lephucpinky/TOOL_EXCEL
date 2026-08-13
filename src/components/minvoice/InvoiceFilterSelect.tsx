@@ -23,6 +23,7 @@ type InvoiceFilterSelectProps = {
   disabled?: boolean
   searchPlaceholder?: string
   emptyText?: string
+  contentClassName?: string
 }
 
 const EMPTY_VALUE = "__invoice_filter_empty__"
@@ -43,6 +44,7 @@ export default function InvoiceFilterSelect({
   disabled = false,
   searchPlaceholder = "Tìm kiếm...",
   emptyText = "Không tìm thấy kết quả",
+  contentClassName,
 }: InvoiceFilterSelectProps) {
   const [open, setOpen] = React.useState(false)
   const [keyword, setKeyword] = React.useState("")
@@ -117,7 +119,10 @@ export default function InvoiceFilterSelect({
         align="start"
         sideOffset={6}
         collisionPadding={12}
-        className="z-[1000] w-[var(--radix-popover-trigger-width)] min-w-[var(--radix-popover-trigger-width)] overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 text-slate-700 shadow-[0_18px_45px_rgba(15,23,42,0.18)] outline-none"
+        className={cn(
+          "z-[1000] w-[var(--radix-popover-trigger-width)] min-w-[var(--radix-popover-trigger-width)] overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 text-slate-700 shadow-[0_18px_45px_rgba(15,23,42,0.18)] outline-none",
+          contentClassName
+        )}
         onOpenAutoFocus={(event) => event.preventDefault()}
       >
         <div className="mb-1.5 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">

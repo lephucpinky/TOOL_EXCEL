@@ -14,7 +14,7 @@ export enum InvoiceStatus {
 
 export enum InvoicePaymentStatus {
   UNPAID = "UNPAID",
-  PARTIAL = "PARTIAL",
+
   PAID = "PAID",
 }
 
@@ -107,16 +107,14 @@ export type InvoiceApiRow = {
   minvoiceRevenue?: number
 
   /**
-   * true chỉ khi amountCollected >= inv_TotalAmount.
-   * Không được set true chỉ vì đã thu một phần.
+   * true khi hóa đơn đã có số tiền thu.
    */
   isPaid?: boolean
 
   /**
    * Dùng cho UI:
    * - UNPAID: chưa thu
-   * - PARTIAL: thu một phần
-   * - PAID: đã thu đủ
+   * - PAID: đã thu
    */
   paymentStatus?: InvoicePaymentStatus
 
