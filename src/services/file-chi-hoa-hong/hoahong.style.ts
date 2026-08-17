@@ -56,16 +56,12 @@ const CENTER_ALIGN_COLS: number[] = [
   COL_HOA_HONG.SOLUONG,
 ]
 
-const INT_COLS = [
-  COL_HOA_HONG.STT,
-  COL_HOA_HONG.SOLUONG,
-]
+const INT_COLS = [COL_HOA_HONG.STT, COL_HOA_HONG.SOLUONG]
 
 const MONEY_COLS = [
-  COL_HOA_HONG.DOANH_THU_SAN_PHAM,
-  COL_HOA_HONG.PHI_VIET_CHENH,
   COL_HOA_HONG.GIA_TRI_XUAT_HOA_DON,
   COL_HOA_HONG.GIA_DOI_SOAT,
+  COL_HOA_HONG.GIA_TRI_VIET_CHENH,
   COL_HOA_HONG.TIEN_HOA_HONG,
   COL_HOA_HONG.CHENH_LECH_VIET_CHENH,
   COL_HOA_HONG.TONG_TIEN_TRA_DOI_TAC,
@@ -312,29 +308,14 @@ export const applyHeaderDealerMonth = (
   ws: XLSX.WorkSheet,
   dealerName: string
 ) => {
-  const rTITLE = findRowContains(ws, "BẢNG ĐỐI SOÁT DOANH THU THÁNG", {
-    scanRows: 100,
-    scanCols: 30,
-  })
-
-  if (rTITLE !== -1) {
-    const tl = getTopLeftOfMerge(ws, rTITLE, 7)
-    setTextKeepStyle(ws, tl.r, tl.c, "BẢNG ĐỐI SOÁT DOANH THU THÁNG ")
-    patchCellStyle(ws, tl.r, tl.c, {
-      font: { bold: true, sz: 16 },
-      alignment: { horizontal: "left", vertical: "center", wrapText: false },
-    })
-    setRowHeight(ws, rTITLE, 30)
-  }
-
   const rDealer = findRowContains(ws, "ĐẠI LÝ/CTV", {
     scanRows: 80,
     scanCols: 30,
   })
 
   if (rDealer !== -1) {
-    setTextKeepStyle(ws, rDealer, 10, dealerName)
-    patchCellStyle(ws, rDealer, 10, {
+    setTextKeepStyle(ws, rDealer, 8, dealerName)
+    patchCellStyle(ws, rDealer, 8, {
       font: { bold: true, sz: 14 },
       alignment: { horizontal: "left", vertical: "center", wrapText: false },
     })
@@ -509,7 +490,7 @@ export const applyHoaHongTableStyle = (ws: XLSX.WorkSheet, rows: TableRows) => {
   })
 
   if (rTITLE !== -1) {
-    const tl = getTopLeftOfMerge(ws, rTITLE, 7)
+    const tl = getTopLeftOfMerge(ws, rTITLE, 5)
     patchCellStyle(ws, tl.r, tl.c, {
       font: { name: "Times New Roman", bold: true, sz: 16 },
     })

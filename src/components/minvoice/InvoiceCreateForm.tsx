@@ -639,8 +639,6 @@ export default function InvoiceCreateForm({
         const loadedDiscountPercentage = normalizePercent(
           (initialInvoice as any).inv_discountPercentage
         )
-        const totalPrice = unitPrice * quantity
-
         setItems([
           {
             id: createItemId(),
@@ -654,13 +652,11 @@ export default function InvoiceCreateForm({
             discountAmount: loadedDiscountAmount,
             discountPercentage: loadedDiscountPercentage
               ? loadedDiscountPercentage
-              : loadedDiscountAmount > 0 && totalPrice > 0
-                ? normalizePercent((loadedDiscountAmount / totalPrice) * 100)
-                : resolveAgencyDiscountPercentage(
-                    (initialInvoice as any).inv_discountPercentage ??
-                      resolvedAgency?.commissionPercent,
-                    resolvedAgency
-                  ),
+              : resolveAgencyDiscountPercentage(
+                  (initialInvoice as any).inv_discountPercentage ??
+                    resolvedAgency?.commissionPercent,
+                  resolvedAgency
+                ),
             taxRate: normalizeInvoiceTaxCode(resolvedProduct.ma_thue),
             invReconciliation:
               (initialInvoice as any).invReconciliation !== undefined &&
@@ -737,7 +733,6 @@ export default function InvoiceCreateForm({
             apiItem.commissionRate ??
             (initialInvoice as any).inv_discountPercentage
         )
-        const totalPrice = unitPrice * (quantity || 1)
         const loadedInvReconciliation =
           (apiItem as any).invReconciliation ??
           apiItem.revenue ??
@@ -767,14 +762,12 @@ export default function InvoiceCreateForm({
           discountAmount: loadedDiscountAmount,
           discountPercentage: loadedDiscountPercentage
             ? loadedDiscountPercentage
-            : loadedDiscountAmount > 0 && totalPrice > 0
-              ? normalizePercent((loadedDiscountAmount / totalPrice) * 100)
-              : resolveAgencyDiscountPercentage(
-                  apiItem.discountPercentage ??
-                    apiItem.commissionRate ??
-                    (initialInvoice as any).inv_discountPercentage,
-                  resolvedAgency
-                ),
+            : resolveAgencyDiscountPercentage(
+                apiItem.discountPercentage ??
+                  apiItem.commissionRate ??
+                  (initialInvoice as any).inv_discountPercentage,
+                resolvedAgency
+              ),
           taxRate,
           invReconciliation:
             loadedInvReconciliation !== undefined &&
@@ -2225,7 +2218,7 @@ export default function InvoiceCreateForm({
                     <MoneyInput
                       className={`${inputClass} text-right`}
                       value={item.discountAmount}
-                      disabled={mainFieldsDisabled || mode !== "create"}
+                      disabled={mainFieldsDisabled}
                       onValueChange={(value) =>
                         updateItem(item.id, "discountAmount", value)
                       }

@@ -36,7 +36,6 @@ import {
   formatMoney,
   getId,
   normalizeDateInput,
-  resolveInvoiceTaxCodeAndRate,
   roundInvoiceMoney,
 } from "@/utils/invoice"
 import { buildCreateInvoiceApiBody } from "@/utils/invoicePayload"
@@ -206,17 +205,10 @@ export default function InvoiceBulkImport({
 
       const product = findProductByExcelValue(products, productCode)
       const agencyEmployee = getAgencyEmployee(agency)
-      const itemPrice =
-        roundInvoiceMoney(product?.inv_unitPrice) ||
-        roundInvoiceMoney(totalAmount / (quantity || 1))
-      const { taxRate } = resolveInvoiceTaxCodeAndRate(product?.ma_thue)
-      const invoiceTotalAmount = roundInvoiceMoney(itemPrice * quantity)
-      const invoiceTotalBeforeTax = roundInvoiceMoney(
-        invoiceTotalAmount / (1 + taxRate)
-      )
-      const invoiceVatAmount = roundInvoiceMoney(
-        invoiceTotalAmount - invoiceTotalBeforeTax
-      )
+      const itemPrice = roundInvoiceMoney(totalAmount / (quantity || 1))
+      const invoiceTotalAmount = totalAmount
+      const invoiceTotalBeforeTax = totalBeforeTax
+      const invoiceVatAmount = vatAmount
       const agencyDiscountPercentage = Math.min(
         Math.max(Number(agency?.commissionPercent || 0), 0),
         100
@@ -236,6 +228,25 @@ export default function InvoiceBulkImport({
       const invoiceRevenue = roundInvoiceMoney(
         Math.max(invoiceTotalAmount - invoiceDiscountAmount, 0)
       )
+      const rawReconciliationAmount = cleanText(row.reconciliationAmount)
+      const invoiceReconciliation = rawReconciliationAmount
+        ? roundInvoiceMoney(
+            Math.max(0, toExcelNumber(row.reconciliationAmount))
+          )
+        : invoiceTotalAmount
+      const writeDifference = roundInvoiceMoney(
+        invoiceTotalAmount - invoiceReconciliation
+      )
+      const rawWriteDifferenceFee = cleanText(row.writeDifferenceFee)
+      const writeDifferenceFee = rawWriteDifferenceFee
+        ? rawWriteDifferenceFee.endsWith("%")
+          ? roundInvoiceMoney(
+              (writeDifference *
+                toExcelNumber(rawWriteDifferenceFee.slice(0, -1))) /
+                100
+            )
+          : roundInvoiceMoney(toExcelNumber(row.writeDifferenceFee))
+        : roundInvoiceMoney(writeDifference * 0.85)
 
       if (!agencyCode) errors.push("Thiếu mã đại lý.")
       if (agencyCode && !agency) {
@@ -310,6 +321,7 @@ export default function InvoiceBulkImport({
               inv_currencyCode: currency,
               inv_exchangeRate: exchangeRate,
               inv_paymentMethodName: paymentMethod,
+              invReconciliation: String(invoiceReconciliation),
               agencyId: agency._id,
               employeeId: getId(agencyEmployee) || undefined,
               amountCollected: 0,
@@ -345,12 +357,14 @@ export default function InvoiceBulkImport({
                   inv_quantity: quantity,
                   price: itemPrice,
                   unitPrice: itemPrice,
-                  inv_unitPrice: roundInvoiceMoney(itemPrice / (1 + taxRate)),
+                  inv_unitPrice: roundInvoiceMoney(
+                    invoiceTotalBeforeTax / quantity
+                  ),
                   ma_thue: product.ma_thue,
                   taxRate: product.ma_thue,
                   discountPercentage: invoiceDiscountPercentage,
-                  revenue: invoiceRevenue,
-                  capitalPrice: 0,
+                  revenue: invoiceReconciliation,
+                  capitalPrice: writeDifferenceFee,
                   totalSalary: invoiceRevenue,
                   accountingAccountCode: getProductAccountingCode(product),
                 },
@@ -374,6 +388,9 @@ export default function InvoiceBulkImport({
         totalBeforeTax,
         vatAmount,
         totalAmount,
+        reconciliationAmount: invoiceReconciliation,
+        writeDifference,
+        writeDifferenceFee,
         quantity,
         agency,
         bank,
@@ -431,13 +448,80 @@ export default function InvoiceBulkImport({
     try {
       const fields: Array<keyof typeof COLUMN_ALIASES> = [
         ...REQUIRED_COLUMNS,
+        "reconciliationAmount",
+        "writeDifference",
+        "writeDifferenceFee",
         "itemType",
         "discountPercentage",
         "discountAmount",
       ]
       const headers = fields.map((field) => COLUMN_ALIASES[field][0])
       const workbook = XLSX.utils.book_new()
+      ;(workbook as any).Workbook = {
+        ...((workbook as any).Workbook || {}),
+        CalcPr: { calcMode: "auto" },
+      }
       const importSheet = XLSX.utils.aoa_to_sheet([headers])
+      const formulaRowCount = 500
+      const totalAmountColumn = fields.indexOf("totalAmount")
+      const reconciliationColumn = fields.indexOf("reconciliationAmount")
+      const writeDifferenceColumn = fields.indexOf("writeDifference")
+      const writeDifferenceFeeColumn = fields.indexOf("writeDifferenceFee")
+
+      for (let rowIndex = 1; rowIndex <= formulaRowCount; rowIndex++) {
+        const totalAmountRef = XLSX.utils.encode_cell({
+          r: rowIndex,
+          c: totalAmountColumn,
+        })
+        const reconciliationRef = XLSX.utils.encode_cell({
+          r: rowIndex,
+          c: reconciliationColumn,
+        })
+        const writeDifferenceRef = XLSX.utils.encode_cell({
+          r: rowIndex,
+          c: writeDifferenceColumn,
+        })
+        const writeDifferenceFeeCellRef = XLSX.utils.encode_cell({
+          r: rowIndex,
+          c: writeDifferenceFeeColumn,
+        })
+        const formulaStyle = {
+          numFmt: "#,##0.00",
+          fill: { fgColor: { rgb: "EFF6FF" } },
+          border: {
+            top: { style: "thin", color: { rgb: "E2E8F0" } },
+            bottom: { style: "thin", color: { rgb: "E2E8F0" } },
+            left: { style: "thin", color: { rgb: "E2E8F0" } },
+            right: { style: "thin", color: { rgb: "E2E8F0" } },
+          },
+        }
+
+        ;(importSheet as any)[reconciliationRef] = {
+          t: "z",
+          s: {
+            ...formulaStyle,
+            fill: { fgColor: { rgb: "FEF3C7" } },
+          },
+        }
+        ;(importSheet as any)[writeDifferenceRef] = {
+          t: "n",
+          f: `IF(OR(${totalAmountRef}=\"\",${reconciliationRef}=\"\"),\"\",${totalAmountRef}-${reconciliationRef})`,
+          s: formulaStyle,
+        }
+        ;(importSheet as any)[writeDifferenceFeeCellRef] = {
+          t: "n",
+          f: `IF(${writeDifferenceRef}=\"\",\"\",${writeDifferenceRef}*85%)`,
+          s: {
+            ...formulaStyle,
+            fill: { fgColor: { rgb: "FEF3C7" } },
+          },
+        }
+      }
+
+      importSheet["!ref"] = XLSX.utils.encode_range({
+        s: { r: 0, c: 0 },
+        e: { r: formulaRowCount, c: headers.length - 1 },
+      })
 
       importSheet["!cols"] = fields.map((field) => ({
         wch:
@@ -452,7 +536,7 @@ export default function InvoiceBulkImport({
       importSheet["!autofilter"] = {
         ref: XLSX.utils.encode_range({
           s: { r: 0, c: 0 },
-          e: { r: 0, c: headers.length - 1 },
+          e: { r: formulaRowCount, c: headers.length - 1 },
         }),
       }
 
@@ -537,9 +621,21 @@ export default function InvoiceBulkImport({
         )
       }
 
-      const nextRows = rawRows.map((row, index) => ({
+      const dataRows = rawRows
+        .map((row, index) => ({ row, rowNumber: index + 2 }))
+        .filter(({ row }) =>
+          REQUIRED_COLUMNS.some((field) =>
+            cleanText(pickCellValue(row, headerIndex, COLUMN_ALIASES[field]))
+          )
+        )
+
+      if (!dataRows.length) {
+        throw new Error("File Excel chưa có dữ liệu để import.")
+      }
+
+      const nextRows = dataRows.map(({ row, rowNumber }, index) => ({
         id: `${Date.now()}-${index}`,
-        rowNumber: index + 2,
+        rowNumber,
         stt: cleanText(pickCellValue(row, headerIndex, COLUMN_ALIASES.stt)),
         lineCode: cleanText(
           pickCellValue(row, headerIndex, COLUMN_ALIASES.lineCode)
@@ -603,6 +699,15 @@ export default function InvoiceBulkImport({
         ),
         totalAmount: toExcelNumber(
           pickCellValue(row, headerIndex, COLUMN_ALIASES.totalAmount)
+        ),
+        reconciliationAmount: cleanText(
+          pickCellValue(row, headerIndex, COLUMN_ALIASES.reconciliationAmount)
+        ),
+        writeDifference: cleanText(
+          pickCellValue(row, headerIndex, COLUMN_ALIASES.writeDifference)
+        ),
+        writeDifferenceFee: cleanText(
+          pickCellValue(row, headerIndex, COLUMN_ALIASES.writeDifferenceFee)
         ),
         cccdan: cleanText(
           pickCellValue(row, headerIndex, COLUMN_ALIASES.cccdan)
@@ -1002,7 +1107,7 @@ export default function InvoiceBulkImport({
             </div>
           ) : (
             <div className="mt-5 overflow-auto rounded-2xl border border-slate-200">
-              <table className="min-w-[2190px] text-sm">
+              <table className="min-w-[2600px] text-sm">
                 <thead className="bg-slate-50 text-slate-700">
                   <tr>
                     <th className="w-[60px] whitespace-nowrap border-b border-slate-200 px-3 py-3 text-center font-semibold">
@@ -1046,6 +1151,15 @@ export default function InvoiceBulkImport({
                     </th>
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-right font-semibold">
                       Tổng tiền
+                    </th>
+                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-right font-semibold">
+                      Giá đối soát
+                    </th>
+                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-right font-semibold">
+                      Viết chênh
+                    </th>
+                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-right font-semibold">
+                      <div>Phí viết chênh</div>
                     </th>
                     <th className="min-w-[100px] whitespace-nowrap border-b border-slate-200 px-3 py-3 text-left font-semibold">
                       Trạng thái
@@ -1322,6 +1436,47 @@ export default function InvoiceBulkImport({
                             }
                             disabled={rowDisabled}
                             className="h-8 w-32 rounded border border-slate-300 bg-white px-2 text-right text-xs font-semibold text-slate-900 outline-none focus:border-indigo-500 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500"
+                          />
+                        </td>
+                        <td className="border-b border-slate-100 px-3 py-3 align-top">
+                          <input
+                            value={cleanText(
+                              sourceRow?.reconciliationAmount
+                            ) || cleanText(row.reconciliationAmount)}
+                            inputMode="decimal"
+                            onChange={(event) =>
+                              updateImportRow(
+                                row.id,
+                                "reconciliationAmount",
+                                event.target.value
+                              )
+                            }
+                            disabled={rowDisabled}
+                            className="h-8 w-32 rounded border border-slate-300 bg-white px-2 text-right text-xs font-semibold text-slate-900 outline-none focus:border-indigo-500 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500"
+                          />
+                        </td>
+                        <td className="border-b border-slate-100 px-3 py-3 align-top">
+                          <div className="flex h-8 w-32 items-center justify-end rounded border border-slate-300 bg-slate-50 px-2 text-right text-xs font-semibold text-slate-700">
+                            {formatMoney(row.writeDifference)}
+                          </div>
+                        </td>
+                        <td className="border-b border-slate-100 px-3 py-3 align-top">
+                          <input
+                            value={cleanText(
+                              sourceRow?.writeDifferenceFee
+                            ) || cleanText(row.writeDifferenceFee)}
+                            inputMode="decimal"
+                            placeholder="Ví dụ: 80%"
+                            title="Nhập số tiền phí hoặc tỷ lệ như 80%"
+                            onChange={(event) =>
+                              updateImportRow(
+                                row.id,
+                                "writeDifferenceFee",
+                                event.target.value
+                              )
+                            }
+                            disabled={rowDisabled}
+                            className="h-8 w-32 rounded border border-amber-300 bg-amber-50 px-2 text-right text-xs font-semibold text-amber-900 outline-none focus:border-amber-500 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500"
                           />
                         </td>
                         <td className="border-b border-slate-100 px-3 py-3 align-top">

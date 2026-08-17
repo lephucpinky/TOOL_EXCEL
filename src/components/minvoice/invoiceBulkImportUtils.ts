@@ -36,6 +36,9 @@ export type BulkImportExcelRow = {
   totalBeforeTax: string | number
   vatAmount: string | number
   totalAmount: string | number
+  reconciliationAmount: string | number
+  writeDifference: string | number
+  writeDifferenceFee: string | number
   cccdan: string
   passport: string
   budgetUnitCode: string
@@ -60,6 +63,9 @@ export type PreparedImportRow = {
   totalBeforeTax: number
   vatAmount: number
   totalAmount: number
+  reconciliationAmount: number
+  writeDifference: number
+  writeDifferenceFee: number
   quantity: number
   agency: Agency | null
   bank: Bank | null
@@ -104,6 +110,9 @@ export const COLUMN_ALIASES = {
   totalBeforeTax: ["Thành tiền chưa VAT", "Tiền trước VAT"],
   vatAmount: ["Tiền thuế VAT", "Thuế VAT"],
   totalAmount: ["Tổng tiền thanh toán", "Tổng tiền"],
+  reconciliationAmount: ["Giá đối soát"],
+  writeDifference: ["Viết chênh"],
+  writeDifferenceFee: ["Phí viết chênh"],
   cccdan: ["CCCD/Căn cước công dân", "CCCD", "Căn cước công dân"],
   passport: ["Số hộ chiếu"],
   budgetUnitCode: ["Mã đơn vị qua ngân sách"],

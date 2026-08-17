@@ -388,31 +388,6 @@ const pickLoaiCksTextHeader = (
   return source.sort((a, b) => score(b) - score(a))[0]
 }
 
-const pickTienHoaHongHeader = (salesHeaders: string[]) => {
-  const headers = (salesHeaders || []).filter(Boolean).map(String)
-  const moneyLabel = normalize("TIỀN HOA HỒNG")
-  const byMoneyName = headers.find((h) => normalize(h).includes(moneyLabel))
-  if (byMoneyName) return byMoneyName
-
-  return headers.find((h) => {
-    const raw = String(h).toLowerCase()
-    const s = normalize(h)
-    const looksLikeHH =
-      s === normalize("hh") ||
-      s === normalize("tien hoa hong") ||
-      s.includes(normalize("hoa hong"))
-
-    const isPercent =
-      raw.includes("%") ||
-      s.includes(normalize("phan tram")) ||
-      s.includes(normalize("percent")) ||
-      s.includes(normalize("ty le")) ||
-      s.includes(normalize("ti le"))
-
-    return looksLikeHH && !isPercent
-  })
-}
-
 export const buildHeaderMapHH = (
   salesHeaders: string[],
   salesRows: any[] = []
@@ -457,7 +432,7 @@ export const buildHeaderMapHH = (
     ),
 
     SOLUONG: pick("SỐ LƯỢNG", "SO LUONG", "SOLUONG", "SL"),
-    DOANH_THU_SAN_PHAM: pick(
+    GIA_TRI_XUAT_HOA_DON: pick(
       "TỔNG TIỀN SAU THUẾ",
       "TONG TIEN SAU THUE",
       "TIỀN SAU THUẾ",
@@ -465,17 +440,8 @@ export const buildHeaderMapHH = (
     ),
     GIA_DOI_SOAT: pick("Giá đối soát", "GIÁ ĐỐI SOÁT", "GIA DOI SOAT"),
 
-    TIEN_HOA_HONG:
-      pickTienHoaHongHeader(salesHeaders) ||
-      pick("TIỀN HOA HỒNG", "TIEN HOA HONG", "HH"),
-    PHI_VIET_CHENH: pick(
-      "PHÍ VIẾT CHÊNH",
-      "PHI VIET CHENH",
-      "Phí viết chênh",
-      "Phi viet chenh",
-      "PRICE DIFFERENCE",
-      "priceDifference"
-    ),
+    TIEN_HOA_HONG: pick("CHIẾT KHẤU", "CHIET KHAU"),
+    CHI_CHENH: pick("CHI CHÊNH", "CHI CHENH"),
     DT_MINVOICE: pick(
       "SỐ TIỀN",
       "SO TIEN",
@@ -516,9 +482,10 @@ export const validateHeaderMapHH = (H: ReturnType<typeof buildHeaderMapHH>) => {
     ["MST", H.MST],
     ["TÊN CTY", H.TEN],
     ["SỐ LƯỢNG", H.SOLUONG],
-    ["TỔNG TIỀN SAU THUẾ", H.DOANH_THU_SAN_PHAM],
+    ["TỔNG TIỀN SAU THUẾ", H.GIA_TRI_XUAT_HOA_DON],
     ["GIÁ ĐỐI SOÁT", H.GIA_DOI_SOAT],
-    ["PHÍ VIẾT CHÊNH", H.PHI_VIET_CHENH],
+    ["CHIẾT KHẤU", H.TIEN_HOA_HONG],
+    ["CHI CHÊNH", H.CHI_CHENH],
     ["SỐ TIỀN", H.DT_MINVOICE],
     ["Đại Lý", H.DEALER],
   ].forEach(([label, value]) => {
@@ -554,11 +521,7 @@ export const classifyProductToSectionHoaHong = (v: any): Sec => {
   )
     return "A"
 
-  if (
-    matchesProductCode(s, "MTT") ||
-    s.includes("maytinhtien")
-  )
-    return "B"
+  if (matchesProductCode(s, "MTT") || s.includes("maytinhtien")) return "B"
 
   if (
     matchesProductCode(s, "TNCN") ||
@@ -698,10 +661,9 @@ export const clearAllSectionBlocksHoaHong = (
   const numericCols = new Set<number>([
     COL_HOA_HONG.STT,
     COL_HOA_HONG.SOLUONG,
-    COL_HOA_HONG.DOANH_THU_SAN_PHAM,
-    COL_HOA_HONG.PHI_VIET_CHENH,
     COL_HOA_HONG.GIA_TRI_XUAT_HOA_DON,
     COL_HOA_HONG.GIA_DOI_SOAT,
+    COL_HOA_HONG.GIA_TRI_VIET_CHENH,
     COL_HOA_HONG.TIEN_HOA_HONG,
     COL_HOA_HONG.CHENH_LECH_VIET_CHENH,
     COL_HOA_HONG.TONG_TIEN_TRA_DOI_TAC,
@@ -788,38 +750,25 @@ export const fillAllSectionsHoaHong = (
       })
 
       const soLuong = H.SOLUONG ? row[H.SOLUONG] : 0
-      const doanhThuSanPham = H.DOANH_THU_SAN_PHAM
-        ? row[H.DOANH_THU_SAN_PHAM]
+      const giaTriXuatHoaDon = H.GIA_TRI_XUAT_HOA_DON
+        ? row[H.GIA_TRI_XUAT_HOA_DON]
         : 0
       const giadoisoat = H.GIA_DOI_SOAT ? row[H.GIA_DOI_SOAT] : 0
-      const phiVietChenhRaw = H.PHI_VIET_CHENH ? row[H.PHI_VIET_CHENH] : ""
-      const phiVietChenh = isEmptyValue(phiVietChenhRaw)
-        ? (toNumber(doanhThuSanPham) - toNumber(giadoisoat)) * 0.15
-        : phiVietChenhRaw
+      const tienHoaHong = H.TIEN_HOA_HONG ? row[H.TIEN_HOA_HONG] : 0
+      const chiChenh = H.CHI_CHENH ? row[H.CHI_CHENH] : 0
 
       setNumKeepStyle(r0, COL_HOA_HONG.SOLUONG, soLuong)
-      setNumKeepStyle(r0, COL_HOA_HONG.DOANH_THU_SAN_PHAM, doanhThuSanPham)
-      setNumKeepStyle(r0, COL_HOA_HONG.PHI_VIET_CHENH, phiVietChenh)
-      setFormulaKeepStyle(
-        ws,
-        r0,
-        COL_HOA_HONG.GIA_TRI_XUAT_HOA_DON,
-        `=${addrRC(r0, COL_HOA_HONG.DOANH_THU_SAN_PHAM)}+${addrRC(r0, COL_HOA_HONG.PHI_VIET_CHENH)}`
-      )
-
+      setNumKeepStyle(r0, COL_HOA_HONG.GIA_TRI_XUAT_HOA_DON, giaTriXuatHoaDon)
       setNumKeepStyle(r0, COL_HOA_HONG.GIA_DOI_SOAT, giadoisoat)
       setFormulaKeepStyle(
         ws,
         r0,
-        COL_HOA_HONG.TIEN_HOA_HONG,
-        `=${addrRC(r0, COL_HOA_HONG.GIA_DOI_SOAT)}*50%`
+        COL_HOA_HONG.GIA_TRI_VIET_CHENH,
+        `=${addrRC(r0, COL_HOA_HONG.GIA_TRI_XUAT_HOA_DON)}-${addrRC(r0, COL_HOA_HONG.GIA_DOI_SOAT)}`
       )
-      setFormulaKeepStyle(
-        ws,
-        r0,
-        COL_HOA_HONG.CHENH_LECH_VIET_CHENH,
-        `=${addrRC(r0, COL_HOA_HONG.PHI_VIET_CHENH)}*85%`
-      )
+
+      setNumKeepStyle(r0, COL_HOA_HONG.TIEN_HOA_HONG, tienHoaHong)
+      setNumKeepStyle(r0, COL_HOA_HONG.CHENH_LECH_VIET_CHENH, chiChenh)
       setFormulaKeepStyle(
         ws,
         r0,

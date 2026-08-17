@@ -330,7 +330,7 @@ export default function Page() {
       badgeClass: "bg-blue-50 text-blue-700",
     },
     {
-      label: "Lỗi/Hủy",
+      label: "Đã huỷ",
       value: dashboard.summary.failed + dashboard.summary.cancelled,
       color: "bg-rose-500",
       badgeClass: "bg-rose-50 text-rose-700",
@@ -523,7 +523,7 @@ export default function Page() {
                   </div>
                   <div className="rounded-lg border border-slate-200 px-3 py-2">
                     <p className="text-xs font-semibold text-slate-500">
-                      Lỗi/Hủy
+                      Đã huỷ
                     </p>
                     <p className="mt-1 text-lg font-bold text-rose-700">
                       {numberFormatter.format(

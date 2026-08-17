@@ -6,7 +6,9 @@ import { ReceiptText, Settings2 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import InvoiceCreateForm from "@/components/minvoice/InvoiceCreateForm"
-import InvoiceDataTable from "@/components/minvoice/InvoiceDataTable"
+import InvoiceDataTable, {
+  type InvoiceTableServerFilters,
+} from "@/components/minvoice/InvoiceDataTable"
 import InvoiceBulkImport from "@/components/minvoice/InvoiceBulkImport"
 import InvoiceToolbar from "@/components/minvoice/InvoiceToolbar"
 import InvoiceCollectPaymentDialog from "@/components/minvoice/InvoiceCollectPaymentDialog"
@@ -36,6 +38,7 @@ import {
   APICancelSaleTransactionInvoice,
   APIGetSaleTransactionById,
   APIGetSaleTransactions,
+  type SaleTransactionListParams,
 } from "@/services/saleTransaction"
 import {
   APIExportMInvoiceReceiptPost,
@@ -87,6 +90,65 @@ const NO_INVOICE_EXPORT_RESULT_MESSAGE =
   "Xuất hoá đơn không thành công, vui lòng thử lại sau."
 const INVOICE_PAGE_SIZE_OPTIONS = [50, 100, 200, 300]
 const INVOICE_DEFAULT_LIMIT = 50
+const INVOICE_FILTER_QUERY_KEYS = [
+  "activationDate",
+  "issuedDate",
+  "issuedDateFrom",
+  "issuedDateTo",
+  "paidDate",
+  "createdDateFrom",
+  "createdDateTo",
+  "orderCreateStatus",
+  "invoiceStatus",
+  "agencyId",
+  "invoiceNumber",
+  "buyerTaxCode",
+  "companyName",
+  "orderNumber",
+  "productKeyword",
+  "paymentStatus",
+  "totalAmount",
+  "exportedAmount",
+  "amountCollected",
+  "remainingAmount",
+] as const satisfies readonly (keyof InvoiceTableServerFilters)[]
+const INVOICE_MONEY_FILTER_QUERY_KEYS = [
+  "totalAmount",
+  "exportedAmount",
+  "amountCollected",
+  "remainingAmount",
+] as const satisfies readonly (keyof InvoiceTableServerFilters)[]
+
+const createEmptyInvoiceServerFilters = (): InvoiceTableServerFilters => ({
+  activationDate: "",
+  issuedDate: "",
+  issuedDateFrom: "",
+  issuedDateTo: "",
+  paidDate: "",
+  createdDateFrom: "",
+  createdDateTo: "",
+  orderCreateStatus: "",
+  invoiceStatus: "",
+  agencyId: "",
+  invoiceNumber: "",
+  buyerTaxCode: "",
+  companyName: "",
+  orderNumber: "",
+  productKeyword: "",
+  paymentStatus: "",
+  totalAmount: "",
+  exportedAmount: "",
+  amountCollected: "",
+  remainingAmount: "",
+})
+
+const parseMoneyQueryValue = (value: string) => {
+  const normalizedValue = value.trim().replace(/[\s.,]/g, "")
+  if (!normalizedValue) return undefined
+
+  const parsedValue = Number(normalizedValue)
+  return Number.isFinite(parsedValue) ? parsedValue : undefined
+}
 
 export default function InvoiceListPage() {
   const searchParams = useSearchParams()
@@ -112,20 +174,43 @@ export default function InvoiceListPage() {
     INVOICE_DEFAULT_LIMIT
   )
   const listSearch = String(searchParams.get("search") ?? "").trim()
-  const listAgencyId = String(searchParams.get("agencyId") ?? "").trim()
+  const listQueryString = searchParams.toString()
+  const listServerFilters = useMemo(() => {
+    const queryParams = new URLSearchParams(listQueryString)
+    const nextFilters = createEmptyInvoiceServerFilters()
+
+    INVOICE_FILTER_QUERY_KEYS.forEach((key) => {
+      nextFilters[key] = String(queryParams.get(key) ?? "").trim()
+    })
+
+    if (!nextFilters.paymentStatus) {
+      const legacyPaymentFilter = String(
+        queryParams.get("payment") ?? ""
+      ).trim()
+
+      if (
+        legacyPaymentFilter === "collected" ||
+        legacyPaymentFilter === "not_collected"
+      ) {
+        nextFilters.paymentStatus = legacyPaymentFilter
+      }
+    }
+
+    return nextFilters
+  }, [listQueryString])
   const listRequestIdRef = useRef(0)
   const listQueryRef = useRef({
     page: listPage,
     limit: listLimit,
     search: listSearch,
-    agencyId: listAgencyId,
+    filters: listServerFilters,
   })
 
   listQueryRef.current = {
     page: listPage,
     limit: listLimit,
     search: listSearch,
-    agencyId: listAgencyId,
+    filters: listServerFilters,
   }
 
   const pushListQuery = useCallback(
@@ -134,7 +219,7 @@ export default function InvoiceListPage() {
         page: number
         limit: number
         search: string
-        agencyId: string
+        filters: Partial<InvoiceTableServerFilters>
       }>
     ) => {
       const current = listQueryRef.current
@@ -143,10 +228,10 @@ export default function InvoiceListPage() {
         limit: patch.limit ?? current.limit,
         search:
           patch.search !== undefined ? patch.search.trim() : current.search,
-        agencyId:
-          patch.agencyId !== undefined
-            ? patch.agencyId.trim()
-            : current.agencyId,
+        filters: {
+          ...current.filters,
+          ...(patch.filters || {}),
+        },
       }
 
       listQueryRef.current = next
@@ -155,7 +240,10 @@ export default function InvoiceListPage() {
       params.set("page", String(Math.max(next.page, 1)))
       params.set("limit", String(Math.max(next.limit, 1)))
       if (next.search) params.set("search", next.search)
-      if (next.agencyId) params.set("agencyId", next.agencyId)
+      INVOICE_FILTER_QUERY_KEYS.forEach((key) => {
+        const value = String(next.filters[key] ?? "").trim()
+        if (value) params.set(key, value)
+      })
 
       const nextQuery = params.toString()
       const currentQuery =
@@ -170,15 +258,34 @@ export default function InvoiceListPage() {
     [pathname, router, searchParams]
   )
 
-  const listParams = useMemo(
-    () => ({
+  const listParams = useMemo(() => {
+    const params: SaleTransactionListParams = {
       page: listPage,
       limit: listLimit,
-      ...(listSearch ? { search: listSearch } : {}),
-      ...(listAgencyId ? { agencyId: listAgencyId } : {}),
-    }),
-    [listPage, listLimit, listSearch, listAgencyId]
-  )
+    }
+    if (listSearch) params.search = listSearch
+
+    const moneyFilterKeys = new Set<keyof InvoiceTableServerFilters>(
+      INVOICE_MONEY_FILTER_QUERY_KEYS
+    )
+
+    INVOICE_FILTER_QUERY_KEYS.forEach((key) => {
+      const value = listServerFilters[key].trim()
+      if (!value) return
+
+      if (moneyFilterKeys.has(key)) {
+        const numericValue = parseMoneyQueryValue(value)
+        if (numericValue !== undefined) {
+          ;(params as Record<string, unknown>)[key] = numericValue
+        }
+        return
+      }
+
+      ;(params as Record<string, unknown>)[key] = value
+    })
+
+    return params
+  }, [listPage, listLimit, listSearch, listServerFilters])
   const [listPagination, setListPagination] = useState({
     page: DEFAULT_URL_PAGE,
     limit: INVOICE_DEFAULT_LIMIT,
@@ -209,13 +316,21 @@ export default function InvoiceListPage() {
     [listLimit, pushListQuery]
   )
 
-  const handleAgencyFilterChange = useCallback(
-    (agencyId: string) => {
-      const nextAgencyId = agencyId.trim()
-      if (nextAgencyId === listQueryRef.current.agencyId) return
+  const handleServerFiltersChange = useCallback(
+    (patch: Partial<InvoiceTableServerFilters>) => {
+      const hasChangedFilter = (
+        Object.entries(patch) as [
+          keyof InvoiceTableServerFilters,
+          string | undefined,
+        ][]
+      ).some(([key, value]) => {
+        return String(value ?? "").trim() !== listQueryRef.current.filters[key]
+      })
+
+      if (!hasChangedFilter) return
 
       pushListQuery({
-        agencyId: nextAgencyId,
+        filters: patch,
         page: 1,
         limit: listLimit || INVOICE_DEFAULT_LIMIT,
       })
@@ -226,7 +341,7 @@ export default function InvoiceListPage() {
   const handleClearListFilters = useCallback(() => {
     pushListQuery({
       search: "",
-      agencyId: "",
+      filters: createEmptyInvoiceServerFilters(),
       page: 1,
       limit: listLimit || INVOICE_DEFAULT_LIMIT,
     })
@@ -757,16 +872,16 @@ export default function InvoiceListPage() {
 
     try {
       setPageLoading(true)
+      const previousRows = apiRowsRef.current
       replaceInvoiceRows(() => [])
       setListPagination((current) => ({
         ...current,
-        page: listParams.page,
-        limit: listParams.limit,
+        page: listPage,
+        limit: listLimit,
         total: 0,
         totalPages: 1,
       }))
 
-      const previousRows = apiRowsRef.current
       const previousRowMap = new Map(
         previousRows.map((item) => [item._id, item])
       )
@@ -774,7 +889,16 @@ export default function InvoiceListPage() {
       const response = await APIGetSaleTransactions(listParams)
       if (requestId !== listRequestIdRef.current) return
 
-      const nextRows = response.data.map((row) => {
+      const rawRows = response.data
+      const total = Math.max(Number(response.total ?? rawRows.length), 0)
+      const limit = Math.max(Number(response.limit ?? listLimit), 1)
+      const totalPages = Math.max(
+        Number(response.totalPages ?? Math.max(Math.ceil(total / limit), 1)),
+        1
+      )
+      const responsePage = Math.max(Number(response.page ?? listPage), 1)
+
+      const nextRows = rawRows.map((row) => {
         const fallback = previousRowMap.get(row._id)
 
         return mergeInvoicePaymentState(
@@ -786,15 +910,8 @@ export default function InvoiceListPage() {
       apiRowsRef.current = nextRows
       dispatch(saleTransactionActions.setSaleTransactions(nextRows))
 
-      const total = Math.max(Number(response.total ?? nextRows.length), 0)
-      const limit = Math.max(Number(response.limit ?? listParams.limit), 1)
-      const totalPages = Math.max(
-        Number(response.totalPages ?? Math.max(Math.ceil(total / limit), 1)),
-        1
-      )
-
       setListPagination({
-        page: Math.max(Number(response.page ?? listParams.page), 1),
+        page: responsePage,
         limit,
         total,
         totalPages,
@@ -806,8 +923,8 @@ export default function InvoiceListPage() {
       replaceInvoiceRows(() => [])
       setListPagination((current) => ({
         ...current,
-        page: listParams.page,
-        limit: listParams.limit,
+        page: listPage,
+        limit: listLimit,
         total: 0,
         totalPages: 1,
       }))
@@ -841,7 +958,7 @@ export default function InvoiceListPage() {
   useEffect(() => {
     setPageLoading(true)
     void handleGetSaleTransactions()
-  }, [listPage, listLimit, listSearch, listAgencyId])
+  }, [listParams])
 
   useEffect(() => {
     void handleGetReceiptConfigs()
@@ -1171,9 +1288,7 @@ export default function InvoiceListPage() {
 
     setCollectPaymentTarget(safeRow)
     setCollectPaymentBankId(
-      existingRowCollectedAmount > 0
-        ? invoiceHelper.getId(safeRow.bankId)
-        : ""
+      existingRowCollectedAmount > 0 ? invoiceHelper.getId(safeRow.bankId) : ""
     )
     setCollectPaymentDate(getInvoicePaidDateInput(safeRow))
     setCollectPaymentAmount(
@@ -1227,8 +1342,8 @@ export default function InvoiceListPage() {
         nextBanks.unshift(currentBank)
       }
 
-      const defaultBank = nextBanks.find(
-        (bank) => bank.inv_buyerBankName.trim().toUpperCase().includes("VCB")
+      const defaultBank = nextBanks.find((bank) =>
+        bank.inv_buyerBankName.trim().toUpperCase().includes("VCB")
       )
       const existingAmountCollected = getInvoiceAmountCollected(nextTarget)
       const currentBankId = invoiceHelper.getId(nextTarget.bankId)
@@ -1387,12 +1502,11 @@ export default function InvoiceListPage() {
         isFilledValue(detail.amountCollected)
           ? toSafeNumber(detail.amountCollected)
           : 0
-      const nextAmountCollected =
-        isClearingPayment
-          ? 0
-          : detailAmountCollected > 0
-            ? detailAmountCollected
-            : paidAmount
+      const nextAmountCollected = isClearingPayment
+        ? 0
+        : detailAmountCollected > 0
+          ? detailAmountCollected
+          : paidAmount
 
       const nextDetail = mergeInvoicePaymentState(
         {
@@ -2420,8 +2534,8 @@ export default function InvoiceListPage() {
                 bulkActionLoading={bulkInvoiceActionLoading}
                 searchKeyword={listSearch}
                 onSearchKeywordChange={handleSearchKeywordChange}
-                agencyFilterId={listAgencyId}
-                onAgencyFilterChange={handleAgencyFilterChange}
+                serverFilters={listServerFilters}
+                onServerFiltersChange={handleServerFiltersChange}
                 onClearServerFilters={handleClearListFilters}
                 pagination={listTablePagination}
               />

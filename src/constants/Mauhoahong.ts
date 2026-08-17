@@ -4,24 +4,22 @@ export const COL_HOA_HONG = {
   MASOTHUE: 2, // C     MÃ SỐ THUẾ
   TENDONVI: 3, // D    TÊN ĐẠI LÝ
   SOLUONG: 4, // E Số lượng
-  DOANH_THU_SAN_PHAM: 5, // F  TỔNG TIỀN SAU THUẾ
-  PHI_VIET_CHENH: 6, // G    PHÍ VIẾT CHÊNH
-  GIA_TRI_XUAT_HOA_DON: 7, // H   = F+G
-  GIA_DOI_SOAT: 8, // I  = F
-  TIEN_HOA_HONG: 9, // J = I * 50%
-  CHENH_LECH_VIET_CHENH: 10, // K = G * 85%
-  TONG_TIEN_TRA_DOI_TAC: 11, // L =  J+K
-  MINV_DA_THU: 12, // M   THU TIỀN
-  CHENH_LECH_THANH_TOAN: 13, // N =H-M
-  GHI_CHU: 14, // O
+  GIA_TRI_XUAT_HOA_DON: 5, // F = TỔNG TIỀN SAU THUẾ từ báo cáo
+  GIA_DOI_SOAT: 6, // G
+  GIA_TRI_VIET_CHENH: 7, // H = F-G
+  TIEN_HOA_HONG: 8, // I = CHIẾT KHẤU từ báo cáo
+  CHENH_LECH_VIET_CHENH: 9, // J = CHI CHÊNH từ báo cáo
+  TONG_TIEN_TRA_DOI_TAC: 10, // K = I+J
+  MINV_DA_THU: 11, // L   THU TIỀN
+  CHENH_LECH_THANH_TOAN: 12, // M = F-L
+  GHI_CHU: 13, // N
 } as const
 
 export const sumTargets = [
   COL_HOA_HONG.SOLUONG,
-  COL_HOA_HONG.DOANH_THU_SAN_PHAM,
-  COL_HOA_HONG.PHI_VIET_CHENH,
   COL_HOA_HONG.GIA_TRI_XUAT_HOA_DON,
   COL_HOA_HONG.GIA_DOI_SOAT,
+  COL_HOA_HONG.GIA_TRI_VIET_CHENH,
   COL_HOA_HONG.TIEN_HOA_HONG,
   COL_HOA_HONG.CHENH_LECH_VIET_CHENH,
   COL_HOA_HONG.TONG_TIEN_TRA_DOI_TAC,
@@ -55,7 +53,7 @@ export const BORDER_THICK = {
   right: { style: "medium", color: { rgb: "000000" } },
 } as const
 
-// 15 cot A..O
+// 14 cot A..N
 export const HOA_HONG_COL_WIDTHS = [
-  4, 14, 14, 40, 10, 16, 14, 16, 14, 14, 16, 18, 14, 18, 14,
+  4, 14, 14, 40, 10, 16, 14, 14, 14, 16, 18, 14, 18, 14,
 ]

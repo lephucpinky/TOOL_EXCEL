@@ -11,6 +11,9 @@ import {
   type WheelEvent,
 } from "react"
 import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   Download,
   Eye,
   FileSearch,
@@ -38,6 +41,8 @@ export interface DataTableColumn<T> {
   key: string
   title: React.ReactNode
   filter?: React.ReactNode
+  sortable?: boolean
+  sortValue?: (item: T) => unknown
   render?: (item: T, index: number) => ReactNode
   className?: string
   headerClassName?: string
@@ -91,6 +96,31 @@ function getDefaultRowKey<T>(item: T, index: number) {
   const id = row.id ?? row._id
 
   return id === undefined || id === null ? String(index) : String(id)
+}
+
+type DataTableSortDirection = "asc" | "desc"
+
+function compareSortValues(left: unknown, right: unknown) {
+  const leftMissing = left === undefined || left === null || left === ""
+  const rightMissing = right === undefined || right === null || right === ""
+
+  if (leftMissing || rightMissing) {
+    if (leftMissing && rightMissing) return 0
+    return leftMissing ? 1 : -1
+  }
+
+  if (typeof left === "number" && typeof right === "number") {
+    return left - right
+  }
+
+  if (typeof left === "boolean" && typeof right === "boolean") {
+    return Number(left) - Number(right)
+  }
+
+  return String(left).localeCompare(String(right), "vi", {
+    numeric: true,
+    sensitivity: "base",
+  })
 }
 
 function SelectionCheckbox({
@@ -186,6 +216,9 @@ export function DataTable<T>({
 
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(initialPageSize)
+  const [sortKey, setSortKey] = useState("")
+  const [sortDirection, setSortDirection] =
+    useState<DataTableSortDirection>("asc")
 
   useEffect(() => {
     if (!isPaginationEnabled || itemsPerPage !== undefined) return
@@ -209,10 +242,32 @@ export function DataTable<T>({
   const startIndex = isPaginationEnabled
     ? (safePage - 1) * effectivePageSize
     : 0
+  const sortedData = useMemo(() => {
+    if (!sortKey) return data
+
+    const sortColumn = columns.find((column) => column.key === sortKey)
+    if (!sortColumn?.sortable) return data
+
+    return data
+      .map((item, index) => ({ item, index }))
+      .sort((left, right) => {
+        const leftValue = sortColumn.sortValue
+          ? sortColumn.sortValue(left.item)
+          : (left.item as Record<string, unknown>)[sortColumn.key]
+        const rightValue = sortColumn.sortValue
+          ? sortColumn.sortValue(right.item)
+          : (right.item as Record<string, unknown>)[sortColumn.key]
+        const result = compareSortValues(leftValue, rightValue)
+
+        if (result === 0) return left.index - right.index
+        return sortDirection === "asc" ? result : -result
+      })
+      .map(({ item }) => item)
+  }, [columns, data, sortDirection, sortKey])
   const visibleRows =
     isPaginationEnabled && !isExternalPagination
-      ? data.slice(startIndex, startIndex + effectivePageSize)
-      : data
+      ? sortedData.slice(startIndex, startIndex + effectivePageSize)
+      : sortedData
   const getRenderRowIndex = (index: number) =>
     isPaginationEnabled ? startIndex + index : index
   const getResolvedRowKey = (item: T, index: number) =>
@@ -442,6 +497,16 @@ export function DataTable<T>({
     }
   }
 
+  const handleSort = (columnKey: string) => {
+    if (sortKey === columnKey) {
+      setSortDirection((current) => (current === "asc" ? "desc" : "asc"))
+      return
+    }
+
+    setSortKey(columnKey)
+    setSortDirection("asc")
+  }
+
   return (
     <div className="relative flex w-full flex-col gap-4 rounded-md border border-slate-200 bg-white p-2 font-sans sm:p-4">
       {hasToolbar && (
@@ -525,7 +590,7 @@ export function DataTable<T>({
                     className={cn(
                       leftStickyCover,
                       selectionColWidth,
-                      "sticky left-0 top-0 z-40 h-10 bg-[#2869B4] px-3 text-center font-semibold text-white"
+                      "sticky left-0 top-0 z-40 h-12 bg-[#2869B4] px-3 text-center font-semibold text-white"
                     )}
                   >
                     <div className="relative z-10 flex items-center justify-center">
@@ -552,8 +617,17 @@ export function DataTable<T>({
                   return (
                     <TableHead
                       key={column.key}
+                      aria-sort={
+                        column.sortable
+                          ? sortKey === column.key
+                            ? sortDirection === "asc"
+                              ? "ascending"
+                              : "descending"
+                            : "none"
+                          : undefined
+                      }
                       className={cn(
-                        "sticky top-0 z-20 h-10 bg-[#2869B4] px-3 text-center font-semibold text-white",
+                        "sticky top-0 z-20 h-12 bg-[#2869B4] px-3 text-center font-semibold text-white",
                         isFirstColumn && leftStickyCover,
                         isFirstColumn && firstColWidth,
                         isFirstColumn && firstDataColumnLeft,
@@ -564,12 +638,34 @@ export function DataTable<T>({
                         column.headerClassName
                       )}
                     >
-                      <span
-                        data-table-copyable
-                        className="relative z-10 select-text"
-                      >
-                        {column.title}
-                      </span>
+                      {column.sortable ? (
+                        <button
+                          type="button"
+                          onClick={() => handleSort(column.key)}
+                          title={
+                            sortKey === column.key && sortDirection === "asc"
+                              ? "Sắp xếp từ lớn đến bé"
+                              : "Sắp xếp từ bé đến lớn"
+                          }
+                          className="relative z-10 inline-flex w-full items-center justify-center gap-1.5 rounded px-1 py-1 text-center transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                        >
+                          <span>{column.title}</span>
+                          {sortKey !== column.key ? (
+                            <ArrowUpDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                          ) : sortDirection === "asc" ? (
+                            <ArrowUp className="h-3.5 w-3.5 shrink-0" />
+                          ) : (
+                            <ArrowDown className="h-3.5 w-3.5 shrink-0" />
+                          )}
+                        </button>
+                      ) : (
+                        <span
+                          data-table-copyable
+                          className="relative z-10 select-text"
+                        >
+                          {column.title}
+                        </span>
+                      )}
                     </TableHead>
                   )
                 })}
@@ -578,7 +674,7 @@ export function DataTable<T>({
                   <TableHead
                     className={cn(
                       rightStickyCover,
-                      "sticky right-0 top-0 z-[80] h-10 bg-[#2869B4] px-3 text-center font-semibold text-white",
+                      "sticky right-0 top-0 z-[80] h-12 bg-[#2869B4] px-3 text-center font-semibold text-white",
                       actionColWidth
                     )}
                   >
@@ -594,7 +690,7 @@ export function DataTable<T>({
                       className={cn(
                         leftStickyCover,
                         selectionColWidth,
-                        "sticky left-0 top-10 z-40 h-auto border-b border-slate-200 bg-slate-50 px-2 py-1"
+                        "sticky left-0 top-12 z-40 h-auto border-b border-slate-200 bg-slate-50 px-2 py-1"
                       )}
                     >
                       <div className="h-8" />
@@ -609,7 +705,7 @@ export function DataTable<T>({
                       <TableHead
                         key={`${column.key}-filter`}
                         className={cn(
-                          "sticky top-10 z-20 h-auto border-b border-slate-200 bg-slate-50 px-2 py-1 font-normal text-slate-700",
+                          "sticky top-12 z-20 h-auto border-b border-slate-200 bg-slate-50 px-2 py-1 font-normal text-slate-700",
                           isFirstColumn && leftStickyCover,
                           isFirstColumn && firstColWidth,
                           isFirstColumn && firstDataColumnLeft,
@@ -631,7 +727,7 @@ export function DataTable<T>({
                       className={cn(
                         rightStickyCover,
                         actionColWidth,
-                        "sticky right-0 top-10 z-[80] h-auto border-b border-slate-200 bg-slate-50 px-2 py-1"
+                        "sticky right-0 top-12 z-[80] h-auto border-b border-slate-200 bg-slate-50 px-2 py-1"
                       )}
                     >
                       <div className="h-8" />

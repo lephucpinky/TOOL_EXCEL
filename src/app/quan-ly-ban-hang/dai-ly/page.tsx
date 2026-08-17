@@ -12,6 +12,7 @@ import CrudBulkImportModal, {
   parseImportNumber,
 } from "@/components/common/CrudBulkImportModal"
 import DataTable, { DataTableColumn } from "@/components/common/Datatable"
+import InvoiceFilterSelect from "@/components/minvoice/InvoiceFilterSelect"
 import { SearchableSelect } from "@/components/select/SearchableSelect"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import { agencyActions, agencyThunks, employeeThunks } from "@/store/slices"
@@ -25,6 +26,7 @@ import {
   RefreshCcw,
   UploadCloud,
   UsersRound,
+  X,
 } from "lucide-react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
@@ -32,10 +34,7 @@ import { Controller, useForm } from "react-hook-form"
 import PageHeader from "../../../components/header/PageHeader"
 import ActionModal from "@/components/modal/ActionModal"
 import { useTransientAlert } from "@/hooks/useTransientAlert"
-import {
-  getUrlPaginationParams,
-  URL_PAGE_SIZE_OPTIONS,
-} from "@/utils/pagination"
+import { DEFAULT_URL_PAGE, getPositiveInteger } from "@/utils/pagination"
 import { scheduleDelayedRefresh } from "@/utils/refresh"
 
 type AgencyFormValues = {
@@ -47,6 +46,16 @@ type AgencyFormValues = {
   isActive: "true" | "false"
 }
 
+type AgencyTableFilters = {
+  inv_agencyName: string
+  agencyName: string
+  agencyEmail: string
+  employeeId: string
+  department: string
+  commissionPercent: string
+  isActive: string
+}
+
 const LIST_PARAMS = {}
 
 const emptyForm: AgencyFormValues = {
@@ -56,6 +65,68 @@ const emptyForm: AgencyFormValues = {
   employeeId: "",
   commissionPercent: 0,
   isActive: "true",
+}
+
+const EMPTY_AGENCY_TABLE_FILTERS: AgencyTableFilters = {
+  inv_agencyName: "",
+  agencyName: "",
+  agencyEmail: "",
+  employeeId: "",
+  department: "",
+  commissionPercent: "",
+  isActive: "",
+}
+
+const agencyFilterControlClassName =
+  "h-8 w-full min-w-0 rounded border border-slate-300 bg-white px-2 text-xs font-normal text-slate-800 outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+
+function AgencyTextFilter({
+  label,
+  value,
+  onChange,
+  inputMode,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  inputMode?: "text" | "decimal"
+}) {
+  return (
+    <input
+      type="text"
+      inputMode={inputMode}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      placeholder=""
+      aria-label={`Lọc theo ${label}`}
+      className={agencyFilterControlClassName}
+    />
+  )
+}
+
+function AgencySelectFilter({
+  id,
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  id: string
+  label: string
+  value: string
+  onChange: (value: string) => void
+  options: { value: string; label: string }[]
+}) {
+  return (
+    <InvoiceFilterSelect
+      id={id}
+      value={value}
+      onChange={onChange}
+      searchPlaceholder={`Tìm ${label.toLowerCase()}...`}
+      emptyText={`Không tìm thấy ${label.toLowerCase()}`}
+      options={[{ value: "", label: "-" }, ...options]}
+    />
+  )
 }
 
 const STATUS_OPTIONS = [
@@ -166,6 +237,21 @@ function getAgencyEmployeeId(value: Agency["employeeId"] | string | undefined) {
   return value ?? ""
 }
 
+function getAgencyEmployee(agency: Agency, employees: Employee[]) {
+  if (typeof agency.employeeId === "object") {
+    return agency.employeeId as Employee
+  }
+
+  const employeeId = getAgencyEmployeeId(agency.employeeId)
+  return employees.find((employee) => employee._id === employeeId)
+}
+
+function getEmployeeDepartmentName(employee?: Employee) {
+  return typeof employee?.departmentId === "object"
+    ? employee.departmentId?.departmentName || ""
+    : ""
+}
+
 export default function Page() {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -189,6 +275,9 @@ export default function Page() {
   const [open, setOpen] = useState(false)
   const [isBulkImportOpen, setBulkImportOpen] = useState(false)
   const [isDeleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [tableFilters, setTableFilters] = useState<AgencyTableFilters>(
+    EMPTY_AGENCY_TABLE_FILTERS
+  )
   const {
     showSuccess,
     showError,
@@ -210,8 +299,11 @@ export default function Page() {
   const isViewMode = mode === "view"
   const isEditMode = mode === "edit"
   const isCreateMode = mode === "create"
-  const { page: listPage, limit: listLimit } =
-    getUrlPaginationParams(searchParams)
+  const listPage = getPositiveInteger(
+    searchParams.get("page"),
+    DEFAULT_URL_PAGE
+  )
+  const listLimit = getPositiveInteger(searchParams.get("limit"), 50)
   const listParams = useMemo(
     () => ({ page: listPage, limit: listLimit }),
     [listPage, listLimit]
@@ -244,17 +336,78 @@ export default function Page() {
       })
   }, [dispatch, listParams])
 
+  const updateTableFilter = (key: keyof AgencyTableFilters, value: string) => {
+    setTableFilters((current) => ({ ...current, [key]: value }))
+  }
+
+  const filteredAgencies = useMemo(() => {
+    const normalizedFilters = {
+      inv_agencyName: normalize(tableFilters.inv_agencyName),
+      agencyName: normalize(tableFilters.agencyName),
+      agencyEmail: normalize(tableFilters.agencyEmail),
+      department: normalize(tableFilters.department),
+    }
+
+    return agencies.filter((agency) => {
+      const employee = getAgencyEmployee(agency, employees)
+      const departmentName = getEmployeeDepartmentName(employee)
+      const matchesCommission = tableFilters.commissionPercent
+        ? Number(agency.commissionPercent) ===
+          Number(tableFilters.commissionPercent)
+        : true
+      const matchesStatus = tableFilters.isActive
+        ? String(Boolean(agency.isActive)) === tableFilters.isActive
+        : true
+
+      return (
+        (!normalizedFilters.inv_agencyName ||
+          normalize(agency.inv_agencyName).includes(
+            normalizedFilters.inv_agencyName
+          )) &&
+        (!normalizedFilters.agencyName ||
+          normalize(agency.agencyName).includes(
+            normalizedFilters.agencyName
+          )) &&
+        (!normalizedFilters.agencyEmail ||
+          normalize(agency.agencyEmail).includes(
+            normalizedFilters.agencyEmail
+          )) &&
+        (!tableFilters.employeeId ||
+          getAgencyEmployeeId(agency.employeeId) === tableFilters.employeeId) &&
+        (!normalizedFilters.department ||
+          normalize(departmentName).includes(normalizedFilters.department)) &&
+        matchesCommission &&
+        matchesStatus
+      )
+    })
+  }, [agencies, employees, tableFilters])
+  const hasActiveTableFilters = Object.values(tableFilters).some((value) =>
+    Boolean(value.trim())
+  )
+
   const columns = useMemo<DataTableColumn<Agency>[]>(
     () => [
       {
         key: "index",
         title: "STT",
-        className: " min-w-[10px] text-slate-500",
-        render: (_item, index) => index + 1,
+        className: "min-w-[70px] text-center",
+        headerClassName: "text-white",
+        render: (_item, index) => (
+          <span className="text-slate-500">{index + 1}</span>
+        ),
       },
       {
         key: "inv_agencyName",
         title: "Mã đại lý",
+        sortable: true,
+        sortValue: (item) => item.inv_agencyName || "",
+        filter: (
+          <AgencyTextFilter
+            label="Mã đại lý"
+            value={tableFilters.inv_agencyName}
+            onChange={(value) => updateTableFilter("inv_agencyName", value)}
+          />
+        ),
         render: (item) => (
           <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
             {item.inv_agencyName || "-"}
@@ -264,6 +417,15 @@ export default function Page() {
       {
         key: "agencyName",
         title: "Tên đại lý",
+        sortable: true,
+        sortValue: (item) => item.agencyName || "",
+        filter: (
+          <AgencyTextFilter
+            label="Tên đại lý"
+            value={tableFilters.agencyName}
+            onChange={(value) => updateTableFilter("agencyName", value)}
+          />
+        ),
         className: "min-w-[300px]",
         render: (item) => (
           <p className="font-semibold text-slate-900">{item.agencyName}</p>
@@ -272,6 +434,15 @@ export default function Page() {
       {
         key: "agencyEmail",
         title: "Email đại lý",
+        sortable: true,
+        sortValue: (item) => item.agencyEmail || "",
+        filter: (
+          <AgencyTextFilter
+            label="Email đại lý"
+            value={tableFilters.agencyEmail}
+            onChange={(value) => updateTableFilter("agencyEmail", value)}
+          />
+        ),
         render: (item) => (
           <span className="text-sm font-medium text-slate-700">
             {item.agencyEmail || "---"}
@@ -281,34 +452,43 @@ export default function Page() {
       {
         key: "employeeId",
         title: "Nhân viên phụ trách",
+        sortable: true,
+        sortValue: (item) =>
+          getAgencyEmployee(item, employees)?.employeeName || "",
+        filter: (
+          <AgencySelectFilter
+            id="agency-table-filter-employee"
+            label="Nhân viên phụ trách"
+            value={tableFilters.employeeId}
+            onChange={(value) => updateTableFilter("employeeId", value)}
+            options={employeeOptions}
+          />
+        ),
         className: "min-w-[200px]",
         render: (item) => (
           <span className="text-sm font-medium text-slate-700">
-            {typeof item.employeeId === "string"
-              ? employees.find(
-                  (employee) =>
-                    employee._id === getAgencyEmployeeId(item.employeeId)
-                )?.employeeName || "---"
-              : item.employeeId?.employeeName || "---"}
+            {getAgencyEmployee(item, employees)?.employeeName || "---"}
           </span>
         ),
       },
       {
         key: "department",
         title: "Phòng ban",
+        sortable: true,
+        sortValue: (item) =>
+          getEmployeeDepartmentName(getAgencyEmployee(item, employees)),
+        filter: (
+          <AgencyTextFilter
+            label="Phòng ban"
+            value={tableFilters.department}
+            onChange={(value) => updateTableFilter("department", value)}
+          />
+        ),
         className: "min-w-[150px]",
         render: (item) => {
-          const employee =
-            typeof item.employeeId === "string"
-              ? employees.find(
-                  (entry) => entry._id === getAgencyEmployeeId(item.employeeId)
-                )
-              : (item.employeeId as Employee | undefined)
-
-          const department =
-            typeof employee?.departmentId === "object"
-              ? employee.departmentId?.departmentName
-              : ""
+          const department = getEmployeeDepartmentName(
+            getAgencyEmployee(item, employees)
+          )
 
           return (
             <span className="text-sm font-medium text-slate-700">
@@ -320,6 +500,16 @@ export default function Page() {
       {
         key: "commissionPercent",
         title: "% hoa hồng",
+        sortable: true,
+        sortValue: (item) => Number(item.commissionPercent || 0),
+        filter: (
+          <AgencyTextFilter
+            label="Phần trăm hoa hồng"
+            value={tableFilters.commissionPercent}
+            onChange={(value) => updateTableFilter("commissionPercent", value)}
+            inputMode="decimal"
+          />
+        ),
         headerClassName: "text-right",
         className: "text-right w-[50px]",
         render: (item) => (
@@ -331,6 +521,17 @@ export default function Page() {
       {
         key: "isActive",
         title: "Trạng thái",
+        sortable: true,
+        sortValue: (item) => Boolean(item.isActive),
+        filter: (
+          <AgencySelectFilter
+            id="agency-table-filter-status"
+            label="Trạng thái"
+            value={tableFilters.isActive}
+            onChange={(value) => updateTableFilter("isActive", value)}
+            options={STATUS_OPTIONS}
+          />
+        ),
         className: "min-w-[160px] text-center",
         render: (item) => (
           <span
@@ -346,7 +547,7 @@ export default function Page() {
         ),
       },
     ],
-    [employees]
+    [employeeOptions, employees, tableFilters]
   )
 
   const handleCloseDialog = () => {
@@ -634,14 +835,14 @@ export default function Page() {
         />
 
         <DataTable
-          data={agencies}
+          data={filteredAgencies}
           columns={columns}
           loading={loading}
           emptyText="Chưa có dữ liệu đại lý"
           getRowKey={(item) => item._id}
           pagination={{
             itemLabel: "đại lý",
-            pageSizeOptions: URL_PAGE_SIZE_OPTIONS,
+            pageSizeOptions: [50, 100, 200, 300],
             syncUrl: true,
           }}
           totalItems={agencyPagination.total}
@@ -652,6 +853,20 @@ export default function Page() {
           onView={onView}
           onEdit={onEdit}
           onDelete={onDeleteClick}
+          children={
+            hasActiveTableFilters ? (
+              <button
+                type="button"
+                onClick={() =>
+                  setTableFilters({ ...EMPTY_AGENCY_TABLE_FILTERS })
+                }
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700 transition hover:bg-red-100"
+              >
+                <X size={15} />
+                Xóa lọc
+              </button>
+            ) : null
+          }
         />
       </div>
 

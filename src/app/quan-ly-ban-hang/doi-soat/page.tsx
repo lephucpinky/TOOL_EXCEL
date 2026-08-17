@@ -5,6 +5,7 @@ import * as XLSX from "xlsx-js-style"
 import {
   extractProductGroupCode,
   normalize,
+  toNumber,
   type ExcelRow,
 } from "@/utils/excel"
 import { exportChiHoaHongXlsx } from "@/services/file-chi-hoa-hong/exportChiHoaHong"
@@ -181,8 +182,114 @@ function parseSalesWorkbook(wb: XLSX.WorkBook): {
   const first = wb.SheetNames[0]
   const ws = wb.Sheets[first]
   const json = XLSX.utils.sheet_to_json<Record<string, any>>(ws, { defval: "" })
-  const headers = json.length ? Object.keys(json[0]) : []
+  const headers = (
+    XLSX.utils.sheet_to_json<any[]>(ws, {
+      header: 1,
+      defval: "",
+      blankrows: false,
+    })[0] || []
+  )
+    .map((header) => String(header ?? "").trim())
+    .filter(Boolean)
   const sample = json[0] || {}
+  const reportRange = XLSX.utils.decode_range((ws as any)["!ref"] || "A1")
+  let chiChenhColumn = -1
+
+  for (let col = reportRange.s.c; col <= reportRange.e.c; col++) {
+    const headerCell = (ws as any)[
+      XLSX.utils.encode_cell({ r: reportRange.s.r, c: col })
+    ]
+    if (normalize(headerCell?.v) === normalize("CHI CHÊNH")) {
+      chiChenhColumn = col
+      break
+    }
+  }
+
+  if (chiChenhColumn !== -1) {
+    const chiChenhHeader = headers.find(
+      (header) => normalize(header) === normalize("CHI CHÊNH")
+    )
+
+    if (chiChenhHeader) {
+      json.forEach((row, index) => {
+        const sourceRow = reportRange.s.r + index + 1
+        const chiChenhCell = (ws as any)[
+          XLSX.utils.encode_cell({ r: sourceRow, c: chiChenhColumn })
+        ]
+        const hasChiChenhFormula = Boolean(chiChenhCell?.f)
+
+        if (
+          !hasChiChenhFormula &&
+          row[chiChenhHeader] !== "" &&
+          row[chiChenhHeader] != null
+        )
+          return
+
+        const displayedValue = chiChenhCell?.v ?? chiChenhCell?.w
+
+        if (
+          !hasChiChenhFormula &&
+          displayedValue !== "" &&
+          displayedValue != null
+        ) {
+          row[chiChenhHeader] = displayedValue
+          return
+        }
+
+        const chiChenhFormula = String(chiChenhCell?.f ?? "")
+          .replace(/^=/, "")
+          .replace(/\$/g, "")
+        const chiChenhRefs = chiChenhFormula.match(
+          /^([A-Z]+\d+)\s*-\s*([A-Z]+\d+)$/i
+        )
+        if (!chiChenhRefs) return
+
+        const diffRevenueCell = (ws as any)[chiChenhRefs[1]]
+        const diffFeeCell = (ws as any)[chiChenhRefs[2]]
+        let diffRevenue = diffRevenueCell?.f ? undefined : diffRevenueCell?.v
+        let diffFee = diffFeeCell?.f ? undefined : diffFeeCell?.v
+
+        if (diffRevenueCell?.f) {
+          const diffRevenueFormula = String(diffRevenueCell?.f ?? "")
+            .replace(/^=/, "")
+            .replace(/\$/g, "")
+          const diffRevenueRefs = diffRevenueFormula.match(
+            /^([A-Z]+\d+)\s*-\s*([A-Z]+\d+)$/i
+          )
+          if (diffRevenueRefs) {
+            diffRevenue =
+              toNumber((ws as any)[diffRevenueRefs[1]]?.v) -
+              toNumber((ws as any)[diffRevenueRefs[2]]?.v)
+          }
+        }
+
+        if (diffFeeCell?.f) {
+          const diffFeeFormula = String(diffFeeCell?.f ?? "")
+            .replace(/^=/, "")
+            .replace(/\$/g, "")
+          const diffFeeParts = diffFeeFormula.match(
+            /^([A-Z]+\d+)\s*\*\s*(-?\d+(?:[.,]\d+)?)%$/i
+          )
+          if (diffFeeParts) {
+            const diffFeeBase =
+              diffFeeParts[1].toUpperCase() === chiChenhRefs[1].toUpperCase()
+                ? diffRevenue
+                : (ws as any)[diffFeeParts[1]]?.v
+            diffFee = toNumber(diffFeeBase) * (toNumber(diffFeeParts[2]) / 100)
+          }
+        }
+
+        if (
+          diffRevenue !== "" &&
+          diffRevenue != null &&
+          diffFee !== "" &&
+          diffFee != null
+        ) {
+          row[chiChenhHeader] = toNumber(diffRevenue) - toNumber(diffFee)
+        }
+      })
+    }
+  }
 
   const keyDealer = pickKeyFromRow(sample, [
     "Đại Lý",
@@ -428,7 +535,7 @@ export default function HomePage() {
 
     try {
       const buf = await file.arrayBuffer()
-      const wb = XLSX.read(buf, { type: "array" })
+      const wb = XLSX.read(buf, { type: "array", sheetStubs: true })
       const parsed = parseSalesWorkbook(wb)
 
       setSalesHeaders(parsed.headers)

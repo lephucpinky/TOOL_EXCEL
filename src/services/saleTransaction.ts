@@ -5,15 +5,35 @@ import { fetchAllPages } from "@/utils/pagination"
 export type SaleTransactionListParams = {
   page?: number
   limit?: number
+  search?: string
+  activationDate?: string
+  issuedDate?: string
+  issuedDateFrom?: string
+  issuedDateTo?: string
+  paidDate?: string
+  paidDateFrom?: string
+  paidDateTo?: string
+  createdDateFrom?: string
+  createdDateTo?: string
+  orderCreateStatus?: "created" | "not_created"
   startDate?: string
   endDate?: string
-  invoiceStatus?: string
+  invoiceStatus?: "DRAFT" | "ISSUING" | "ISSUED" | "FAILED" | "CANCELLED"
+  paymentStatus?: "collected" | "not_collected"
   isPaid?: boolean
   agencyId?: string
   employeeId?: string
   departmentId?: string
   bankId?: string
-  search?: string
+  invoiceNumber?: string
+  buyerTaxCode?: string
+  companyName?: string
+  orderNumber?: string
+  productKeyword?: string
+  totalAmount?: number
+  exportedAmount?: number
+  amountCollected?: number
+  remainingAmount?: number
 }
 
 export type SaleTransactionReportExportParams = {
