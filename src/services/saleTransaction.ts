@@ -372,7 +372,8 @@ const APIGetAllSaleTransactions = async (
 ): Promise<SaleTransactionRowsResponse> => {
   const data = await fetchAllPages<InvoiceApiRow, SaleTransactionListParams>(
     APIGetSaleTransactions,
-    params
+    params,
+    { pageSize: params?.limit ?? 300 }
   )
 
   return { data, status: 200 }

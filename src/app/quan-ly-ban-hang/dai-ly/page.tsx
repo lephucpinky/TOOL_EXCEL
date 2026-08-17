@@ -667,6 +667,35 @@ export default function Page() {
     }
   }
 
+  const onCopy = async (rowData: Agency) => {
+    if (!rowData?._id) {
+      showErrorMessage("Không tìm thấy ID đại lý")
+      return
+    }
+
+    try {
+      const detail = await dispatch(
+        agencyThunks.fetchById(rowData._id)
+      ).unwrap()
+
+      if (!detail?._id) {
+        showErrorMessage("Không tìm thấy dữ liệu đại lý cần sao chép")
+        return
+      }
+
+      reset({
+        ...buildAgencyFormValues(detail),
+        inv_agencyName: "",
+        agencyEmail: "",
+      })
+      dispatch(agencyActions.clearCurrent())
+      setMode("create")
+      setOpen(true)
+    } catch (error) {
+      showErrorMessage(getErrorMessage(error, "Không thể sao chép đại lý"))
+    }
+  }
+
   const onDeleteClick = (rowData: Agency) => {
     if (!rowData?._id) {
       showErrorMessage("Không tìm thấy ID đại lý")
@@ -851,6 +880,7 @@ export default function Page() {
           itemsPerPage={listLimit}
           setItemsPerPage={() => undefined}
           onView={onView}
+          onCopy={onCopy}
           onEdit={onEdit}
           onDelete={onDeleteClick}
           children={

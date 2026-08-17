@@ -15,6 +15,7 @@ import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import { productActions, productThunks } from "@/store/slices"
 import { getErrorMessage } from "@/store/utils/crud"
 import { Product, ProductPayload } from "@/types/product"
+import { normalize } from "@/utils/excel"
 import { normalizeInvoiceTaxCode } from "@/utils/invoice"
 import {
   Loader2,
@@ -22,6 +23,7 @@ import {
   Plus,
   RefreshCcw,
   UploadCloud,
+  X,
 } from "lucide-react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
@@ -30,8 +32,8 @@ import PageHeader from "../../../components/header/PageHeader"
 import ActionModal from "@/components/modal/ActionModal"
 import { useTransientAlert } from "@/hooks/useTransientAlert"
 import {
-  getUrlPaginationParams,
-  URL_PAGE_SIZE_OPTIONS,
+  DEFAULT_URL_PAGE,
+  getPositiveInteger,
 } from "@/utils/pagination"
 import { scheduleDelayedRefresh } from "@/utils/refresh"
 
@@ -44,6 +46,9 @@ const emptyForm: ProductPayload = {
   inv_discountAmount: 0,
   ma_thue: "",
 }
+
+const PRODUCT_PAGE_SIZE_OPTIONS = [50, 100, 200, 300]
+const PRODUCT_DEFAULT_LIMIT = 50
 
 type ProductImportKey =
   | "itemName"
@@ -150,6 +155,53 @@ const PRODUCT_IMPORT_PREVIEW_COLUMNS: readonly BulkImportPreviewColumn<
 
 type ModeType = "create" | "view" | "edit" | null
 
+type ProductTableFilters = {
+  inv_itemProduct: string
+  inv_itemName: string
+  inv_unitCode: string
+  inv_unitPrice: string
+  inv_quantity: string
+  inv_discountAmount: string
+  ma_thue: string
+}
+
+const EMPTY_PRODUCT_TABLE_FILTERS: ProductTableFilters = {
+  inv_itemProduct: "",
+  inv_itemName: "",
+  inv_unitCode: "",
+  inv_unitPrice: "",
+  inv_quantity: "",
+  inv_discountAmount: "",
+  ma_thue: "",
+}
+
+const productFilterControlClassName =
+  "h-8 w-full min-w-0 rounded border border-slate-300 bg-white px-2 text-xs font-normal text-slate-800 outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+
+function ProductTextFilter({
+  label,
+  value,
+  onChange,
+  inputMode,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  inputMode?: "text" | "decimal"
+}) {
+  return (
+    <input
+      type="text"
+      inputMode={inputMode}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      placeholder=""
+      aria-label={`Lọc theo ${label}`}
+      className={productFilterControlClassName}
+    />
+  )
+}
+
 function formatNumber(value: number) {
   return new Intl.NumberFormat("vi-VN").format(Number(value || 0))
 }
@@ -193,8 +245,17 @@ export default function ProductPage() {
     deleteLoading,
     pagination: productPagination,
   } = useAppSelector((state) => state.products)
-  const { page: listPage, limit: listLimit } =
-    getUrlPaginationParams(searchParams)
+  const listPage = getPositiveInteger(
+    searchParams.get("page"),
+    DEFAULT_URL_PAGE
+  )
+  const requestedListLimit = getPositiveInteger(
+    searchParams.get("limit"),
+    PRODUCT_DEFAULT_LIMIT
+  )
+  const listLimit = PRODUCT_PAGE_SIZE_OPTIONS.includes(requestedListLimit)
+    ? requestedListLimit
+    : PRODUCT_DEFAULT_LIMIT
   const listParams = useMemo(
     () => ({ page: listPage, limit: listLimit }),
     [listPage, listLimit]
@@ -205,6 +266,9 @@ export default function ProductPage() {
   const [open, setOpen] = useState(false)
   const [isBulkImportOpen, setBulkImportOpen] = useState(false)
   const [isDeleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [tableFilters, setTableFilters] = useState<ProductTableFilters>(
+    EMPTY_PRODUCT_TABLE_FILTERS
+  )
   const {
     showSuccess,
     showError,
@@ -236,18 +300,79 @@ export default function ProductPage() {
       })
   }, [dispatch, listParams])
 
+  const updateTableFilter = (key: keyof ProductTableFilters, value: string) => {
+    setTableFilters((current) => ({ ...current, [key]: value }))
+  }
+
+  const filteredProducts = useMemo(() => {
+    const normalizedFilters = {
+      inv_itemProduct: normalize(tableFilters.inv_itemProduct),
+      inv_itemName: normalize(tableFilters.inv_itemName),
+      inv_unitCode: normalize(tableFilters.inv_unitCode),
+      ma_thue: normalize(tableFilters.ma_thue),
+    }
+
+    return products.filter((product) => {
+      const matchesUnitPrice = tableFilters.inv_unitPrice
+        ? Number(product.inv_unitPrice) === Number(tableFilters.inv_unitPrice)
+        : true
+      const matchesQuantity = tableFilters.inv_quantity
+        ? Number(product.inv_quantity) === Number(tableFilters.inv_quantity)
+        : true
+      const matchesDiscount = tableFilters.inv_discountAmount
+        ? Number(product.inv_discountAmount) ===
+          Number(tableFilters.inv_discountAmount)
+        : true
+
+      return (
+        (!normalizedFilters.inv_itemProduct ||
+          normalize(product.inv_itemProduct).includes(
+            normalizedFilters.inv_itemProduct
+          )) &&
+        (!normalizedFilters.inv_itemName ||
+          normalize(product.inv_itemName).includes(
+            normalizedFilters.inv_itemName
+          )) &&
+        (!normalizedFilters.inv_unitCode ||
+          normalize(product.inv_unitCode).includes(
+            normalizedFilters.inv_unitCode
+          )) &&
+        (!normalizedFilters.ma_thue ||
+          normalize(product.ma_thue).includes(normalizedFilters.ma_thue)) &&
+        matchesUnitPrice &&
+        matchesQuantity &&
+        matchesDiscount
+      )
+    })
+  }, [products, tableFilters])
+
+  const hasActiveTableFilters = Object.values(tableFilters).some((value) =>
+    Boolean(value.trim())
+  )
+
   const columns = useMemo<DataTableColumn<Product>[]>(
     () => [
       {
         key: "index",
         title: "STT",
-        className: "w-[70px] text-slate-500",
+        headerClassName: "text-white",
+        className: "min-w-[70px] text-center text-slate-500",
         render: (_item, index) => index + 1,
       },
 
       {
         key: "inv_itemProduct",
         title: "Mã sản phẩm",
+        sortable: true,
+        sortValue: (item) => item.inv_itemProduct || "",
+        filter: (
+          <ProductTextFilter
+            label="Mã sản phẩm"
+            value={tableFilters.inv_itemProduct}
+            onChange={(value) => updateTableFilter("inv_itemProduct", value)}
+          />
+        ),
+        className: "min-w-[180px]",
         render: (item) => (
           <p className="font-semibold text-slate-900">{item.inv_itemProduct}</p>
         ),
@@ -255,8 +380,17 @@ export default function ProductPage() {
       {
         key: "inv_itemName",
         title: "Tên sản phẩm",
+        sortable: true,
+        sortValue: (item) => item.inv_itemName || "",
+        filter: (
+          <ProductTextFilter
+            label="Tên sản phẩm"
+            value={tableFilters.inv_itemName}
+            onChange={(value) => updateTableFilter("inv_itemName", value)}
+          />
+        ),
         headerClassName: "text-left",
-        className: "text-left",
+        className: "min-w-[300px] text-left",
         render: (item) => (
           <p className="font-semibold text-slate-900">{item.inv_itemName}</p>
         ),
@@ -265,6 +399,16 @@ export default function ProductPage() {
       {
         key: "inv_unitCode",
         title: "Đơn vị",
+        sortable: true,
+        sortValue: (item) => item.inv_unitCode || "",
+        filter: (
+          <ProductTextFilter
+            label="Đơn vị"
+            value={tableFilters.inv_unitCode}
+            onChange={(value) => updateTableFilter("inv_unitCode", value)}
+          />
+        ),
+        className: "min-w-[130px]",
         render: (item) => (
           <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
             {item.inv_unitCode}
@@ -274,8 +418,18 @@ export default function ProductPage() {
       {
         key: "inv_unitPrice",
         title: "Đơn giá",
+        sortable: true,
+        sortValue: (item) => Number(item.inv_unitPrice || 0),
+        filter: (
+          <ProductTextFilter
+            label="Đơn giá"
+            value={tableFilters.inv_unitPrice}
+            onChange={(value) => updateTableFilter("inv_unitPrice", value)}
+            inputMode="decimal"
+          />
+        ),
         headerClassName: "text-right",
-        className: "text-right",
+        className: "min-w-[160px] text-right",
         render: (item) => (
           <span className="font-semibold text-slate-900">
             {formatNumber(item.inv_unitPrice)}
@@ -285,22 +439,51 @@ export default function ProductPage() {
       {
         key: "inv_quantity",
         title: "Số lượng",
+        sortable: true,
+        sortValue: (item) => Number(item.inv_quantity || 0),
+        filter: (
+          <ProductTextFilter
+            label="Số lượng"
+            value={tableFilters.inv_quantity}
+            onChange={(value) => updateTableFilter("inv_quantity", value)}
+            inputMode="decimal"
+          />
+        ),
         headerClassName: "text-right",
-        className: "text-right",
+        className: "min-w-[130px] text-right",
         render: (item) => formatNumber(item.inv_quantity),
       },
       {
         key: "inv_discountAmount",
         title: "Chiết khấu",
+        sortable: true,
+        sortValue: (item) => Number(item.inv_discountAmount || 0),
+        filter: (
+          <ProductTextFilter
+            label="Chiết khấu"
+            value={tableFilters.inv_discountAmount}
+            onChange={(value) => updateTableFilter("inv_discountAmount", value)}
+            inputMode="decimal"
+          />
+        ),
         headerClassName: "text-right",
-        className: "text-right",
+        className: "min-w-[160px] text-right",
         render: (item) => formatNumber(item.inv_discountAmount),
       },
       {
         key: "ma_thue",
         title: "Thuế",
+        sortable: true,
+        sortValue: (item) => normalizeInvoiceTaxCode(item.ma_thue || ""),
+        filter: (
+          <ProductTextFilter
+            label="Thuế"
+            value={tableFilters.ma_thue}
+            onChange={(value) => updateTableFilter("ma_thue", value)}
+          />
+        ),
         headerClassName: "text-right",
-        className: "text-right",
+        className: "min-w-[120px] text-right",
         render: (item) => (
           <span className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
             {formatTaxRate(item.ma_thue)}
@@ -308,7 +491,7 @@ export default function ProductPage() {
         ),
       },
     ],
-    []
+    [tableFilters]
   )
 
   const handleCloseDialog = () => {
@@ -425,6 +608,34 @@ export default function ProductPage() {
       setOpen(true)
     } catch (error) {
       showErrorMessage(getErrorMessage(error, "Không thể tải dữ liệu sản phẩm"))
+    }
+  }
+
+  const onCopy = async (rowData: Product) => {
+    if (!rowData?._id) {
+      showErrorMessage("Không tìm thấy ID sản phẩm")
+      return
+    }
+
+    try {
+      const detail = await dispatch(
+        productThunks.fetchById(rowData._id)
+      ).unwrap()
+
+      if (!detail?._id) {
+        showErrorMessage("Không tìm thấy dữ liệu sản phẩm cần sao chép")
+        return
+      }
+
+      reset({
+        ...buildProductFormValues(detail),
+        inv_itemProduct: "",
+      })
+      dispatch(productActions.clearCurrent())
+      setMode("create")
+      setOpen(true)
+    } catch (error) {
+      showErrorMessage(getErrorMessage(error, "Không thể sao chép sản phẩm"))
     }
   }
 
@@ -603,14 +814,14 @@ export default function ProductPage() {
         />
 
         <DataTable
-          data={products}
+          data={filteredProducts}
           columns={columns}
           loading={loading}
           emptyText="Chưa có dữ liệu sản phẩm"
           getRowKey={(item) => item._id}
           pagination={{
             itemLabel: "sản phẩm",
-            pageSizeOptions: URL_PAGE_SIZE_OPTIONS,
+            pageSizeOptions: PRODUCT_PAGE_SIZE_OPTIONS,
             syncUrl: true,
           }}
           totalItems={productPagination.total}
@@ -619,8 +830,23 @@ export default function ProductPage() {
           itemsPerPage={listLimit}
           setItemsPerPage={() => undefined}
           onView={onView}
+          onCopy={onCopy}
           onEdit={onEdit}
           onDelete={onDeleteClick}
+          children={
+            hasActiveTableFilters ? (
+              <button
+                type="button"
+                onClick={() =>
+                  setTableFilters({ ...EMPTY_PRODUCT_TABLE_FILTERS })
+                }
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700 transition hover:bg-red-100"
+              >
+                <X size={15} />
+                Xóa lọc
+              </button>
+            ) : null
+          }
         />
       </div>
 

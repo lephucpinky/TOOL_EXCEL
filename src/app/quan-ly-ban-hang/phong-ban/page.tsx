@@ -11,21 +11,27 @@ import CrudBulkImportModal, {
   parseImportBoolean,
 } from "@/components/common/CrudBulkImportModal"
 import DataTable, { DataTableColumn } from "@/components/common/Datatable"
+import InvoiceFilterSelect from "@/components/minvoice/InvoiceFilterSelect"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import { departmentActions, departmentThunks } from "@/store/slices"
 import { getErrorMessage } from "@/store/utils/crud"
 import { Department, DepartmentPayload } from "@/types/department"
-import { Building2, Loader2, Plus, RefreshCcw, UploadCloud } from "lucide-react"
+import { normalize } from "@/utils/excel"
+import {
+  Building2,
+  Loader2,
+  Plus,
+  RefreshCcw,
+  UploadCloud,
+  X,
+} from "lucide-react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import PageHeader from "../../../components/header/PageHeader"
 import ActionModal from "@/components/modal/ActionModal"
 import { useTransientAlert } from "@/hooks/useTransientAlert"
-import {
-  getUrlPaginationParams,
-  URL_PAGE_SIZE_OPTIONS,
-} from "@/utils/pagination"
+import { DEFAULT_URL_PAGE, getPositiveInteger } from "@/utils/pagination"
 import { scheduleDelayedRefresh } from "@/utils/refresh"
 
 const emptyForm: DepartmentPayload = {
@@ -33,6 +39,9 @@ const emptyForm: DepartmentPayload = {
   departmentDescription: "",
   isActive: true,
 }
+
+const DEPARTMENT_PAGE_SIZE_OPTIONS = [50, 100, 200, 300]
+const DEPARTMENT_DEFAULT_LIMIT = 50
 
 type DepartmentImportKey = "departmentName" | "departmentDescription" | "status"
 
@@ -73,6 +82,65 @@ const DEPARTMENT_IMPORT_PREVIEW_COLUMNS: readonly BulkImportPreviewColumn<
 
 type ModeType = "create" | "view" | "edit" | null
 
+type DepartmentTableFilters = {
+  departmentName: string
+  departmentDescription: string
+  isActive: string
+}
+
+const EMPTY_DEPARTMENT_TABLE_FILTERS: DepartmentTableFilters = {
+  departmentName: "",
+  departmentDescription: "",
+  isActive: "",
+}
+
+const departmentFilterControlClassName =
+  "h-8 w-full min-w-0 rounded border border-slate-300 bg-white px-2 text-xs font-normal text-slate-800 outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+
+function DepartmentTextFilter({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+}) {
+  return (
+    <input
+      type="text"
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      placeholder=""
+      aria-label={`Lọc theo ${label}`}
+      className={departmentFilterControlClassName}
+    />
+  )
+}
+
+function DepartmentSelectFilter({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (value: string) => void
+}) {
+  return (
+    <InvoiceFilterSelect
+      id="department-table-filter-status"
+      value={value}
+      onChange={onChange}
+      searchPlaceholder="Tìm trạng thái..."
+      emptyText="Không tìm thấy trạng thái"
+      options={[
+        { value: "", label: "-" },
+        { value: "true", label: "Hoạt động" },
+        { value: "false", label: "Ngừng hoạt động" },
+      ]}
+    />
+  )
+}
+
 function buildDepartmentFormValues(
   detail: Department | null
 ): DepartmentPayload {
@@ -97,8 +165,17 @@ export default function DepartmentPage() {
     deleteLoading,
     pagination: departmentPagination,
   } = useAppSelector((state) => state.departments)
-  const { page: listPage, limit: listLimit } =
-    getUrlPaginationParams(searchParams)
+  const listPage = getPositiveInteger(
+    searchParams.get("page"),
+    DEFAULT_URL_PAGE
+  )
+  const requestedListLimit = getPositiveInteger(
+    searchParams.get("limit"),
+    DEPARTMENT_DEFAULT_LIMIT
+  )
+  const listLimit = DEPARTMENT_PAGE_SIZE_OPTIONS.includes(requestedListLimit)
+    ? requestedListLimit
+    : DEPARTMENT_DEFAULT_LIMIT
   const listParams = useMemo(
     () => ({ page: listPage, limit: listLimit }),
     [listPage, listLimit]
@@ -109,6 +186,9 @@ export default function DepartmentPage() {
   const [open, setOpen] = useState(false)
   const [isBulkImportOpen, setBulkImportOpen] = useState(false)
   const [isDeleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [tableFilters, setTableFilters] = useState<DepartmentTableFilters>(
+    EMPTY_DEPARTMENT_TABLE_FILTERS
+  )
   const {
     showSuccess,
     showError,
@@ -140,17 +220,60 @@ export default function DepartmentPage() {
       })
   }, [dispatch, listParams])
 
+  const updateTableFilter = (
+    key: keyof DepartmentTableFilters,
+    value: string
+  ) => {
+    setTableFilters((current) => ({ ...current, [key]: value }))
+  }
+
+  const filteredDepartments = useMemo(() => {
+    const normalizedName = normalize(tableFilters.departmentName)
+    const normalizedDescription = normalize(tableFilters.departmentDescription)
+
+    return departments.filter((department) => {
+      const matchesStatus = tableFilters.isActive
+        ? String(Boolean(department.isActive)) === tableFilters.isActive
+        : true
+
+      return (
+        (!normalizedName ||
+          normalize(department.departmentName).includes(normalizedName)) &&
+        (!normalizedDescription ||
+          normalize(department.departmentDescription).includes(
+            normalizedDescription
+          )) &&
+        matchesStatus
+      )
+    })
+  }, [departments, tableFilters])
+
+  const hasActiveTableFilters = Object.values(tableFilters).some((value) =>
+    Boolean(value.trim())
+  )
+
   const columns = useMemo<DataTableColumn<Department>[]>(
     () => [
       {
         key: "index",
         title: "STT",
-        className: "w-[70px] text-slate-500",
+        headerClassName: "text-white",
+        className: "min-w-[70px] text-center text-slate-500",
         render: (_item, index) => index + 1,
       },
       {
         key: "departmentName",
         title: "Tên phòng ban",
+        sortable: true,
+        sortValue: (item) => item.departmentName || "",
+        filter: (
+          <DepartmentTextFilter
+            label="Tên phòng ban"
+            value={tableFilters.departmentName}
+            onChange={(value) => updateTableFilter("departmentName", value)}
+          />
+        ),
+        className: "min-w-[260px]",
         render: (item) => (
           <p className="font-semibold text-slate-900">{item.departmentName}</p>
         ),
@@ -158,6 +281,18 @@ export default function DepartmentPage() {
       {
         key: "departmentDescription",
         title: "Mô tả",
+        sortable: true,
+        sortValue: (item) => item.departmentDescription || "",
+        filter: (
+          <DepartmentTextFilter
+            label="Mô tả"
+            value={tableFilters.departmentDescription}
+            onChange={(value) =>
+              updateTableFilter("departmentDescription", value)
+            }
+          />
+        ),
+        className: "min-w-[420px]",
         render: (item) => (
           <p className="line-clamp-2 text-sm text-slate-600">
             {item.departmentDescription || "Chưa có mô tả"}
@@ -167,6 +302,15 @@ export default function DepartmentPage() {
       {
         key: "isActive",
         title: "Trạng thái",
+        sortable: true,
+        sortValue: (item) => Boolean(item.isActive),
+        filter: (
+          <DepartmentSelectFilter
+            value={tableFilters.isActive}
+            onChange={(value) => updateTableFilter("isActive", value)}
+          />
+        ),
+        className: "min-w-[170px] text-center",
         render: (item) =>
           item.isActive ? (
             <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
@@ -179,7 +323,7 @@ export default function DepartmentPage() {
           ),
       },
     ],
-    []
+    [tableFilters]
   )
 
   const handleCloseDialog = () => {
@@ -297,6 +441,34 @@ export default function DepartmentPage() {
       showErrorMessage(
         getErrorMessage(error, "Không thể tải dữ liệu phòng ban")
       )
+    }
+  }
+
+  const onCopy = async (rowData: Department) => {
+    if (!rowData?._id) {
+      showErrorMessage("Không tìm thấy ID phòng ban")
+      return
+    }
+
+    try {
+      const detail = await dispatch(
+        departmentThunks.fetchById(rowData._id)
+      ).unwrap()
+
+      if (!detail?._id) {
+        showErrorMessage("Không tìm thấy dữ liệu phòng ban cần sao chép")
+        return
+      }
+
+      reset({
+        ...buildDepartmentFormValues(detail),
+        departmentName: "",
+      })
+      dispatch(departmentActions.clearCurrent())
+      setMode("create")
+      setOpen(true)
+    } catch (error) {
+      showErrorMessage(getErrorMessage(error, "Không thể sao chép phòng ban"))
     }
   }
 
@@ -427,14 +599,14 @@ export default function DepartmentPage() {
         />
 
         <DataTable
-          data={departments}
+          data={filteredDepartments}
           columns={columns}
           loading={loading}
           emptyText="Chưa có dữ liệu phòng ban"
           getRowKey={(item) => item._id}
           pagination={{
             itemLabel: "phòng ban",
-            pageSizeOptions: URL_PAGE_SIZE_OPTIONS,
+            pageSizeOptions: DEPARTMENT_PAGE_SIZE_OPTIONS,
             syncUrl: true,
           }}
           totalItems={departmentPagination.total}
@@ -443,8 +615,23 @@ export default function DepartmentPage() {
           itemsPerPage={listLimit}
           setItemsPerPage={() => undefined}
           onView={onView}
+          onCopy={onCopy}
           onEdit={onEdit}
           onDelete={onDeleteClick}
+          children={
+            hasActiveTableFilters ? (
+              <button
+                type="button"
+                onClick={() =>
+                  setTableFilters({ ...EMPTY_DEPARTMENT_TABLE_FILTERS })
+                }
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700 transition hover:bg-red-100"
+              >
+                <X size={15} />
+                Xóa lọc
+              </button>
+            ) : null
+          }
         />
       </div>
 

@@ -49,7 +49,7 @@ type MonthlyPoint = {
   revenue: number
 }
 
-const LIST_PARAMS = {}
+const LIST_PARAMS = { limit: 300 }
 
 const metricToneClasses: Record<MetricTone, string> = {
   blue: "border-blue-100 bg-blue-50 text-blue-700",

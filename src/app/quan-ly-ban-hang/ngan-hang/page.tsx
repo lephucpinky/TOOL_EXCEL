@@ -134,6 +134,7 @@ export default function BankPage() {
       {
         key: "index",
         title: "STT",
+        headerClassName: "text-white",
         className: "w-[80px] text-slate-500",
         render: (_item, index) => index + 1,
       },
@@ -141,6 +142,7 @@ export default function BankPage() {
         key: "inv_buyerBankName",
         title: "Tên ngân hàng",
         className: "w-[150px] text-slate-900",
+        headerClassName: "text-white",
         render: (item) => (
           <p className="font-semibold text-slate-900">
             {item.inv_buyerBankName}

@@ -60,6 +60,8 @@ type Props = {
   onInvoicesCreated?: () => Promise<void> | void
 }
 
+const MAX_BULK_INVOICE_ROWS = 300
+
 export default function InvoiceBulkImport({
   receiptConfigs,
   onBack,
@@ -631,6 +633,12 @@ export default function InvoiceBulkImport({
 
       if (!dataRows.length) {
         throw new Error("File Excel chưa có dữ liệu để import.")
+      }
+
+      if (dataRows.length > MAX_BULK_INVOICE_ROWS) {
+        throw new Error(
+          `File Excel chỉ được tối đa ${MAX_BULK_INVOICE_ROWS} dòng dữ liệu. File hiện tại có ${dataRows.length} dòng.`
+        )
       }
 
       const nextRows = dataRows.map(({ row, rowNumber }, index) => ({
@@ -1440,9 +1448,10 @@ export default function InvoiceBulkImport({
                         </td>
                         <td className="border-b border-slate-100 px-3 py-3 align-top">
                           <input
-                            value={cleanText(
-                              sourceRow?.reconciliationAmount
-                            ) || cleanText(row.reconciliationAmount)}
+                            value={
+                              cleanText(sourceRow?.reconciliationAmount) ||
+                              cleanText(row.reconciliationAmount)
+                            }
                             inputMode="decimal"
                             onChange={(event) =>
                               updateImportRow(
@@ -1462,9 +1471,10 @@ export default function InvoiceBulkImport({
                         </td>
                         <td className="border-b border-slate-100 px-3 py-3 align-top">
                           <input
-                            value={cleanText(
-                              sourceRow?.writeDifferenceFee
-                            ) || cleanText(row.writeDifferenceFee)}
+                            value={
+                              cleanText(sourceRow?.writeDifferenceFee) ||
+                              cleanText(row.writeDifferenceFee)
+                            }
                             inputMode="decimal"
                             placeholder="Ví dụ: 80%"
                             title="Nhập số tiền phí hoặc tỷ lệ như 80%"

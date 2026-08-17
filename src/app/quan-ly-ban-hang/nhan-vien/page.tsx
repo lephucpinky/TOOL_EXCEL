@@ -11,6 +11,7 @@ import CrudBulkImportModal, {
   parseImportBoolean,
 } from "@/components/common/CrudBulkImportModal"
 import DataTable, { DataTableColumn } from "@/components/common/Datatable"
+import InvoiceFilterSelect from "@/components/minvoice/InvoiceFilterSelect"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import {
   departmentThunks,
@@ -21,19 +22,25 @@ import { getErrorMessage } from "@/store/utils/crud"
 import { Department } from "@/types/department"
 import { Employee, EmployeePayload } from "@/types/employee"
 import { normalize } from "@/utils/excel"
-import { Loader2, Plus, RefreshCcw, UploadCloud, UserRound } from "lucide-react"
+import {
+  Loader2,
+  Plus,
+  RefreshCcw,
+  UploadCloud,
+  UserRound,
+  X,
+} from "lucide-react"
 import { useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import PageHeader from "../../../components/header/PageHeader"
 import ActionModal from "@/components/modal/ActionModal"
 import { useTransientAlert } from "@/hooks/useTransientAlert"
-import {
-  getUrlPaginationParams,
-  URL_PAGE_SIZE_OPTIONS,
-} from "@/utils/pagination"
+import { DEFAULT_URL_PAGE, getPositiveInteger } from "@/utils/pagination"
 import { scheduleDelayedRefresh } from "@/utils/refresh"
 const LIST_PARAMS = {}
+const EMPLOYEE_PAGE_SIZE_OPTIONS = [50, 100, 200, 300]
+const EMPLOYEE_DEFAULT_LIMIT = 50
 const emptyForm: EmployeePayload = {
   employeeName: "",
   employeeEmail: "",
@@ -115,6 +122,76 @@ const EMPLOYEE_IMPORT_PREVIEW_COLUMNS: readonly BulkImportPreviewColumn<
 
 type ModeType = "create" | "view" | "edit" | null
 
+type EmployeeTableFilters = {
+  employeeName: string
+  employeeEmail: string
+  employeePhone: string
+  departmentId: string
+  isActive: string
+}
+
+const EMPTY_EMPLOYEE_TABLE_FILTERS: EmployeeTableFilters = {
+  employeeName: "",
+  employeeEmail: "",
+  employeePhone: "",
+  departmentId: "",
+  isActive: "",
+}
+
+const employeeFilterControlClassName =
+  "h-8 w-full min-w-0 rounded border border-slate-300 bg-white px-2 text-xs font-normal text-slate-800 outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+
+function EmployeeTextFilter({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+}) {
+  return (
+    <input
+      type="text"
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      placeholder=""
+      aria-label={`Lọc theo ${label}`}
+      className={employeeFilterControlClassName}
+    />
+  )
+}
+
+function EmployeeSelectFilter({
+  id,
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  id: string
+  label: string
+  value: string
+  onChange: (value: string) => void
+  options: { value: string; label: string }[]
+}) {
+  return (
+    <InvoiceFilterSelect
+      id={id}
+      value={value}
+      onChange={onChange}
+      searchPlaceholder={`Tìm ${label.toLowerCase()}...`}
+      emptyText={`Không tìm thấy ${label.toLowerCase()}`}
+      options={[{ value: "", label: "-" }, ...options]}
+    />
+  )
+}
+
+const EMPLOYEE_STATUS_OPTIONS = [
+  { value: "true", label: "Hoạt động" },
+  { value: "false", label: "Ngừng hoạt động" },
+]
+
 function getDepartmentId(value: Employee["departmentId"] | string | undefined) {
   if (typeof value === "object") {
     return value?._id ?? ""
@@ -164,6 +241,9 @@ export default function EmployeePage() {
   const [open, setOpen] = useState(false)
   const [isBulkImportOpen, setBulkImportOpen] = useState(false)
   const [isDeleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [tableFilters, setTableFilters] = useState<EmployeeTableFilters>(
+    EMPTY_EMPLOYEE_TABLE_FILTERS
+  )
   const {
     showSuccess,
     showError,
@@ -184,11 +264,28 @@ export default function EmployeePage() {
   const isViewMode = mode === "view"
   const isEditMode = mode === "edit"
   const isCreateMode = mode === "create"
-  const { page: listPage, limit: listLimit } =
-    getUrlPaginationParams(searchParams)
+  const listPage = getPositiveInteger(
+    searchParams.get("page"),
+    DEFAULT_URL_PAGE
+  )
+  const requestedListLimit = getPositiveInteger(
+    searchParams.get("limit"),
+    EMPLOYEE_DEFAULT_LIMIT
+  )
+  const listLimit = EMPLOYEE_PAGE_SIZE_OPTIONS.includes(requestedListLimit)
+    ? requestedListLimit
+    : EMPLOYEE_DEFAULT_LIMIT
   const listParams = useMemo(
     () => ({ page: listPage, limit: listLimit }),
     [listPage, listLimit]
+  )
+  const departmentOptions = useMemo(
+    () =>
+      departments.map((department) => ({
+        value: department._id,
+        label: department.departmentName,
+      })),
+    [departments]
   )
 
   useEffect(() => {
@@ -209,17 +306,72 @@ export default function EmployeePage() {
       })
   }, [dispatch, listParams])
 
+  const updateTableFilter = (
+    key: keyof EmployeeTableFilters,
+    value: string
+  ) => {
+    setTableFilters((current) => ({ ...current, [key]: value }))
+  }
+
+  const filteredEmployees = useMemo(() => {
+    const normalizedFilters = {
+      employeeName: normalize(tableFilters.employeeName),
+      employeeEmail: normalize(tableFilters.employeeEmail),
+      employeePhone: normalize(tableFilters.employeePhone),
+    }
+
+    return employees.filter((employee) => {
+      const departmentId = getDepartmentId(employee.departmentId)
+      const matchesStatus = tableFilters.isActive
+        ? String(Boolean(employee.isActive)) === tableFilters.isActive
+        : true
+
+      return (
+        (!normalizedFilters.employeeName ||
+          normalize(employee.employeeName).includes(
+            normalizedFilters.employeeName
+          )) &&
+        (!normalizedFilters.employeeEmail ||
+          normalize(employee.employeeEmail).includes(
+            normalizedFilters.employeeEmail
+          )) &&
+        (!normalizedFilters.employeePhone ||
+          normalize(employee.employeePhone).includes(
+            normalizedFilters.employeePhone
+          )) &&
+        (!tableFilters.departmentId ||
+          departmentId === tableFilters.departmentId) &&
+        matchesStatus
+      )
+    })
+  }, [employees, tableFilters])
+
+  const hasActiveTableFilters = Object.values(tableFilters).some((value) =>
+    Boolean(value.trim())
+  )
+
   const columns = useMemo<DataTableColumn<Employee>[]>(
     () => [
       {
         key: "index",
         title: "STT",
-        className: "w-[70px] text-slate-500",
+        headerClassName: "text-white",
+        className: "min-w-[70px] text-center text-slate-500",
         render: (_item, index) => index + 1,
       },
       {
         key: "employeeName",
         title: "Tên nhân viên",
+        sortable: true,
+        sortValue: (item) => item.employeeName || "",
+        filter: (
+          <EmployeeTextFilter
+            label="Tên nhân viên"
+            value={tableFilters.employeeName}
+            onChange={(value) => updateTableFilter("employeeName", value)}
+          />
+        ),
+        className: "min-w-[220px]",
         render: (item) => (
           <p className="font-semibold text-slate-900">{item.employeeName}</p>
         ),
@@ -227,6 +379,16 @@ export default function EmployeePage() {
       {
         key: "employeeEmail",
         title: "Email",
+        sortable: true,
+        sortValue: (item) => item.employeeEmail || "",
+        filter: (
+          <EmployeeTextFilter
+            label="Email"
+            value={tableFilters.employeeEmail}
+            onChange={(value) => updateTableFilter("employeeEmail", value)}
+          />
+        ),
+        className: "min-w-[240px]",
         render: (item) => (
           <p className="text-sm text-slate-700">{item.employeeEmail}</p>
         ),
@@ -234,6 +396,16 @@ export default function EmployeePage() {
       {
         key: "employeePhone",
         title: "Số điện thoại",
+        sortable: true,
+        sortValue: (item) => item.employeePhone || "",
+        filter: (
+          <EmployeeTextFilter
+            label="Số điện thoại"
+            value={tableFilters.employeePhone}
+            onChange={(value) => updateTableFilter("employeePhone", value)}
+          />
+        ),
+        className: "min-w-[170px]",
         render: (item) => (
           <p className="text-sm font-medium text-slate-700">
             {item.employeePhone}
@@ -243,6 +415,25 @@ export default function EmployeePage() {
       {
         key: "departmentId",
         title: "Phòng ban",
+        sortable: true,
+        sortValue: (item) => {
+          const departmentId = getDepartmentId(item.departmentId)
+          return (
+            departments.find(
+              (departmentItem) => departmentItem._id === departmentId
+            )?.departmentName || ""
+          )
+        },
+        filter: (
+          <EmployeeSelectFilter
+            id="employee-table-filter-department"
+            label="Phòng ban"
+            value={tableFilters.departmentId}
+            onChange={(value) => updateTableFilter("departmentId", value)}
+            options={departmentOptions}
+          />
+        ),
+        className: "min-w-[200px]",
         render: (item) => {
           const departmentId = getDepartmentId(item.departmentId)
           const department = departments.find(
@@ -259,6 +450,18 @@ export default function EmployeePage() {
       {
         key: "isActive",
         title: "Trạng thái",
+        sortable: true,
+        sortValue: (item) => Boolean(item.isActive),
+        filter: (
+          <EmployeeSelectFilter
+            id="employee-table-filter-status"
+            label="Trạng thái"
+            value={tableFilters.isActive}
+            onChange={(value) => updateTableFilter("isActive", value)}
+            options={EMPLOYEE_STATUS_OPTIONS}
+          />
+        ),
+        className: "min-w-[170px] text-center",
         render: (item) =>
           item.isActive ? (
             <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
@@ -271,7 +474,7 @@ export default function EmployeePage() {
           ),
       },
     ],
-    [departments]
+    [departmentOptions, departments, tableFilters]
   )
 
   const handleCloseDialog = () => {
@@ -430,6 +633,35 @@ export default function EmployeePage() {
     }
   }
 
+  const onCopy = async (rowData: Employee) => {
+    if (!rowData?._id) {
+      showErrorMessage("Không tìm thấy ID nhân viên")
+      return
+    }
+
+    try {
+      const detail = await dispatch(
+        employeeThunks.fetchById(rowData._id)
+      ).unwrap()
+
+      if (!detail?._id) {
+        showErrorMessage("Không tìm thấy dữ liệu nhân viên cần sao chép")
+        return
+      }
+
+      reset({
+        ...buildEmployeeFormValues(detail),
+        employeeEmail: "",
+        employeePhone: "",
+      })
+      dispatch(employeeActions.clearCurrent())
+      setMode("create")
+      setOpen(true)
+    } catch (error) {
+      showErrorMessage(getErrorMessage(error, "Không thể sao chép nhân viên"))
+    }
+  }
+
   const onDeleteClick = (rowData: Employee) => {
     if (!rowData?._id) {
       showErrorMessage("Không tìm thấy ID nhân viên")
@@ -574,14 +806,14 @@ export default function EmployeePage() {
         />
 
         <DataTable
-          data={employees}
+          data={filteredEmployees}
           columns={columns}
           loading={loading}
           emptyText="Chưa có dữ liệu nhân viên"
           getRowKey={(item) => item._id}
           pagination={{
             itemLabel: "nhân viên",
-            pageSizeOptions: URL_PAGE_SIZE_OPTIONS,
+            pageSizeOptions: EMPLOYEE_PAGE_SIZE_OPTIONS,
             syncUrl: true,
           }}
           totalItems={employeePagination.total}
@@ -590,8 +822,23 @@ export default function EmployeePage() {
           itemsPerPage={listLimit}
           setItemsPerPage={() => undefined}
           onView={onView}
+          onCopy={onCopy}
           onEdit={onEdit}
           onDelete={onDeleteClick}
+          children={
+            hasActiveTableFilters ? (
+              <button
+                type="button"
+                onClick={() =>
+                  setTableFilters({ ...EMPTY_EMPLOYEE_TABLE_FILTERS })
+                }
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700 transition hover:bg-red-100"
+              >
+                <X size={15} />
+                Xóa lọc
+              </button>
+            ) : null
+          }
         />
       </div>
 

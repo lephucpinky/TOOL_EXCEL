@@ -14,6 +14,7 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  Copy,
   Download,
   Eye,
   FileSearch,
@@ -68,6 +69,7 @@ export interface DataTableProps<T> {
   onSelectedRowKeysChange?: (keys: string[]) => void
   isRowSelectable?: (item: T) => boolean
   onView?: (item: T) => void
+  onCopy?: (item: T) => void
   onEdit?: (item: T) => void
   canEdit?: (item: T) => boolean
   onDelete?: (item: T) => void
@@ -166,6 +168,7 @@ export function DataTable<T>({
   onSelectedRowKeysChange,
   isRowSelectable,
   onView,
+  onCopy,
   onEdit,
   canEdit,
   onDelete,
@@ -182,9 +185,11 @@ export function DataTable<T>({
   onExportExcel,
   isExportLoading = false,
   showExportButton = false,
-  enableVerticalDragScroll = false,
+  enableVerticalDragScroll = true,
 }: DataTableProps<T>) {
-  const hasActions = Boolean(onView || onEdit || onDelete || renderActions)
+  const hasActions = Boolean(
+    onView || onCopy || onEdit || onDelete || renderActions
+  )
   const hasSelection = Boolean(selectable && onSelectedRowKeysChange)
   const hasColumnFilters = columns.some((column) => Boolean(column.filter))
   const hasToolbar = Boolean(
@@ -913,6 +918,20 @@ export function DataTable<T>({
                                 className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
                               >
                                 <Eye size={15} />
+                              </button>
+                            )}
+
+                            {onCopy && (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  onCopy(item)
+                                }}
+                                title="Sao chép"
+                                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-violet-200 bg-violet-50 text-violet-700 shadow-sm transition hover:border-violet-400 hover:bg-violet-100 hover:text-violet-800"
+                              >
+                                <Copy size={15} />
                               </button>
                             )}
 
