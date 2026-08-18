@@ -839,8 +839,12 @@ export default function InvoiceBulkImport({
       }
 
       showSuccessMessage(
-        `Đã tạo thành công ${successCount} hóa đơn. Các dòng đã tạo vẫn giữ đúng vị trí trong bảng.`
+        `Đã tạo thành công ${successCount} hóa đơn.`
       )
+
+      setTimeout(() => {
+        onBack()
+      }, 700)
     } catch (error: unknown) {
       showErrorMessage(
         getErrorMessage(
