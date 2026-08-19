@@ -1,6 +1,14 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type PointerEvent,
+  type WheelEvent,
+} from "react"
 import * as XLSX from "xlsx-js-style"
 import {
   ArrowLeft,
@@ -128,6 +136,20 @@ export default function InvoiceBulkImport({
   onInvoicesCreated,
 }: Props) {
   const inputRef = useRef<HTMLInputElement | null>(null)
+  const previewScrollRef = useRef<HTMLDivElement | null>(null)
+  const previewDragRef = useRef({
+    candidate: false,
+    dragging: false,
+    moved: false,
+    pointerId: null as number | null,
+    startX: 0,
+    startY: 0,
+    startScrollLeft: 0,
+    startScrollTop: 0,
+    pendingScrollLeft: 0,
+    pendingScrollTop: 0,
+    animationFrame: null as number | null,
+  })
 
   const [agencies, setAgencies] = useState<Agency[]>([])
   const [products, setProducts] = useState<ProductOption[]>([])
@@ -345,10 +367,11 @@ export default function InvoiceBulkImport({
         errors.push("Số lượng sản phẩm phải lớn hơn 0.")
       }
 
-      if (totalBeforeTax <= 0)
-        errors.push("Thành tiền chưa VAT phải lớn hơn 0.")
+      if (totalBeforeTax < 0)
+        errors.push("Thành tiền chưa VAT không được nhỏ hơn 0.")
       if (vatAmount < 0) errors.push("Tiền thuế VAT không hợp lệ.")
-      if (totalAmount <= 0) errors.push("Tổng tiền thanh toán phải lớn hơn 0.")
+      if (totalAmount < 0)
+        errors.push("Tổng tiền thanh toán không được nhỏ hơn 0.")
       if (
         rawDiscountPercentage &&
         (excelDiscountPercentage < 0 || excelDiscountPercentage > 100)
@@ -923,6 +946,121 @@ export default function InvoiceBulkImport({
     }
   }
 
+  const stopPreviewDrag = () => {
+    const scrollElement = previewScrollRef.current
+    const drag = previewDragRef.current
+
+    if (drag.dragging && drag.animationFrame !== null && scrollElement) {
+      scrollElement.scrollLeft = drag.pendingScrollLeft
+      scrollElement.scrollTop = drag.pendingScrollTop
+    }
+
+    drag.candidate = false
+    drag.dragging = false
+    drag.pointerId = null
+
+    if (drag.animationFrame !== null) {
+      window.cancelAnimationFrame(drag.animationFrame)
+      drag.animationFrame = null
+    }
+
+    scrollElement?.classList.remove("cursor-grabbing", "select-none")
+  }
+
+  const handlePreviewPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || event.pointerType !== "mouse") return
+
+    const target = event.target
+    if (
+      target instanceof HTMLElement &&
+      target.closest("button,a,input,select,textarea,[role='button']")
+    ) {
+      return
+    }
+
+    const scrollElement = previewScrollRef.current
+    if (!scrollElement) return
+
+    const drag = previewDragRef.current
+    drag.candidate = true
+    drag.dragging = false
+    drag.moved = false
+    drag.pointerId = event.pointerId
+    drag.startX = event.clientX
+    drag.startY = event.clientY
+    drag.startScrollLeft = scrollElement.scrollLeft
+    drag.startScrollTop = scrollElement.scrollTop
+  }
+
+  const handlePreviewPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    const drag = previewDragRef.current
+    if (!drag.candidate || event.pointerId !== drag.pointerId) return
+
+    const scrollElement = previewScrollRef.current
+    if (!scrollElement) return
+
+    const distanceX = event.clientX - drag.startX
+    const distanceY = event.clientY - drag.startY
+
+    if (!drag.dragging) {
+      if (Math.hypot(distanceX, distanceY) <= 6) return
+
+      drag.dragging = true
+      drag.moved = true
+      scrollElement.setPointerCapture(event.pointerId)
+      scrollElement.classList.add("cursor-grabbing", "select-none")
+    }
+
+    drag.pendingScrollLeft = drag.startScrollLeft - distanceX
+    drag.pendingScrollTop = drag.startScrollTop - distanceY
+
+    if (drag.animationFrame === null) {
+      drag.animationFrame = window.requestAnimationFrame(() => {
+        scrollElement.scrollLeft = drag.pendingScrollLeft
+        scrollElement.scrollTop = drag.pendingScrollTop
+        drag.animationFrame = null
+      })
+    }
+
+    event.preventDefault()
+  }
+
+  const handlePreviewPointerUp = (event: PointerEvent<HTMLDivElement>) => {
+    const scrollElement = previewScrollRef.current
+
+    if (scrollElement?.hasPointerCapture(event.pointerId)) {
+      scrollElement.releasePointerCapture(event.pointerId)
+    }
+
+    stopPreviewDrag()
+
+    window.setTimeout(() => {
+      previewDragRef.current.moved = false
+    }, 0)
+  }
+
+  const handlePreviewClickCapture = (event: MouseEvent<HTMLDivElement>) => {
+    if (!previewDragRef.current.moved) return
+
+    event.preventDefault()
+    event.stopPropagation()
+    previewDragRef.current.moved = false
+  }
+
+  const handlePreviewWheel = (event: WheelEvent<HTMLDivElement>) => {
+    if (!event.shiftKey || !previewScrollRef.current) return
+    previewScrollRef.current.scrollLeft += event.deltaY
+  }
+
+  useEffect(() => {
+    return () => {
+      const animationFrame = previewDragRef.current.animationFrame
+      if (animationFrame !== null) {
+        window.cancelAnimationFrame(animationFrame)
+      }
+    }
+  }, [])
+
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-[#edf1f4]">
       <div className="flex items-center justify-between border-b border-slate-300 bg-white px-4 py-2">
@@ -1188,7 +1326,19 @@ export default function InvoiceBulkImport({
               Chọn file Excel để hiển thị dữ liệu xem trước.
             </div>
           ) : (
-            <div className="mt-5 overflow-auto rounded-2xl border border-slate-200">
+            <div
+              ref={previewScrollRef}
+              onPointerDown={handlePreviewPointerDown}
+              onPointerMove={handlePreviewPointerMove}
+              onPointerUp={handlePreviewPointerUp}
+              onPointerCancel={handlePreviewPointerUp}
+              onPointerLeave={() => {
+                if (!previewDragRef.current.dragging) stopPreviewDrag()
+              }}
+              onClickCapture={handlePreviewClickCapture}
+              onWheel={handlePreviewWheel}
+              className="relative isolate mt-5 max-h-[600px] cursor-grab overflow-auto overscroll-contain rounded-2xl border border-slate-200 [scrollbar-color:#cbd5e1_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb:hover]:bg-slate-400 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar]:w-2"
+            >
               <table className="min-w-[2600px] text-sm">
                 <thead className="bg-slate-50 text-slate-700">
                   <tr>
