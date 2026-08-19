@@ -1074,9 +1074,11 @@ export default function InvoiceListPage() {
       return
     }
 
-    if (invoiceHelper.getInvoiceStatus(invoice) !== InvoiceStatus.DRAFT) {
+    const status = invoiceHelper.getInvoiceStatus(invoice)
+
+    if (status !== InvoiceStatus.DRAFT && status !== InvoiceStatus.FAILED) {
       showErrorMessage(
-        "Chỉ phiếu đã tạo nhưng chưa xuất hoá đơn mới được phép huỷ."
+        "Chỉ phiếu chưa xuất hoặc xuất hoá đơn lỗi mới được phép huỷ."
       )
       return
     }
@@ -1096,12 +1098,15 @@ export default function InvoiceListPage() {
 
     const currentInvoice = apiRowsRef.current.find((row) => row._id === id)
 
+    const currentStatus = invoiceHelper.getInvoiceStatus(currentInvoice)
+
     if (
       !currentInvoice ||
-      invoiceHelper.getInvoiceStatus(currentInvoice) !== InvoiceStatus.DRAFT
+      (currentStatus !== InvoiceStatus.DRAFT &&
+        currentStatus !== InvoiceStatus.FAILED)
     ) {
       showErrorMessage(
-        "Chỉ phiếu đã tạo nhưng chưa xuất hoá đơn mới được phép huỷ."
+        "Chỉ phiếu chưa xuất hoặc xuất hoá đơn lỗi mới được phép huỷ."
       )
       setCancelInvoiceDialogOpen(false)
       setPendingCancelInvoiceId(null)
@@ -1133,7 +1138,7 @@ export default function InvoiceListPage() {
         return
       }
 
-      showErrorMessage("Huỷ phiếu thất bại!")
+      showErrorMessage(res?.message || "Huỷ phiếu thất bại!")
     } catch (error) {
       console.error("APICancelSaleTransactionInvoice error:", error)
       const errorMessage = getErrorMessage(error, "Huỷ phiếu thất bại!")
@@ -1145,7 +1150,7 @@ export default function InvoiceListPage() {
 
       showErrorMessage(
         isDraftOnlyError
-          ? "Chỉ phiếu đã tạo nhưng chưa xuất hoá đơn mới được phép huỷ."
+          ? "Chỉ phiếu chưa xuất hoặc xuất hoá đơn lỗi mới được phép huỷ."
           : errorMessage
       )
     } finally {
@@ -1455,6 +1460,10 @@ export default function InvoiceListPage() {
             productId,
             quantity: toSafeNumber(item.quantity ?? item.inv_quantity ?? 1),
             price: toSafeNumber(item.price ?? item.unitPrice),
+            discountAmount: toSafeNumber(
+              item.discountAmount ?? item.inv_discountAmount ?? item.discount
+            ),
+            discountPercentage: toSafeNumber(item.discountPercentage),
             revenue: toSafeNumber(item.revenue),
             capitalPrice: toSafeNumber(item.capitalPrice),
             totalSalary: toSafeNumber(item.totalSalary),

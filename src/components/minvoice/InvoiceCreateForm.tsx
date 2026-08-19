@@ -721,13 +721,26 @@ export default function InvoiceCreateForm({
             : 0) ||
           (netUnitPrice > 0 ? netUnitPrice * (1 + taxRateNumber / 100) : 0) ||
           Number(product?.inv_unitPrice || 0)
-        const loadedDiscountAmount = toNumber(
+        const explicitDiscountAmount =
           apiItem.discountAmount ??
-            apiItem.inv_discountAmount ??
-            (apiItems.length === 1
-              ? (initialInvoice as any).inv_discountAmount
-              : 0)
-        )
+          apiItem.inv_discountAmount ??
+          apiItem.discount
+        const itemTotalSalary = toNumber(apiItem.totalSalary)
+        const inferredDiscountAmount =
+          explicitDiscountAmount === undefined &&
+          itemTotalSalary > 0 &&
+          unitPrice > 0 &&
+          quantity > 0
+            ? roundInvoiceMoney(
+                Math.max(unitPrice * quantity - itemTotalSalary, 0)
+              )
+            : 0
+        const loadedDiscountAmount =
+          explicitDiscountAmount !== undefined
+            ? toNumber(explicitDiscountAmount)
+            : apiItems.length === 1
+              ? toNumber((initialInvoice as any).inv_discountAmount)
+              : inferredDiscountAmount
         const loadedDiscountPercentage = normalizePercent(
           apiItem.discountPercentage ??
             apiItem.commissionRate ??
@@ -1379,6 +1392,7 @@ export default function InvoiceCreateForm({
         inv_unitPrice: roundInvoiceMoney(item.invUnitPrice || 0),
         ma_thue: item.ma_thue,
         taxRate: item.taxRate,
+        discountAmount: roundInvoiceMoney(item.discountAmount || 0),
         discountPercentage: roundInvoiceMoney(item.discountPercentage || 0),
         // BE lưu giá đối soát của từng item trong trường revenue.
         revenue: roundInvoiceMoney(item.invReconciliation ?? item.revenue ?? 0),

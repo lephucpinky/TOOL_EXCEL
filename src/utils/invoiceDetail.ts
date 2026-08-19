@@ -50,6 +50,9 @@ function buildPayloadItems(payload: any) {
       inv_unitPrice: toNumber(item.inv_unitPrice ?? 0),
       ma_thue: normalizeInvoiceTaxCode(item.ma_thue ?? item.taxRate),
       taxRate: normalizeInvoiceTaxCode(item.taxRate ?? item.ma_thue),
+      discountAmount: toNumber(
+        item.discountAmount ?? item.inv_discountAmount ?? item.discount
+      ),
       discountPercentage: toNumber(item.discountPercentage),
       revenue: toNumber(item.revenue),
       capitalPrice: toNumber(item.capitalPrice),
@@ -140,6 +143,12 @@ export function hydrateSaleTransactionDetail(
               item?.discountPercentage ??
               payloadItem?.discountPercentage ??
               fallbackItem?.discountPercentage,
+            discountAmount:
+              item?.discountAmount ??
+              item?.inv_discountAmount ??
+              payloadItem?.discountAmount ??
+              fallbackItem?.discountAmount ??
+              fallbackItem?.inv_discountAmount,
             revenue:
               item?.revenue ?? payloadItem?.revenue ?? fallbackItem?.revenue,
             capitalPrice:

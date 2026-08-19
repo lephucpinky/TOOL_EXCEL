@@ -62,6 +62,66 @@ type Props = {
 
 const MAX_BULK_INVOICE_ROWS = 300
 
+type PreparedInvoiceGroup = {
+  taxCode: string
+  rows: PreparedImportRow[]
+}
+
+function groupRowsByBuyerTaxCode(
+  rows: PreparedImportRow[]
+): PreparedInvoiceGroup[] {
+  const groups = new Map<string, PreparedInvoiceGroup>()
+
+  rows.forEach((row) => {
+    const taxCode = normalize(row.buyerTaxCode)
+    const groupKey = taxCode || row.id
+    const currentGroup = groups.get(groupKey)
+
+    if (currentGroup) {
+      currentGroup.rows.push(row)
+      return
+    }
+
+    groups.set(groupKey, {
+      taxCode: row.buyerTaxCode,
+      rows: [row],
+    })
+  })
+
+  return Array.from(groups.values())
+}
+
+function buildGroupedInvoicePayload(group: PreparedInvoiceGroup) {
+  const firstPayload = group.rows[0]?.payload
+
+  if (!firstPayload) {
+    throw new Error(
+      `Không build được payload hợp lệ cho MST ${group.taxCode || "trống"}.`
+    )
+  }
+
+  const sumRowValue = (getValue: (row: PreparedImportRow) => number) =>
+    roundInvoiceMoney(group.rows.reduce((sum, row) => sum + getValue(row), 0))
+
+  const items = group.rows.flatMap((row) => {
+    const rowItems = row.payload?.items
+    return Array.isArray(rowItems) ? rowItems : []
+  })
+
+  return {
+    ...firstPayload,
+    invReconciliation: String(sumRowValue((row) => row.reconciliationAmount)),
+    inv_discountAmount: sumRowValue((row) =>
+      toExcelNumber(row.payload?.inv_discountAmount)
+    ),
+    inv_TotalAmountWithoutVAT: sumRowValue((row) => row.totalBeforeTax),
+    inv_vatAmount: sumRowValue((row) => row.vatAmount),
+    inv_TotalAmount: sumRowValue((row) => row.totalAmount),
+    inv_quantity: sumRowValue((row) => row.quantity),
+    items,
+  }
+}
+
 export default function InvoiceBulkImport({
   receiptConfigs,
   onBack,
@@ -364,6 +424,7 @@ export default function InvoiceBulkImport({
                   ),
                   ma_thue: product.ma_thue,
                   taxRate: product.ma_thue,
+                  discountAmount: invoiceDiscountAmount,
                   discountPercentage: invoiceDiscountPercentage,
                   revenue: invoiceReconciliation,
                   capitalPrice: writeDifferenceFee,
@@ -406,11 +467,14 @@ export default function InvoiceBulkImport({
 
   const pendingRows = preparedRows.filter((item) => !createdRowIds[item.id])
   const validRows = pendingRows.filter((item) => item.errors.length === 0)
+  const validInvoiceGroups = groupRowsByBuyerTaxCode(validRows)
   const invalidRows = pendingRows.length - validRows.length
-  const submitFailedRowsCount = pendingRows.filter((item) =>
-    Boolean(submitErrors[item.id])
+  const submitFailedInvoiceCount = groupRowsByBuyerTaxCode(
+    pendingRows.filter((item) => Boolean(submitErrors[item.id]))
   ).length
-  const createdRowsCount = preparedRows.length - pendingRows.length
+  const createdInvoiceCount = groupRowsByBuyerTaxCode(
+    preparedRows.filter((item) => Boolean(createdRowIds[item.id]))
+  ).length
 
   const updateImportRow = <K extends keyof BulkImportExcelRow>(
     rowId: string,
@@ -445,7 +509,7 @@ export default function InvoiceBulkImport({
       inputRef.current.value = ""
     }
   }
-
+//hàm tải excel
   const handleDownloadTemplate = () => {
     try {
       const fields: Array<keyof typeof COLUMN_ALIASES> = [
@@ -782,7 +846,7 @@ export default function InvoiceBulkImport({
 
     try {
       setCreating(true)
-      setCreateProgress({ completed: 0, total: validRows.length })
+      setCreateProgress({ completed: 0, total: validInvoiceGroups.length })
       setSubmitErrors({})
 
       const nextSubmitErrors: Record<string, string> = {}
@@ -790,14 +854,10 @@ export default function InvoiceBulkImport({
       let successCount = 0
       let completedCount = 0
 
-      for (const row of validRows) {
+      for (const invoiceGroup of validInvoiceGroups) {
         try {
-          if (!row.payload) {
-            throw new Error("Dòng import chưa build được payload hợp lệ.")
-          }
-
           const response = await APICreateSaleTransaction(
-            buildCreateInvoiceApiBody(row.payload)
+            buildCreateInvoiceApiBody(buildGroupedInvoicePayload(invoiceGroup))
           )
           const createdOrderNumber = String(
             (response as any)?.data?.orderNumber ||
@@ -806,18 +866,23 @@ export default function InvoiceBulkImport({
               ""
           ).trim()
 
-          nextCreatedRowIds[row.id] = createdOrderNumber || "Đã tạo"
+          invoiceGroup.rows.forEach((row) => {
+            nextCreatedRowIds[row.id] = createdOrderNumber || "Đã tạo"
+          })
           successCount += 1
         } catch (error: unknown) {
-          nextSubmitErrors[row.id] = getErrorMessage(
+          const errorMessage = getErrorMessage(
             error,
-            "Không tạo được hóa đơn cho dòng này."
+            `Không tạo được hóa đơn cho MST ${invoiceGroup.taxCode}.`
           )
+          invoiceGroup.rows.forEach((row) => {
+            nextSubmitErrors[row.id] = errorMessage
+          })
         } finally {
           completedCount += 1
           setCreateProgress({
             completed: completedCount,
-            total: validRows.length,
+            total: validInvoiceGroups.length,
           })
         }
       }
@@ -829,11 +894,11 @@ export default function InvoiceBulkImport({
         await onInvoicesCreated?.()
       }
 
-      const failedCount = Object.keys(nextSubmitErrors).length
+      const failedCount = validInvoiceGroups.length - successCount
 
       if (failedCount > 0) {
         showErrorMessage(
-          `Đã tạo ${successCount}/${validRows.length} hóa đơn. Vui lòng kiểm tra lại các dòng bị lỗi.`
+          `Đã tạo ${successCount}/${validInvoiceGroups.length} hóa đơn. Vui lòng kiểm tra lại các dòng bị lỗi.`
         )
         return
       }
@@ -982,6 +1047,11 @@ export default function InvoiceBulkImport({
                 hoặc tên sản phẩm trước khi tạo hóa đơn hàng loạt.
               </div>
 
+              <div className="mt-2 text-xs leading-5 text-indigo-700">
+                Các dòng có cùng MST người mua sẽ được gom thành một hóa đơn có
+                nhiều item. MST chỉ có một dòng sẽ tạo hóa đơn có một item.
+              </div>
+
               <div className="mt-3 text-xs text-slate-600">
                 Danh mục sản phẩm hiện có:{" "}
                 <span className="font-bold text-slate-900">
@@ -1002,10 +1072,10 @@ export default function InvoiceBulkImport({
 
               <div className="rounded-2xl bg-emerald-50 p-4">
                 <div className="text-xs uppercase tracking-wide text-emerald-700">
-                  Chờ tạo
+                  Hóa đơn chờ tạo
                 </div>
                 <div className="mt-2 text-2xl font-bold text-emerald-700">
-                  {validRows.length}
+                  {validInvoiceGroups.length}
                 </div>
               </div>
 
@@ -1023,7 +1093,7 @@ export default function InvoiceBulkImport({
                   Tạo thất bại
                 </div>
                 <div className="mt-2 text-2xl font-bold text-amber-700">
-                  {submitFailedRowsCount}
+                  {submitFailedInvoiceCount}
                 </div>
               </div>
 
@@ -1032,7 +1102,7 @@ export default function InvoiceBulkImport({
                   Đã tạo
                 </div>
                 <div className="mt-2 text-2xl font-bold text-blue-700">
-                  {createdRowsCount}
+                  {createdInvoiceCount}
                 </div>
               </div>
 
@@ -1071,8 +1141,8 @@ export default function InvoiceBulkImport({
                 </>
               ) : !pendingRows.length && preparedRows.length ? (
                 <>Đã tạo hết hóa đơn</>
-              ) : submitFailedRowsCount > 0 ? (
-                <>Thử lại {submitFailedRowsCount} hóa đơn lỗi</>
+              ) : submitFailedInvoiceCount > 0 ? (
+                <>Thử lại {submitFailedInvoiceCount} hóa đơn lỗi</>
               ) : (
                 <>Tạo hóa đơn hàng loạt</>
               )}

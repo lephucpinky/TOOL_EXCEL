@@ -43,6 +43,8 @@ export type InvoiceItem = {
   ma_thue?: string
   taxRate?: number | string
   discount?: number
+  discountAmount?: number
+  inv_discountAmount?: number
   discountPercentage?: number
   revenue?: number
   capitalPrice?: number

@@ -60,6 +60,7 @@ export type UpdateSaleTransactionBankPayload = {
 export type SaleTransactionItemResponse = {
   data: InvoiceApiRow | null
   status: number
+  message?: string
 }
 
 export type SaleTransactionRowsResponse = {
@@ -102,8 +103,10 @@ type SaleTransactionListBody = {
 }
 
 type SaleTransactionItemBody = Partial<InvoiceApiRow> & {
+  code?: unknown
   content?: unknown
   data?: unknown
+  message?: unknown
   result?: unknown
 }
 
@@ -314,6 +317,10 @@ const buildUpdateSaleTransactionPayload = (
       nextItem.type = normalizeInvoiceItemType(row.type)
       const quantity = Number(row.quantity ?? row.inv_quantity)
       const price = Number(row.price ?? row.unitPrice)
+      const discountAmount = Number(
+        row.discountAmount ?? row.inv_discountAmount ?? row.discount
+      )
+      const discountPercentage = Number(row.discountPercentage)
       const revenue = Number(row.revenue)
       const capitalPrice = Number(row.capitalPrice)
       const totalSalary = Number(row.totalSalary)
@@ -321,6 +328,12 @@ const buildUpdateSaleTransactionPayload = (
 
       if (Number.isFinite(quantity)) nextItem.quantity = quantity
       if (Number.isFinite(price)) nextItem.price = price
+      if (Number.isFinite(discountAmount)) {
+        nextItem.discountAmount = discountAmount
+      }
+      if (Number.isFinite(discountPercentage)) {
+        nextItem.discountPercentage = discountPercentage
+      }
       if (Number.isFinite(revenue)) nextItem.revenue = revenue
       if (Number.isFinite(capitalPrice)) nextItem.capitalPrice = capitalPrice
       if (Number.isFinite(totalSalary)) nextItem.totalSalary = totalSalary
@@ -493,9 +506,20 @@ const APICancelSaleTransactionInvoice = async (
     SaleTransactionItemBody | InvoiceApiRow
   >(`/sale-transaction/${id}/cancel-invoice`)
 
+  const body = response.data
+  const responseBody: Record<string, unknown> = isRecord(body) ? body : {}
+  const responseCode =
+    typeof responseBody.code === "number"
+      ? responseBody.code
+      : response.status
+
   return {
-    data: readInvoiceRow(response.data),
-    status: response.status,
+    data: readInvoiceRow(body),
+    status: responseCode,
+    message:
+      typeof responseBody.message === "string"
+        ? responseBody.message
+        : undefined,
   }
 }
 

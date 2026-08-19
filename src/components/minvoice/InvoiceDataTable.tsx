@@ -1750,6 +1750,8 @@ export default function InvoiceDataTable({
             isCancellingInvoice
           const canCollectPayment =
             status === InvoiceStatus.DRAFT || status === InvoiceStatus.ISSUED
+          const canCancelInvoice =
+            status === InvoiceStatus.DRAFT || status === InvoiceStatus.FAILED
 
           if (isProcessing) {
             return (
@@ -1780,7 +1782,7 @@ export default function InvoiceDataTable({
                 </button>
               )}
 
-              {status === InvoiceStatus.DRAFT && onCancelInvoice && (
+              {canCancelInvoice && onCancelInvoice && (
                 <button
                   type="button"
                   onClick={(e) => {

@@ -72,6 +72,10 @@ export function buildCreateInvoiceApiBody(
           type: normalizeInvoiceItemType(item.type),
           quantity,
           price: toNumber(item.price ?? item.unitPrice ?? 0),
+          discountAmount: toNumber(
+            item.discountAmount ?? item.inv_discountAmount ?? item.discount
+          ),
+          discountPercentage: toNumber(item.discountPercentage),
           revenue: toNumber(item.revenue),
           capitalPrice: toNumber(item.capitalPrice),
           totalSalary: toNumber(item.totalSalary),
