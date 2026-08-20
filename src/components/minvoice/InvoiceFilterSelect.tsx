@@ -13,6 +13,7 @@ import {
 export type InvoiceFilterSelectOption = {
   value: string
   label: string
+  selectedLabel?: string
 }
 
 type InvoiceFilterSelectProps = {
@@ -106,7 +107,10 @@ export default function InvoiceFilterSelect({
           )}
         >
           <span className="min-w-0 flex-1 truncate">
-            {selected?.label || options[0]?.label || "Chọn..."}
+            {selected?.selectedLabel ??
+              selected?.label ??
+              options[0]?.label ??
+              "Chọn..."}
           </span>
           <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-slate-500 transition group-hover:text-blue-600 group-data-[state=open]:rotate-180 group-data-[state=open]:text-blue-600">
             <ChevronDown size={15} />
@@ -159,7 +163,9 @@ export default function InvoiceFilterSelect({
                     isSelected && "bg-blue-50 font-semibold text-blue-700"
                   )}
                 >
-                  <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                  <span className="min-w-0 flex-1 whitespace-nowrap">
+                    {option.label}
+                  </span>
                   {isSelected && (
                     <span className="absolute right-3 flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-white shadow-sm">
                       <Check size={14} strokeWidth={3} />

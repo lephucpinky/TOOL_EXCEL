@@ -62,6 +62,7 @@ import {
   normalizeInvoiceItemType,
   type InvoiceItemType,
 } from "@/types/invoice"
+import { Input } from "../ui/input"
 type InvoiceScreenMode = "create" | "edit" | "detail"
 
 type InvoiceGeneralForm = {
@@ -876,15 +877,19 @@ export default function InvoiceCreateForm({
     () => [
       { value: "", label: "Chọn mã hàng" },
       ...productOptions.flatMap((product) => {
-        const productCode = String(
-          product.inv_itemProduct || product.inv_itemCode || ""
-        ).trim()
+        const productCode = [
+          product.inv_itemProduct || "",
+          product.inv_itemName,
+        ]
+          .filter(Boolean)
+          .join(" - ")
 
         return productCode
           ? [
               {
                 value: getId(product),
                 label: productCode,
+                selectedLabel: product.inv_itemProduct || "",
               },
             ]
           : []
@@ -2057,34 +2062,34 @@ export default function InvoiceCreateForm({
                 <th className="w-[60px] min-w-[60px] border-b border-r border-slate-300 px-2 py-2 text-center">
                   STT
                 </th>
-                <th className="min-w-[280px] border-b border-r border-slate-300 px-2 py-2 text-left">
+                <th className="min-w-[140px] border-b border-r border-slate-300 px-2 py-2 text-left">
                   Mã hàng
                 </th>
-                <th className="min-w-[260px] border-b border-r border-slate-300 px-2 py-2 text-left">
+                <th className="min-w-[400px] border-b border-r border-slate-300 px-2 py-2 text-left">
                   Tên hàng
                 </th>
-                <th className="min-w-[110px] border-b border-r border-slate-300 px-2 py-2 text-right">
+                <th className="min-w-[60px] border-b border-r border-slate-300 px-2 py-2 text-center">
                   Số lượng
                 </th>
-                <th className="min-w-[130px] border-b border-r border-slate-300 px-2 py-2 text-left">
+                <th className="min-w-[130px] border-b border-r border-slate-300 px-2 py-2 text-center">
                   Loại
                 </th>
-                <th className="min-w-[170px] border-b border-r border-slate-300 px-2 py-2 text-right">
+                <th className="min-w-[70px] border-b border-r border-slate-300 px-2 py-2 text-right">
                   Đơn giá
                 </th>
-                <th className="min-w-[160px] border-b border-r border-slate-300 px-2 py-2 text-right">
+                <th className="min-w-[70px] border-b border-r border-slate-300 px-2 py-2 text-right">
                   Tổng tiền hàng
                 </th>
-                <th className="min-w-[110px] border-b border-r border-slate-300 px-2 py-2 text-right">
+                <th className="min-w-[60px] border-b border-r border-slate-300 px-2 py-2 text-center">
                   Thuế suất
                 </th>
-                <th className="min-w-[130px] border-b border-r border-slate-300 px-2 py-2 text-right">
+                <th className="min-w-[60px] border-b border-r border-slate-300 px-2 py-2 text-right">
                   % chiết khấu
                 </th>
-                <th className="min-w-[150px] border-b border-r border-slate-300 px-2 py-2 text-right">
+                <th className="min-w-[70px] border-b border-r border-slate-300 px-2 py-2 text-right">
                   Tiền chiết khấu
                 </th>
-                <th className="min-w-[150px] border-b border-r border-slate-300 px-2 py-2 text-right">
+                <th className="min-w-[70px] border-b border-r border-slate-300 px-2 py-2 text-right">
                   Giá đối soát
                 </th>
                 {!mainFieldsDisabled && (
@@ -2110,7 +2115,7 @@ export default function InvoiceCreateForm({
                     {index + 1}
                   </td>
 
-                  <td className="min-w-[280px] border-b border-r border-slate-200 px-2 py-2">
+                  <td className="min-w-[140px] border-b border-r border-slate-200 px-2 py-2">
                     <InvoiceFilterSelect
                       id={`invoice-item-product-${index}`}
                       options={productCodeSelectOptions}
@@ -2125,6 +2130,7 @@ export default function InvoiceCreateForm({
                       }}
                       searchPlaceholder="Tìm mã hàng..."
                       emptyText="Không tìm thấy mã hàng"
+                      contentClassName="w-max max-w-none"
                       disabled={catalogLoading || mainFieldsDisabled}
                     />
                   </td>
@@ -2140,8 +2146,8 @@ export default function InvoiceCreateForm({
                     />
                   </td>
 
-                  <td className="border-b border-r border-slate-200 px-2 py-2">
-                    <input
+                  <td className="max-w-[100px] border-b border-r border-slate-200 px-2 py-2">
+                    <Input
                       className={`${inputClass} text-right`}
                       value={item.quantity}
                       disabled={mainFieldsDisabled}
@@ -2189,7 +2195,7 @@ export default function InvoiceCreateForm({
                     </Select>
                   </td>
 
-                  <td className="border-b border-r border-slate-200 px-2 py-2">
+                  <td className="max-w-[120px] border-b border-r border-slate-200 px-2 py-2">
                     <MoneyInput
                       className={`${inputClass} text-right`}
                       value={item.unitPrice}
@@ -2200,11 +2206,11 @@ export default function InvoiceCreateForm({
                     />
                   </td>
 
-                  <td className="border-b border-r border-slate-200 px-2 py-2 text-right font-semibold">
+                  <td className="max-w-[120px] border-b border-r border-slate-200 px-2 py-2 text-right font-semibold">
                     {formatMoney(item.amount)}
                   </td>
 
-                  <td className="border-b border-r border-slate-200 px-2 py-2 text-right">
+                  <td className="max-w-[100px] border-b border-r border-slate-200 px-2 py-2 text-right">
                     <input
                       className={`${inputClass} bg-slate-50 text-right`}
                       value={item.taxRate}
@@ -2213,7 +2219,7 @@ export default function InvoiceCreateForm({
                     />
                   </td>
 
-                  <td className="border-b border-r border-slate-200 px-2 py-2">
+                  <td className="max-w-[100px] border-b border-r border-slate-200 px-2 py-2">
                     <input
                       className={`${inputClass} text-right`}
                       value={item.discountPercentage}
@@ -2228,7 +2234,7 @@ export default function InvoiceCreateForm({
                       placeholder="%"
                     />
                   </td>
-                  <td className="border-b border-r border-slate-200 px-2 py-2">
+                  <td className="max-w-[120px] border-b border-r border-slate-200 px-2 py-2">
                     <MoneyInput
                       className={`${inputClass} text-right`}
                       value={item.discountAmount}
@@ -2239,7 +2245,7 @@ export default function InvoiceCreateForm({
                       placeholder="0"
                     />
                   </td>
-                  <td className="border-b border-r border-slate-200 px-2 py-2">
+                  <td className="max-w-[120px] border-b border-r border-slate-200 px-2 py-2">
                     <MoneyInput
                       className={`${inputClass} text-right`}
                       value={item.invReconciliation}
