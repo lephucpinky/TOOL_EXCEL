@@ -60,7 +60,7 @@ const metricToneClasses: Record<MetricTone, string> = {
   slate: "border-slate-200 bg-slate-50 text-slate-700",
 }
 
-const moneyFormatter = new Intl.NumberFormat("vi-VN", {
+const moneyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "VND",
   maximumFractionDigits: 0,

@@ -81,6 +81,7 @@ type InvoiceGeneralForm = {
   companyName: string
   email: string
   address: string
+  note: string
   isPaid: boolean
   paidAmount: number
   paidDate: string
@@ -298,6 +299,7 @@ export default function InvoiceCreateForm({
     companyName: "",
     email: "",
     address: "",
+    note: "",
 
     isPaid: false,
     paidAmount: 0,
@@ -617,6 +619,7 @@ export default function InvoiceCreateForm({
         "",
       email: initialInvoice.inv_buyerEmail || "",
       address: initialInvoice.inv_buyerAddressLine || "",
+      note: initialInvoice.inv_note || "",
 
       isPaid: initialIsPaid,
       paidAmount: initialPaidAmount,
@@ -1363,6 +1366,7 @@ export default function InvoiceCreateForm({
       inv_buyerDisplayName: general.companyName.trim(),
       inv_buyerEmail: buyerEmail,
       inv_buyerAddressLine: general.address.trim(),
+      inv_note: general.note.trim(),
       inv_buyerBankAccount: "",
       inv_buyerBankName: selectedBank?.inv_buyerBankName || "",
 
@@ -1983,6 +1987,19 @@ export default function InvoiceCreateForm({
               )}
             </div>
 
+            <div className="xl:col-span-4">
+              <label className="mb-1 block text-[13px] font-medium text-slate-600">
+                Ghi chú
+              </label>
+              <textarea
+                className={`${inputClass} min-h-[72px] resize-y py-2`}
+                value={general.note}
+                disabled={mainFieldsDisabled}
+                placeholder="Nhập ghi chú (nếu có)"
+                onChange={(event) => updateGeneral("note", event.target.value)}
+              />
+            </div>
+
             <div>
               <label
                 htmlFor="invoice-create-paid-date"
@@ -2149,13 +2166,18 @@ export default function InvoiceCreateForm({
                   <td className="max-w-[100px] border-b border-r border-slate-200 px-2 py-2">
                     <Input
                       className={`${inputClass} text-right`}
-                      value={item.quantity}
+                      value={Number(item.quantity || 0).toLocaleString("vi-VN")}
                       disabled={mainFieldsDisabled}
                       onChange={(e) =>
                         updateItem(
                           item.id,
                           "quantity",
-                          toNumber(e.target.value)
+                          toNumber(
+                            e.target.value
+                              .replace(/\./g, "")
+                              .replace(",", ".")
+                              .replace(/[^\d.]/g, "")
+                          )
                         )
                       }
                     />

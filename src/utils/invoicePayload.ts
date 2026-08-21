@@ -19,6 +19,7 @@ export function buildCreateInvoiceApiBody(
       : String(payload.paidDate ?? "").trim()
 
   return {
+    ...payload,
     ...(includeId ? { _id: String(payload._id || "").trim() } : {}),
     activationDate: payload.activationDate || null,
     inv_invoiceSeries: String(payload.inv_invoiceSeries || "").trim(),
@@ -52,6 +53,7 @@ export function buildCreateInvoiceApiBody(
     mdvqhnsach_nmua: payload.mdvqhnsach_nmua || "",
     ma_ch: payload.ma_ch || "",
     ten_ch: payload.ten_ch || "",
+    inv_note: payload.inv_note || "",
     agencyId: payload.agencyId as InvoiceApiRow["agencyId"],
     employeeId: payload.employeeId as InvoiceApiRow["employeeId"],
     ...(includePayment

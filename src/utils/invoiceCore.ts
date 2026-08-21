@@ -26,7 +26,7 @@ export function toNumber(value: unknown) {
 }
 
 export function formatMoney(value: unknown) {
-  return new Intl.NumberFormat("vi-VN").format(toNumber(value))
+  return new Intl.NumberFormat("en-US").format(toNumber(value))
 }
 
 export function roundInvoiceMoney(value: unknown) {

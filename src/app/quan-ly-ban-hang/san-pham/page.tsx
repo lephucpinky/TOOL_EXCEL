@@ -432,7 +432,7 @@ export default function ProductPage() {
         className: "min-w-[160px] text-right",
         render: (item) => (
           <span className="font-semibold text-slate-900">
-            {formatNumber(item.inv_unitPrice)}
+            {Number(item.inv_unitPrice || 0).toLocaleString("en-US")}
           </span>
         ),
       },
@@ -468,7 +468,8 @@ export default function ProductPage() {
         ),
         headerClassName: "text-right",
         className: "min-w-[160px] text-right",
-        render: (item) => formatNumber(item.inv_discountAmount),
+        render: (item) =>
+          Number(item.inv_discountAmount || 0).toLocaleString("en-US"),
       },
       {
         key: "ma_thue",
@@ -758,9 +759,9 @@ export default function ProductPage() {
         itemName,
         itemProduct,
         unitCode,
-        unitPrice: formatNumber(unitPrice),
+        unitPrice: Number(unitPrice || 0).toLocaleString("en-US"),
         quantity: formatNumber(quantity),
-        discountAmount: formatNumber(discountAmount),
+        discountAmount: Number(discountAmount || 0).toLocaleString("en-US"),
         tax,
       },
       errors,

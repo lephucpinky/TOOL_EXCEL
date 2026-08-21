@@ -22,7 +22,7 @@ type Props = {
   onConfirm: () => void | Promise<void>
 }
 
-const moneyFormatter = new Intl.NumberFormat("vi-VN", {
+const moneyFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0,
 })
 

@@ -207,7 +207,7 @@ function normalizeFilterText(value: unknown) {
     .trim()
 }
 
-const MONEY_FORMATTER = new Intl.NumberFormat("vi-VN")
+const MONEY_FORMATTER = new Intl.NumberFormat("en-US")
 const EXACT_MATCH_COLUMN_KEYS = new Set<InvoiceColumnFilterKey>([
   "createdAt",
   "activationDate",

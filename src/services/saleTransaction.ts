@@ -1,5 +1,5 @@
 import axiosInstance from "./axiosInstance"
-import { normalizeInvoiceItemType, type InvoiceApiRow } from "@/types/invoice"
+import type { InvoiceApiRow } from "@/types/invoice"
 import { fetchAllPages } from "@/utils/pagination"
 
 export type SaleTransactionListParams = {
@@ -246,112 +246,6 @@ const cleanParams = (params?: SaleTransactionReportExportParams) => {
   )
 }
 
-// PATCH uses a narrower DTO than create. Keep this aligned with UpdateTransactionDto.
-const SALE_TRANSACTION_UPDATE_FIELDS = [
-  "activationDate",
-  "inv_currencyCode",
-  "inv_exchangeRate",
-  "so_benh_an",
-  "inv_buyerDisplayName",
-  "inv_buyerLegalName",
-  "inv_buyerTaxCode",
-  "inv_buyerAddressLine",
-  "inv_buyerEmail",
-  "inv_buyerBankAccount",
-  "inv_buyerBankName",
-  "inv_paymentMethodName",
-  "invReconciliation",
-  "inv_discountAmount",
-  "inv_TotalAmountWithoutVAT",
-  "inv_vatAmount",
-  "inv_TotalAmount",
-  "key_api",
-  "cccdan",
-  "so_hchieu",
-  "mdvqhnsach_nmua",
-  "ma_ch",
-  "ten_ch",
-  "inv_quantity",
-  "inv_discountPercentage",
-  "agencyId",
-  "employeeId",
-  "amountCollected",
-  "paidDate",
-  "items",
-] as const satisfies readonly (keyof SaleTransactionPayload)[]
-
-const buildUpdateSaleTransactionPayload = (
-  data: SaleTransactionPayload
-): Partial<SaleTransactionPayload> => {
-  const entries: Array<[string, unknown]> = []
-
-  SALE_TRANSACTION_UPDATE_FIELDS.forEach((field) => {
-    const value = data[field]
-
-    if (value === undefined) return
-
-    if (field !== "items") {
-      entries.push([field, value])
-      return
-    }
-
-    if (!Array.isArray(value)) return
-
-    const items = value.flatMap((item) => {
-      if (!isRecord(item)) return []
-
-      const row = item
-      const productValue = row.productId || row.product
-      const productId =
-        typeof productValue === "string"
-          ? productValue
-          : typeof productValue === "object" &&
-              productValue !== null &&
-              "_id" in productValue
-            ? String(productValue._id || "")
-            : ""
-
-      if (!productId.trim()) return []
-
-      const nextItem: Record<string, unknown> = { productId: productId.trim() }
-      nextItem.type = normalizeInvoiceItemType(row.type)
-      const quantity = Number(row.quantity ?? row.inv_quantity)
-      const price = Number(row.price ?? row.unitPrice)
-      const discountAmount = Number(
-        row.discountAmount ?? row.inv_discountAmount ?? row.discount
-      )
-      const discountPercentage = Number(row.discountPercentage)
-      const revenue = Number(row.revenue)
-      const capitalPrice = Number(row.capitalPrice)
-      const totalSalary = Number(row.totalSalary)
-      const accountingAccountCode = Number(row.accountingAccountCode)
-
-      if (Number.isFinite(quantity)) nextItem.quantity = quantity
-      if (Number.isFinite(price)) nextItem.price = price
-      if (Number.isFinite(discountAmount)) {
-        nextItem.discountAmount = discountAmount
-      }
-      if (Number.isFinite(discountPercentage)) {
-        nextItem.discountPercentage = discountPercentage
-      }
-      if (Number.isFinite(revenue)) nextItem.revenue = revenue
-      if (Number.isFinite(capitalPrice)) nextItem.capitalPrice = capitalPrice
-      if (Number.isFinite(totalSalary)) nextItem.totalSalary = totalSalary
-      if (Number.isFinite(accountingAccountCode)) {
-        nextItem.accountingAccountCode = accountingAccountCode
-      }
-
-      return [nextItem]
-    })
-
-    if (items.length) {
-      entries.push(["items", items])
-    }
-  })
-
-  return Object.fromEntries(entries) as Partial<SaleTransactionPayload>
-}
-
 const APICreateSaleTransaction = async (
   data: SaleTransactionPayload
 ): Promise<SaleTransactionItemResponse> => {
@@ -473,7 +367,10 @@ const APIUpdateSaleTransaction = async (
   id: string,
   data: SaleTransactionPayload
 ): Promise<SaleTransactionItemResponse> => {
-  const updatePayload = buildUpdateSaleTransactionPayload(data)
+  const updatePayload: Partial<SaleTransactionPayload> = { ...data }
+
+  delete updatePayload._id
+  delete updatePayload.inv_invoiceSeries
 
   const response = await axiosInstance.patch<
     SaleTransactionItemBody | InvoiceApiRow

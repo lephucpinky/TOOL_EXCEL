@@ -239,7 +239,7 @@ export function formatPaymentAmountInput(value: any) {
 
   if (numberValue <= 0) return ""
 
-  return new Intl.NumberFormat("vi-VN").format(numberValue)
+  return new Intl.NumberFormat("en-US").format(numberValue)
 }
 
 export function parsePaymentAmountInput(value: string) {

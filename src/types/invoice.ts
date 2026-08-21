@@ -53,6 +53,7 @@ export type InvoiceItem = {
 }
 
 export type InvoiceApiRow = {
+  inv_note?: string
   _id: string
 
   invoiceStatus?: InvoiceStatus
@@ -76,6 +77,7 @@ export type InvoiceApiRow = {
   inv_buyerLegalName?: string
   inv_buyerTaxCode?: string
   inv_buyerAddressLine?: string
+
   inv_buyerEmail?: string
   inv_buyerBankAccount?: string
   inv_buyerBankName?: string
