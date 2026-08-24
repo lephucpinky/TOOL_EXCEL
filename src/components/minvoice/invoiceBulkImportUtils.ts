@@ -31,6 +31,7 @@ export type BulkImportExcelRow = {
   buyerBankAccount: string
   buyerBankName: string
   paymentMethod: string
+  note: string
   discountPercentage: string | number
   discountAmount: string | number
   totalBeforeTax: string | number
@@ -60,6 +61,7 @@ export type PreparedImportRow = {
   buyerAddress: string
   invoiceSeries: string
   invoiceDate: string
+  note: string
   totalBeforeTax: number
   vatAmount: number
   totalAmount: number
@@ -101,6 +103,7 @@ export const COLUMN_ALIASES = {
   buyerBankAccount: ["Số tài khoản người mua", "Số tài khoản"],
   buyerBankName: ["Ngân hàng người mua", "Ngân hàng"],
   paymentMethod: ["Phương thức thanh toán"],
+  note: ["Ghi chú", "Ghi chú hóa đơn", "inv_note"],
   discountPercentage: [
     "Phần trăm chiết khấu",
     "% chiết khấu",

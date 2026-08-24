@@ -118,6 +118,7 @@ function buildGroupedInvoicePayload(group: PreparedInvoiceGroup) {
 
   return {
     ...firstPayload,
+    inv_note: group.rows.find((row) => cleanText(row.note))?.note || "",
     invReconciliation: String(sumRowValue((row) => row.reconciliationAmount)),
     inv_discountAmount: sumRowValue((row) =>
       toExcelNumber(row.payload?.inv_discountAmount)
@@ -251,6 +252,7 @@ export default function InvoiceBulkImport({
       const buyerBankAccount = cleanText(row.buyerBankAccount)
       const buyerBankName = cleanText(row.buyerBankName)
       const paymentMethod = cleanText(row.paymentMethod) || "CK"
+      const note = cleanText(row.note)
       const currency = cleanText(row.currency) || "VND"
       const exchangeRate = toExcelNumber(row.exchangeRate) || 1
       const rawQuantity = cleanText(row.quantity)
@@ -417,6 +419,7 @@ export default function InvoiceBulkImport({
               inv_buyerAddressLine: buyerAddress,
               inv_buyerBankAccount: buyerBankAccount,
               inv_buyerBankName: bank?.inv_buyerBankName || buyerBankName,
+              inv_note: note,
               so_benh_an: "",
               key_api: "",
               cccdan: cleanText(row.cccdan),
@@ -471,6 +474,7 @@ export default function InvoiceBulkImport({
         buyerAddress,
         invoiceSeries,
         invoiceDate,
+        note,
         totalBeforeTax,
         vatAmount,
         totalAmount,
@@ -532,7 +536,7 @@ export default function InvoiceBulkImport({
       inputRef.current.value = ""
     }
   }
-//hàm tải excel
+  //hàm tải excel
   const handleDownloadTemplate = () => {
     try {
       const fields: Array<keyof typeof COLUMN_ALIASES> = [
@@ -541,6 +545,7 @@ export default function InvoiceBulkImport({
         "writeDifference",
         "writeDifferenceFee",
         "itemType",
+        "note",
         "discountPercentage",
         "discountAmount",
       ]
@@ -614,7 +619,7 @@ export default function InvoiceBulkImport({
 
       importSheet["!cols"] = fields.map((field) => ({
         wch:
-          field === "buyerAddress"
+          field === "buyerAddress" || field === "note"
             ? 32
             : field === "buyerCompany" || field === "productCode"
               ? 26
@@ -780,6 +785,7 @@ export default function InvoiceBulkImport({
         paymentMethod: cleanText(
           pickCellValue(row, headerIndex, COLUMN_ALIASES.paymentMethod)
         ),
+        note: cleanText(pickCellValue(row, headerIndex, COLUMN_ALIASES.note)),
         discountPercentage: cleanText(
           pickCellValue(row, headerIndex, COLUMN_ALIASES.discountPercentage)
         ),
@@ -926,9 +932,7 @@ export default function InvoiceBulkImport({
         return
       }
 
-      showSuccessMessage(
-        `Đã tạo thành công ${successCount} hóa đơn.`
-      )
+      showSuccessMessage(`Đã tạo thành công ${successCount} hóa đơn.`)
 
       setTimeout(() => {
         onBack()
@@ -1339,7 +1343,7 @@ export default function InvoiceBulkImport({
               onWheel={handlePreviewWheel}
               className="relative isolate mt-5 max-h-[600px] cursor-grab overflow-auto overscroll-contain rounded-2xl border border-slate-200 [scrollbar-color:#cbd5e1_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb:hover]:bg-slate-400 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar]:w-2"
             >
-              <table className="min-w-[2600px] text-sm">
+              <table className="min-w-[2850px] text-sm">
                 <thead className="bg-slate-50 text-slate-700">
                   <tr>
                     <th className="w-[60px] whitespace-nowrap border-b border-slate-200 px-3 py-3 text-center font-semibold">
@@ -1371,6 +1375,9 @@ export default function InvoiceBulkImport({
                     </th>
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-left font-semibold">
                       Ngày kích hoạt
+                    </th>
+                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-left font-semibold">
+                      Ghi chú
                     </th>
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-right font-semibold">
                       Số lượng
@@ -1601,6 +1608,20 @@ export default function InvoiceBulkImport({
                               disabled={rowDisabled}
                             />
                           </div>
+                        </td>
+                        <td className="border-b border-slate-100 px-3 py-3 align-top">
+                          <input
+                            value={cleanText(sourceRow?.note || row.note)}
+                            onChange={(event) =>
+                              updateImportRow(
+                                row.id,
+                                "note",
+                                event.target.value
+                              )
+                            }
+                            disabled={rowDisabled}
+                            className="h-8 w-64 rounded border border-slate-300 bg-white px-2 text-xs text-slate-800 outline-none focus:border-indigo-500 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500"
+                          />
                         </td>
                         <td className="border-b border-slate-100 px-3 py-3 align-top">
                           <input
