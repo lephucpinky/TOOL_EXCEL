@@ -259,6 +259,8 @@ export default function InvoiceBulkImport({
       const quantity = roundInvoiceMoney(toExcelNumber(row.quantity))
       const rawDiscountPercentage = cleanText(row.discountPercentage)
       const excelDiscountPercentage = toExcelNumber(row.discountPercentage)
+      const rawDiscountAmount = cleanText(row.discountAmount)
+      const hasDiscountAmount = rawDiscountAmount !== ""
       const discountAmount = roundInvoiceMoney(
         toExcelNumber(row.discountAmount)
       )
@@ -299,18 +301,16 @@ export default function InvoiceBulkImport({
         Math.max(Number(agency?.commissionPercent || 0), 0),
         100
       )
-      const invoiceDiscountPercentage =
-        discountAmount > 0
-          ? 0
-          : rawDiscountPercentage
-            ? Math.min(Math.max(excelDiscountPercentage, 0), 100)
-            : agencyDiscountPercentage
-      const invoiceDiscountAmount =
-        discountAmount > 0
-          ? discountAmount
-          : roundInvoiceMoney(
-              (invoiceTotalAmount * invoiceDiscountPercentage) / 100
-            )
+      const invoiceDiscountPercentage = hasDiscountAmount
+        ? 0
+        : rawDiscountPercentage
+          ? Math.min(Math.max(excelDiscountPercentage, 0), 100)
+          : agencyDiscountPercentage
+      const invoiceDiscountAmount = hasDiscountAmount
+        ? discountAmount
+        : roundInvoiceMoney(
+            (invoiceTotalAmount * invoiceDiscountPercentage) / 100
+          )
       const invoiceRevenue = roundInvoiceMoney(
         Math.max(invoiceTotalAmount - invoiceDiscountAmount, 0)
       )
@@ -789,7 +789,7 @@ export default function InvoiceBulkImport({
         discountPercentage: cleanText(
           pickCellValue(row, headerIndex, COLUMN_ALIASES.discountPercentage)
         ),
-        discountAmount: toExcelNumber(
+        discountAmount: cleanText(
           pickCellValue(row, headerIndex, COLUMN_ALIASES.discountAmount)
         ),
         totalBeforeTax: toExcelNumber(
