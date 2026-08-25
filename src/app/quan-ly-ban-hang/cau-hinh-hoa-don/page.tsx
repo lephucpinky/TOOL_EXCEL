@@ -413,7 +413,7 @@ export default function ReceiptInvoiceConfigPage() {
               <input
                 disabled={isViewMode}
                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
-                placeholder="Ví dụ: 1C26MZZ"
+                placeholder="Ví dụ: 1C26THD"
                 {...register("inv_invoiceSeries", {
                   required: "Vui lòng nhập ký hiệu hóa đơn",
                   validate: (value) =>
@@ -436,7 +436,7 @@ export default function ReceiptInvoiceConfigPage() {
               <input
                 disabled={isViewMode}
                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-500"
-                placeholder="Ví dụ: 0106026495-999"
+                placeholder="Ví dụ: 0106026495-001"
                 {...register("tax_code", {
                   required: "Vui lòng nhập mã số thuế",
                   validate: (value) =>

@@ -4,9 +4,9 @@ import { ReceiptInvoiceConfig } from "@/types/receiptInvoice"
 
 export const FIXED_RECEIPT_INVOICE_CONFIG: ReceiptInvoiceConfig = {
   _id: "fixed-receipt-config-1c26mzz",
-  inv_invoiceSeries: "1C26MZZ",
-  tax_code: "0106026495-999",
-  description: "MST: 0106026495-999",
+  inv_invoiceSeries: "1C26THD",
+  tax_code: "0106026495-001",
+  description: "MST: 0106026495-001",
 }
 
 export function getFixedReceiptInvoiceConfig(): ReceiptInvoiceConfig {
