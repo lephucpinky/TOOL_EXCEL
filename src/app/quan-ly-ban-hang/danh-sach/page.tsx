@@ -769,6 +769,14 @@ export default function InvoiceListPage() {
                         jobStatus.invoiceStatus || jobStatus.jobState
                       )
 
+              console.log("[M_INVOICE_EXPORT][JOB_STATUS_PARSED]", {
+                saleTransactionId,
+                jobId,
+                pollIndex: index,
+                jobStatus,
+                invoiceStatus: jobInvoiceStatus,
+              })
+
               if (
                 jobInvoiceStatus !== InvoiceStatus.ISSUED &&
                 jobInvoiceStatus !== InvoiceStatus.FAILED
@@ -1358,7 +1366,7 @@ export default function InvoiceListPage() {
       setCollectPaymentBankId(
         existingAmountCollected > 0
           ? currentBankId || defaultBank?._id || ""
-          : defaultBank?._id || ""
+          : ""
       )
       setCollectPaymentDate(getInvoicePaidDateInput(nextTarget))
       setCollectPaymentAmount(
@@ -1494,6 +1502,7 @@ export default function InvoiceListPage() {
           payload: {
             amountCollected: isClearingPayment ? 0 : paidAmount,
             paidDate: isClearingPayment ? null : paidDate,
+            bankId: isClearingPayment ? null : undefined,
             inv_buyerBankName: isClearingPayment ? "" : undefined,
             items: paymentItems,
           },
@@ -1652,9 +1661,7 @@ export default function InvoiceListPage() {
         throw new Error("Cập nhật ngân hàng thất bại!")
       }
 
-      const allowPaymentUpdate =
-        Boolean(editingInvoice?._id) &&
-        invoiceHelper.getInvoiceStatus(editingInvoice) === InvoiceStatus.ISSUED
+      const allowPaymentUpdate = Boolean(editingInvoice?._id)
 
       const body = buildCreateInvoiceApiBody(payload, {
         includePayment: allowPaymentUpdate,
@@ -1674,7 +1681,12 @@ export default function InvoiceListPage() {
         const refreshedDetail = editingInvoice?._id
           ? detail
           : (await dispatch(
-              fetchSaleTransactionByIdThunk(detail._id)
+              updateSaleTransactionThunk({
+                id: detail._id,
+                payload: buildCreateInvoiceApiBody(payload, {
+                  includePayment: true,
+                }),
+              })
             ).unwrap()) || detail
 
         const nextDetail = mergeInvoicePaymentState(
@@ -2076,6 +2088,11 @@ export default function InvoiceListPage() {
           successMessage: "Đã xuất hóa đơn thành công.",
         }
       )
+      console.log("[M_INVOICE_EXPORT][LIST_RESULT]", {
+        saleTransactionId: row._id,
+        response,
+        exportResult,
+      })
       const resultSource = exportResult?.source || response
       const status =
         exportResult?.status ||

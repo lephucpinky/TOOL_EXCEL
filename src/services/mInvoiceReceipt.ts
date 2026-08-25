@@ -62,6 +62,12 @@ export const APIExportMInvoiceReceiptPost = async (
     }
   )
 
+  console.log("[M_INVOICE_EXPORT][CREATE_RESPONSE]", {
+    saleTransactionId: payload.saleTransactionId,
+    httpStatus: response.status,
+    data: response.data,
+  })
+
   return response.data
 }
 
@@ -115,6 +121,12 @@ export const APIGetMInvoiceReceiptJobStatus = async (jobId: string) => {
       },
     }
   )
+
+  console.log("[M_INVOICE_EXPORT][JOB_STATUS_RESPONSE]", {
+    jobId: normalizedJobId,
+    httpStatus: response.status,
+    data: response.data,
+  })
 
   return response.data
 }

@@ -1324,11 +1324,6 @@ export default function InvoiceCreateForm({
 
     setFieldErrors({})
 
-    if (general.isPaid && !general.paidDate) {
-      showErrorMessage("Vui lòng chọn ngày thu tiền.")
-      return null
-    }
-
     if (!general.companyName.trim()) {
       showErrorMessage("Vui lòng nhập Tên công ty.")
       return null
@@ -1359,7 +1354,7 @@ export default function InvoiceCreateForm({
       agencyId,
       employeeId: employeeId || undefined,
       amountCollected: effectivePaidAmount,
-      paidDate: general.isPaid ? general.paidDate : null,
+      paidDate: general.paidDate || null,
 
       inv_buyerTaxCode: buyerTaxCode,
       inv_buyerLegalName: general.companyName.trim(),
@@ -1545,6 +1540,11 @@ export default function InvoiceCreateForm({
         response,
         fallbackRow
       )) as any
+      console.log("[M_INVOICE_EXPORT][FORM_RESULT]", {
+        saleTransactionId: initialInvoice._id,
+        response,
+        exportResult,
+      })
       const responseContent = response?.content
       const responseInfo = String(response?.info || responseContent?.info || "")
         .trim()

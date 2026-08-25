@@ -17,9 +17,13 @@ export function buildCreateInvoiceApiBody(
     payload.paidDate === undefined
       ? undefined
       : String(payload.paidDate ?? "").trim()
+  const body = { ...payload }
+
+  if (!includeId) delete body._id
+  if (!includePayment) delete body.paidDate
 
   return {
-    ...payload,
+    ...body,
     ...(includeId ? { _id: String(payload._id || "").trim() } : {}),
     activationDate: payload.activationDate || null,
     inv_invoiceSeries: String(payload.inv_invoiceSeries || "").trim(),

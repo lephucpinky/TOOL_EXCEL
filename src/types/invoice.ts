@@ -58,7 +58,7 @@ export type InvoiceApiRow = {
 
   invoiceStatus?: InvoiceStatus
   invoiceStatusVi?: string
-  bankId?: Bank | string
+  bankId?: Bank | string | null
   invoiceNumber?: number
   activationDate?: string | null // tạo và update được
   inv_invoiceCreatedId?: string
