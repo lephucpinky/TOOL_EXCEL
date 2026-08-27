@@ -71,13 +71,28 @@ export async function exportXuatHoaDonXlsx({
 
   const workbook = cloneWorkbook(templateWorkbook)
   const dealerName = String(filter?.dealerName ?? "__ALL__").trim()
+  const wantedDealer = normalize(dealerName)
 
   const filteredRows = salesRows.filter((row: any) => {
     const dealerValue = String(
-      pickField(row, ["Đại Lý", "ĐẠI LÝ", "Tên đại lý"]) ?? ""
+      pickField(row, [
+        "Tên đại lý",
+        "Đại lý",
+        "Danh mục đại lý",
+        "Ten Dai Ly",
+        "Dai Ly",
+        "Danh Muc Dai Ly",
+        "Dealer",
+        "Agency",
+        "CTV",
+      ]) ?? ""
     ).trim()
 
-    return dealerName === "__ALL__" || !dealerName || dealerValue === dealerName
+    return (
+      dealerName === "__ALL__" ||
+      !dealerName ||
+      normalize(dealerValue) === wantedDealer
+    )
   })
 
   if (filteredRows.length === 0) {

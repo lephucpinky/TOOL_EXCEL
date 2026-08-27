@@ -33,6 +33,7 @@ export const buildXuatHDSheet = ({
   salesHeaders,
   dataRows,
   dealerName,
+  month,
   signDate,
 }: XuatHDBuildInput) => {
   const sheetName = pickSheetNameXuatHD(workbook, templateSheetName)
@@ -49,7 +50,12 @@ export const buildXuatHDSheet = ({
 
   clearDataBlockXuatHD(ws, rows)
   setColumnWidthsXuatHD(ws)
-  applyHeaderDealerMonthXuatHD(ws, dealerName)
+  const reportMonth =
+    month ??
+    dataRows.find(
+      (row) => String(row?.[headerMap.NGAY_PHAT_SINH] ?? "").trim() !== ""
+    )?.[headerMap.NGAY_PHAT_SINH]
+  applyHeaderDealerMonthXuatHD(ws, dealerName, reportMonth)
 
   fillDataRowsXuatHD(ws, rows, dataRows, headerMap)
   applyTotalRowXuatHD(ws, rows, dataRows.length)

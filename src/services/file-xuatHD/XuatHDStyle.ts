@@ -127,9 +127,7 @@ const setRowHeight = (ws: XLSX.WorkSheet, r0: number, hpt: number) => {
 
 const isNumberCol = (c0: number) =>
   [
-    COL_XUATHD.BAN_QUYEN,
     COL_XUATHD.SO_LUONG,
-    COL_XUATHD.GOI_HOA_DON,
     COL_XUATHD.DT_KHAC,
     COL_XUATHD.GIA_TRI_HOA_DON,
     COL_XUATHD.GIA_MINV_THU_VE,
@@ -143,7 +141,7 @@ const getHorizontalAlign = (c0: number): "left" | "center" | "right" => {
 
   if (
     c0 === COL_XUATHD.STT ||
-    c0 === COL_XUATHD.THANG_PHAT_SINH ||
+    c0 === COL_XUATHD.NGAY_PHAT_SINH ||
     c0 === COL_XUATHD.MA_SO_THUE ||
     c0 === COL_XUATHD.LOAI_SP
   ) {
@@ -351,7 +349,7 @@ export const applyTemplateVisualStyleXuatHD = (
   setRowHeight(ws, signDateRow, 22)
   setRowHeight(ws, signTitleRow, 22)
 
-  for (let c0 = 9; c0 <= 14; c0++) {
+  for (let c0 = COL_XUATHD.GIA_TRI_HOA_DON; c0 <= COL_XUATHD.GHI_CHU; c0++) {
     setCellStyle(ws, signDateRow, c0, {
       font: { ...fontBase, italic: true },
       alignment: { horizontal: "center", vertical: "bottom", wrapText: true },
@@ -359,7 +357,7 @@ export const applyTemplateVisualStyleXuatHD = (
     })
   }
 
-  for (let c0 = 2; c0 <= 14; c0++) {
+  for (let c0 = 2; c0 <= COL_XUATHD.GHI_CHU; c0++) {
     setCellStyle(ws, signTitleRow, c0, {
       font: fontBold,
       alignment: { horizontal: "center", vertical: "bottom", wrapText: true },
@@ -383,7 +381,8 @@ export const setColumnWidthsXuatHD = (ws: XLSX.WorkSheet) => {
 
 export const applyHeaderDealerMonthXuatHD = (
   ws: XLSX.WorkSheet,
-  dealerName: string
+  dealerName: string,
+  month?: string | number | Date
 ) => {
   const titlePos = findCellByText(ws, ["bảng đối soát đại lý"], 20) || {
     r0: 4,
@@ -395,6 +394,44 @@ export const applyHeaderDealerMonthXuatHD = (
     titlePos.r0,
     titlePos.c0,
     `BẢNG ĐỐI SOÁT ĐẠI LÝ: ${dealerName || ""}`.trim()
+  )
+
+  const monthPos = findCellByText(ws, ["tháng"], 20) || { r0: 5, c0: 0 }
+  let monthText = ""
+
+  if (month instanceof Date && !Number.isNaN(month.getTime())) {
+    monthText = `${String(month.getMonth() + 1).padStart(
+      2,
+      "0"
+    )}/${month.getFullYear()}`
+  } else if (typeof month === "number" && Number.isFinite(month)) {
+    const parsed = XLSX.SSF.parse_date_code(month)
+    if (parsed) {
+      monthText = `${String(parsed.m).padStart(2, "0")}/${parsed.y}`
+    } else if (month >= 1 && month <= 12) {
+      monthText = String(month).padStart(2, "0")
+    }
+  } else {
+    const raw = String(month ?? "").trim()
+    const vietnameseDate = raw.match(
+      /^(?:\d{1,2}[/-])?(\d{1,2})[/-](\d{4})(?:\D|$)/
+    )
+    const isoDate = raw.match(/^\d{4}[/-](\d{1,2})(?:[/-]\d{1,2})?(?:\D|$)/)
+
+    if (vietnameseDate) {
+      monthText = `${vietnameseDate[1].padStart(2, "0")}/${vietnameseDate[2]}`
+    } else if (isoDate) {
+      monthText = `${isoDate[1].padStart(2, "0")}/${raw.slice(0, 4)}`
+    } else {
+      monthText = raw.replace(/^THÁNG\s*/i, "")
+    }
+  }
+
+  setCellValueKeepStyle(
+    ws,
+    monthPos.r0,
+    monthPos.c0,
+    monthText ? `THÁNG ${monthText}` : "THÁNG"
   )
 }
 
@@ -409,7 +446,7 @@ export const applySignDateXuatHD = (
 
   const signPos =
     typeof row0 === "number" && row0 >= 0
-      ? { r0: row0, c0: 9 }
+      ? { r0: row0, c0: COL_XUATHD.GIA_TRI_HOA_DON }
       : findCellByText(ws, ["hcm, ngày", "hà nội, ngày"], 500)
 
   if (!signPos) return
@@ -450,9 +487,7 @@ export const formatAllNumbersXuatHD = (
   }
 ) => {
   const numberCols = [
-    COL_XUATHD.BAN_QUYEN,
     COL_XUATHD.SO_LUONG,
-    COL_XUATHD.GOI_HOA_DON,
     COL_XUATHD.DT_KHAC,
     COL_XUATHD.GIA_TRI_HOA_DON,
     COL_XUATHD.GIA_MINV_THU_VE,

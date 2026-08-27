@@ -59,9 +59,6 @@ const getLastCol0 = (ws: XLSX.WorkSheet) => {
     last = Math.max(last, rng.e.c)
   }
 
-  const cols: any[] = (ws as any)["!cols"] || []
-  if (cols.length) last = Math.max(last, cols.length - 1)
-
   const merges: XLSX.Range[] = (ws as any)["!merges"] || []
   for (const m of merges) last = Math.max(last, m.e.c)
 
@@ -121,26 +118,44 @@ const shiftRowsDown = (
   setRefRange(ws, rng.e.r + offset, endCol0)
 }
 
-const dayText = (v: any) => {
+const dateText = (v: any) => {
   if (v == null || v === "") return ""
 
+  if (v instanceof Date && !Number.isNaN(v.getTime())) {
+    return `${String(v.getDate()).padStart(2, "0")}/${String(
+      v.getMonth() + 1
+    ).padStart(2, "0")}/${v.getFullYear()}`
+  }
+
   if (typeof v === "number" && Number.isFinite(v)) {
-    return String(Math.trunc(v))
+    const parsed = XLSX.SSF.parse_date_code(v)
+    if (parsed) {
+      return `${String(parsed.d).padStart(2, "0")}/${String(parsed.m).padStart(
+        2,
+        "0"
+      )}/${parsed.y}`
+    }
+
+    return String(v)
   }
 
   const raw = String(v).trim()
   if (!raw) return ""
 
-  if (/^\d{1,2}$/.test(raw)) return raw
+  const vietnameseDate = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?:\D|$)/)
+  if (vietnameseDate) {
+    return `${vietnameseDate[1].padStart(2, "0")}/${vietnameseDate[2].padStart(
+      2,
+      "0"
+    )}/${vietnameseDate[3]}`
+  }
 
-  const m1 = raw.match(/^T\d+\.(\d{1,2})$/i)
-  if (m1) return m1[1]
-
-  const m2 = raw.match(/(\d{1,2})[/-](\d{1,2})[/-](\d{4})/)
-  if (m2) return m2[1]
-
-  const m3 = raw.match(/(\d{4})[/-](\d{1,2})[/-](\d{1,2})/)
-  if (m3) return m3[3]
+  const isoDate = raw.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})(?:[T\s]|$)/)
+  if (isoDate) {
+    return `${isoDate[3].padStart(2, "0")}/${isoDate[2].padStart(2, "0")}/${
+      isoDate[1]
+    }`
+  }
 
   return raw
 }
@@ -149,28 +164,58 @@ export const buildHeaderMapHD = (salesHeaders: string[]) => {
   const idx = buildSalesIndex(salesHeaders)
   const pick = (...aliases: string[]) => pickHeaderFromIndex(idx, ...aliases)
 
-  const headerAA = salesHeaders?.[26] || ""
-  const hhFromAA =
-    normalize(headerAA) === normalize("HH") ? headerAA : pick("HH")
-
   return {
-    THANG: pick("THÁNG", "THANG"),
-    NGAY_KICH_HOAT: pick("NGÀY KÍCH HOẠT", "NGAY KICH HOAT"),
-    DEALER: pick("Đại Lý", "ĐẠI LÝ", "Dealer", "Tên đại lý"),
+    NGAY_PHAT_SINH: pick(
+      "NGÀY PHÁT SINH",
+      "NGAY PHAT SINH",
+      "NGÀY KÍCH HOẠT",
+      "NGAY KICH HOAT",
+      "THÁNG PHÁT SINH",
+      "THANG PHAT SINH",
+      "THÁNG",
+      "THANG"
+    ),
+    DEALER: pick(
+      "Tên đại lý",
+      "Đại lý",
+      "Danh mục đại lý",
+      "Ten Dai Ly",
+      "Dai Ly",
+      "Danh Muc Dai Ly",
+      "Dealer",
+      "Agency",
+      "CTV"
+    ),
     MST: pick("MST", "Mã số thuế"),
     TEN_CTY: pick("TÊN CTY", "TÊN CÔNG TY", "TÊN ĐƠN VỊ"),
-    TIEU_DE: pick("TIÊU ĐỀ", "TIEU DE"),
-    TEN_SP: pick("TÊN SP", "TEN SP"),
-    BQ: pick("BQ", "BẢN QUYỀN"),
-    SL_MOI: pick("SL MỚI", "SL MOI"),
-    SL_GH: pick("SL GH", "SLGH"),
-    SL_TANG: pick("SL TẶNG", "SL TANG"),
-    GOI_HOA_DON: pick("GÓI HÓA ĐƠN", "GOI HOA DON", "GÓI HĐ"),
-    KHAC: pick("KHÁC", "KHAC"),
-    GIA_TRI_HOA_DON: pick("TỔNG XUẤT HĐ", "tổng xuất hoá đơn"),
-    DT_MINVOICE: pick("DT MINVOICE", "DT_MINVOICE"),
-    SO_TIEN: pick("SỐ TIỀN", "SO TIEN", "TIỀN THU", "TIEN THU"),
-    HH: hhFromAA,
+    LOAI_SAN_PHAM: pick("MÃ SẢN PHẨM", "MA SAN PHAM"),
+    SO_LUONG: pick("SỐ LƯỢNG", "SO LUONG", "SOLUONG", "SL"),
+    DT_KHAC: pick("DT KHÁC", "DT KHAC", "DOANH THU KHÁC", "KHÁC", "KHAC"),
+    GIA_TRI_HOA_DON: pick(
+      "TỔNG TIỀN SAU THUẾ",
+      "TONG TIEN SAU THUE",
+      "TIỀN SAU THUẾ",
+      "TIEN SAU THUE",
+      "TỔNG XUẤT HĐ",
+      "TỔNG XUẤT HÓA ĐƠN"
+    ),
+    HOA_HONG_DL: pick("CHIẾT KHẤU", "CHIET KHAU", "HOA HỒNG ĐL", "HOA HONG DL"),
+    SO_TIEN: pick(
+      "SỐ TIỀN",
+      "SO TIEN",
+      "SOTIEN",
+      "SỐ TIỀN THU",
+      "SO TIEN THU",
+      "TIỀN THU",
+      "TIEN THU",
+      "M-INV ĐÃ THU",
+      "M INV DA THU",
+      "MINV DA THU",
+      "M-INVOICE ĐÃ THU",
+      "M INVOICE DA THU",
+      "THU TIỀN",
+      "THU TIEN"
+    ),
     GHI_CHU_SRC: pick("CHI CHÚ", "CHI CHU", "GHI CHÚ", "GHI CHU"),
   }
 }
@@ -179,18 +224,15 @@ export const validateHeaderMapHD = (H: ReturnType<typeof buildHeaderMapHD>) => {
   const missing: string[] = []
 
   ;[
-    ["THÁNG", H.THANG],
-    ["NGÀY KÍCH HOẠT", H.NGAY_KICH_HOAT],
+    ["NGÀY PHÁT SINH", H.NGAY_PHAT_SINH],
     ["Đại Lý", H.DEALER],
     ["MST", H.MST],
     ["TÊN CTY", H.TEN_CTY],
-    ["TIÊU ĐỀ", H.TIEU_DE],
-    ["BQ", H.BQ],
-    ["GÓI HÓA ĐƠN", H.GOI_HOA_DON],
-    ["KHÁC", H.KHAC],
-    ["TỔNG XUẤT HĐ", H.GIA_TRI_HOA_DON],
-    ["DT MINVOICE", H.DT_MINVOICE],
-    ["HH", H.HH],
+    ["LOẠI SẢN PHẨM", H.LOAI_SAN_PHAM],
+    ["SỐ LƯỢNG", H.SO_LUONG],
+    ["TỔNG TIỀN SAU THUẾ", H.GIA_TRI_HOA_DON],
+    ["CHIẾT KHẤU", H.HOA_HONG_DL],
+    ["SỐ TIỀN", H.SO_TIEN],
   ].forEach(([label, value]) => {
     if (!value) missing.push(label as string)
   })
@@ -205,10 +247,16 @@ export const validateHeaderMapHD = (H: ReturnType<typeof buildHeaderMapHD>) => {
 
 export const resolveTemplateRowsXuatHD = (ws: XLSX.WorkSheet) => {
   const rTotal = findTitleRowA(ws, "CỘNG", { startsWith: true, scanRows: 200 })
-  const rHeaderTitle = findRowContains(ws, "NGÀY PHÁT SINH", {
+  let rHeaderTitle = findRowContains(ws, "NGÀY PHÁT SINH", {
     scanRows: 30,
     scanCols: 20,
   })
+  if (rHeaderTitle < 0) {
+    rHeaderTitle = findRowContains(ws, "THÁNG PHÁT SINH", {
+      scanRows: 30,
+      scanCols: 20,
+    })
+  }
 
   const resolved = {
     rHeaderTitle: rHeaderTitle >= 0 ? rHeaderTitle : 7,
@@ -304,63 +352,39 @@ export const fillDataRowsXuatHD = (
     const r0 = rows.rDataStart + i
     const row = dataRows[i]
 
-    const loaiSP = pickStr(row, H.TIEU_DE).trim()
-    const isCKS = normalize(loaiSP) === normalize("CKS")
-
-    const slMoi = toNumber(pickRaw(row, H.SL_MOI))
-    const slGh = toNumber(pickRaw(row, H.SL_GH))
-    const slTang = toNumber(pickRaw(row, H.SL_TANG))
-
-    let soLuong = slMoi + slGh + slTang
-
-    const banQuyen = isCKS ? 0 : toNumber(pickRaw(row, H.BQ))
-    const goiHoaDon = toNumber(pickRaw(row, H.GOI_HOA_DON))
-    const dtKhac = toNumber(pickRaw(row, H.KHAC))
-    const giaTriNiemYet = banQuyen + goiHoaDon + dtKhac
-
+    const loaiSP = pickStr(row, H.LOAI_SAN_PHAM).trim()
+    const soLuong = toNumber(pickRaw(row, H.SO_LUONG))
+    const dtKhac = toNumber(pickRaw(row, H.DT_KHAC))
     const giaTriTheoHoaDon = toNumber(pickRaw(row, H.GIA_TRI_HOA_DON))
-    const giaMinvThuVe = toNumber(pickRaw(row, H.DT_MINVOICE))
-    const hoaHongDL = giaTriTheoHoaDon - giaMinvThuVe
+    const hoaHongDL = toNumber(pickRaw(row, H.HOA_HONG_DL))
+    const giaMinvThuVe = giaTriTheoHoaDon - hoaHongDL
     const congNoThuKhach = toNumber(pickRaw(row, H.SO_TIEN))
-    if (soLuong <= 0 && giaTriNiemYet > 0) soLuong = 1
 
     setNumberKeepStyle(ws, r0, COL_XUATHD.STT, i + 1)
     setTextKeepStyle(
       ws,
       r0,
-      COL_XUATHD.THANG_PHAT_SINH,
-      dayText(pickRaw(row, H.THANG))
+      COL_XUATHD.NGAY_PHAT_SINH,
+      dateText(pickRaw(row, H.NGAY_PHAT_SINH))
     )
     setTextKeepStyle(ws, r0, COL_XUATHD.MA_SO_THUE, pickStr(row, H.MST))
     setTextKeepStyle(ws, r0, COL_XUATHD.TEN_DON_VI, pickStr(row, H.TEN_CTY))
     setTextKeepStyle(ws, r0, COL_XUATHD.LOAI_SP, loaiSP)
 
-    if (isCKS) {
-      setTextKeepStyle(ws, r0, COL_XUATHD.BAN_QUYEN, "")
-    } else {
-      setNumberKeepStyle(ws, r0, COL_XUATHD.BAN_QUYEN, banQuyen)
-    }
-
     setNumberKeepStyle(ws, r0, COL_XUATHD.SO_LUONG, soLuong)
-    setNumberKeepStyle(ws, r0, COL_XUATHD.GOI_HOA_DON, goiHoaDon)
     setNumberKeepStyle(ws, r0, COL_XUATHD.DT_KHAC, dtKhac)
 
-    setFormulaKeepStyle(
-      ws,
-      r0,
-      COL_XUATHD.GIA_TRI_HOA_DON,
-      pickStr(row, H.GIA_TRI_HOA_DON)
-    )
+    setNumberKeepStyle(ws, r0, COL_XUATHD.GIA_TRI_HOA_DON, giaTriTheoHoaDon)
 
-    setNumberKeepStyle(ws, r0, COL_XUATHD.GIA_MINV_THU_VE, giaMinvThuVe)
     setFormulaKeepStyle(
       ws,
       r0,
-      COL_XUATHD.HOA_HONG_DL,
-      `=${addrRC(r0, COL_XUATHD.GIA_TRI_HOA_DON)}-${addrRC(r0, COL_XUATHD.GIA_MINV_THU_VE)}`,
+      COL_XUATHD.GIA_MINV_THU_VE,
+      `=${addrRC(r0, COL_XUATHD.GIA_TRI_HOA_DON)}-${addrRC(r0, COL_XUATHD.HOA_HONG_DL)}`,
       NUM_PARENS_FMT,
-      hoaHongDL
+      giaMinvThuVe
     )
+    setNumberKeepStyle(ws, r0, COL_XUATHD.HOA_HONG_DL, hoaHongDL)
     setNumberKeepStyle(ws, r0, COL_XUATHD.CONG_NO_THU_KHACH, congNoThuKhach)
 
     setFormulaKeepStyle(
@@ -372,16 +396,15 @@ export const fillDataRowsXuatHD = (
         COL_XUATHD.CONG_NO_THU_KHACH
       )}`,
       NUM_PARENS_FMT,
-      giaTriNiemYet - congNoThuKhach
+      giaTriTheoHoaDon - congNoThuKhach
     )
 
-    const ghiChu = isCKS
-      ? String(
-          pickRaw(row, H.GHI_CHU_SRC) || pickRaw(row, H.TEN_SP) || ""
-        ).trim()
-      : ""
-
-    setTextKeepStyle(ws, r0, COL_XUATHD.GHI_CHU, ghiChu)
+    setTextKeepStyle(
+      ws,
+      r0,
+      COL_XUATHD.GHI_CHU,
+      pickStr(row, H.GHI_CHU_SRC).trim()
+    )
   }
 }
 

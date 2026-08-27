@@ -219,13 +219,6 @@ const EXACT_MATCH_COLUMN_KEYS = new Set<InvoiceColumnFilterKey>([
   "paidDate",
 ])
 
-function getInvoiceStatusDisplayLabel(invoice: InvoiceApiRow) {
-  return (
-    String(invoice.invoiceStatusVi || "").trim() ||
-    invoiceHelper.invoiceStatusLabel[invoiceHelper.getInvoiceStatus(invoice)]
-  )
-}
-
 function getInvoiceCreationStatus(invoice: InvoiceApiRow) {
   const status = invoiceHelper.getInvoiceStatus(invoice)
 
@@ -998,7 +991,7 @@ export default function InvoiceDataTable({
         getProductCode(product),
         getProductName(product),
         invoice.inv_invoiceCreatedId,
-        getInvoiceStatusDisplayLabel(invoice),
+        invoiceHelper.invoiceStatusLabel[invoiceStatus],
         invoice.note,
       ]
         .filter(Boolean)
@@ -1347,14 +1340,30 @@ export default function InvoiceDataTable({
       key: "exportInvoiceStatus",
       title: "Trạng thái xuất HĐ",
       sortable: true,
-      sortValue: (invoice) => getInvoiceStatusDisplayLabel(invoice),
+      sortValue: (invoice) =>
+        invoiceHelper.invoiceStatusLabel[invoiceHelper.getInvoiceStatus(invoice)],
       filter: renderColumnFilter("exportInvoiceStatus", "Trạng thái xuất HĐ", {
         options: [
-          { value: InvoiceStatus.DRAFT, label: "Nháp" },
-          { value: InvoiceStatus.ISSUING, label: "Đang xuất hóa đơn" },
-          { value: InvoiceStatus.ISSUED, label: "Đã xuất hóa đơn" },
-          { value: InvoiceStatus.FAILED, label: "Xuất thất bại" },
-          { value: InvoiceStatus.CANCELLED, label: "Đã huỷ" },
+          {
+            value: InvoiceStatus.DRAFT,
+            label: invoiceHelper.invoiceStatusLabel[InvoiceStatus.DRAFT],
+          },
+          {
+            value: InvoiceStatus.ISSUING,
+            label: invoiceHelper.invoiceStatusLabel[InvoiceStatus.ISSUING],
+          },
+          {
+            value: InvoiceStatus.ISSUED,
+            label: invoiceHelper.invoiceStatusLabel[InvoiceStatus.ISSUED],
+          },
+          {
+            value: InvoiceStatus.FAILED,
+            label: invoiceHelper.invoiceStatusLabel[InvoiceStatus.FAILED],
+          },
+          {
+            value: InvoiceStatus.CANCELLED,
+            label: invoiceHelper.invoiceStatusLabel[InvoiceStatus.CANCELLED],
+          },
         ],
       }),
       className: "whitespace-nowrap text-center min-w-[160px]",
@@ -1366,7 +1375,7 @@ export default function InvoiceDataTable({
           <span
             className={`inline-flex min-w-[110px] justify-center rounded-full border px-2.5 py-1 text-xs font-semibold ${invoiceHelper.invoiceStatusClass[status]}`}
           >
-            {getInvoiceStatusDisplayLabel(invoice)}
+            {invoiceHelper.invoiceStatusLabel[status]}
           </span>
         )
       },

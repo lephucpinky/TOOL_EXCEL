@@ -239,9 +239,6 @@ export default function InvoiceCreateForm({
   exportInvoiceMaxDate = today,
 }: Props) {
   const invoiceStatus = getInvoiceStatus(initialInvoice)
-  const invoiceStatusDisplayLabel =
-    String(initialInvoice?.invoiceStatusVi || "").trim() ||
-    invoiceStatusLabel[invoiceStatus]
   const isDraftInvoice = invoiceStatus === InvoiceStatus.DRAFT
   const isIssuedInvoice = invoiceStatus === InvoiceStatus.ISSUED
   const isIssuingInvoice = invoiceStatus === InvoiceStatus.ISSUING
@@ -1669,7 +1666,7 @@ export default function InvoiceCreateForm({
             <span
               className={`rounded-full border px-3 py-1 text-xs font-semibold ${invoiceStatusClass[invoiceStatus]}`}
             >
-              {invoiceStatusDisplayLabel}
+              {invoiceStatusLabel[invoiceStatus]}
             </span>
           </div>
 
