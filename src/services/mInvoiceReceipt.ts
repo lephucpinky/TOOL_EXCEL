@@ -36,10 +36,17 @@ export type MInvoiceReceiptJobStatus = {
 }
 
 export type MInvoiceReceiptCompanyInfo = {
-  ma_so_thue?: string
-  ten_cty?: string
-  dia_chi?: string
-  [key: string]: unknown
+  ma_so_thue: string
+  ten_cty: string
+  dia_chi: string
+}
+
+type MInvoiceReceiptCompanyInfoResponse = {
+  code: number
+  info: string
+  content: {
+    data: MInvoiceReceiptCompanyInfo
+  }
 }
 
 export const APIExportMInvoiceReceiptPost = async (
@@ -91,19 +98,15 @@ export const APIUpdateMInvoiceReceiptPost = async (
 }
 
 export const APIGetMInvoiceReceiptPostCompanyInfo = async (taxCode: string) => {
-  const normalizedTaxCode = String(taxCode || "").trim()
-
-  if (!normalizedTaxCode) {
+  if (!taxCode) {
     throw new Error("Thiếu mã số thuế để tra cứu thông tin doanh nghiệp.")
   }
 
-  const response = await axiosInstance.get<MInvoiceReceiptCompanyInfo>(
-    `/m-invoice-receipt-post/company-info/${encodeURIComponent(
-      normalizedTaxCode
-    )}`
+  const response = await axiosInstance.get<MInvoiceReceiptCompanyInfoResponse>(
+    `/m-invoice-receipt-post/company-info/${encodeURIComponent(taxCode)}`
   )
 
-  return response.data
+  return response.data.content.data
 }
 
 export const APIGetMInvoiceReceiptJobStatus = async (jobId: string) => {

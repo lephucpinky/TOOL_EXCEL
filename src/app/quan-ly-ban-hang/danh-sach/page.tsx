@@ -90,6 +90,7 @@ const NO_INVOICE_EXPORT_RESULT_MESSAGE =
   "Xuất hoá đơn không thành công, vui lòng thử lại sau."
 const INVOICE_PAGE_SIZE_OPTIONS = [50, 100, 200, 300]
 const INVOICE_DEFAULT_LIMIT = 50
+const DEFAULT_COLLECT_PAYMENT_BANK_ID = "6a7d4e07957d7fc6afc8ae6e"
 const INVOICE_FILTER_QUERY_KEYS = [
   "activationDate",
   "issuedDate",
@@ -1355,9 +1356,14 @@ export default function InvoiceListPage() {
         nextBanks.unshift(currentBank)
       }
 
-      const defaultBank = nextBanks.find((bank) =>
-        bank.inv_buyerBankName.trim().toUpperCase().includes("VCB")
-      )
+      const defaultBank =
+        nextBanks.find(
+          (bank) => bank._id === DEFAULT_COLLECT_PAYMENT_BANK_ID
+        ) ??
+        nextBanks.find((bank) => {
+          const bankName = bank.inv_buyerBankName.trim().toUpperCase()
+          return bankName.includes("VCB") || bankName.includes("VIETCOMBANK")
+        })
       const existingAmountCollected = getInvoiceAmountCollected(nextTarget)
       const currentBankId = invoiceHelper.getId(nextTarget.bankId)
 
@@ -1366,7 +1372,7 @@ export default function InvoiceListPage() {
       setCollectPaymentBankId(
         existingAmountCollected > 0
           ? currentBankId || defaultBank?._id || ""
-          : ""
+          : defaultBank?._id || ""
       )
       setCollectPaymentDate(getInvoicePaidDateInput(nextTarget))
       setCollectPaymentAmount(

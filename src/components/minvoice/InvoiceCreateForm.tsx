@@ -15,8 +15,10 @@ import { APIGetAllDepartments } from "@/services/department"
 import { APIGetAllEmployees } from "@/services/employee"
 import { APIGetAllProducts } from "@/services/product"
 import { APIGetBanks } from "@/services/bank"
-import { APIGetCompanyInfo } from "@/services/companyInfo"
-import { APIExportMInvoiceReceiptPost } from "@/services/mInvoiceReceipt"
+import {
+  APIExportMInvoiceReceiptPost,
+  APIGetMInvoiceReceiptPostCompanyInfo,
+} from "@/services/mInvoiceReceipt"
 import { Loader2, Search } from "lucide-react"
 import type { ReceiptInvoiceConfig } from "@/types/receiptInvoice"
 import AlertOption from "../alert/AlertOption"
@@ -420,34 +422,19 @@ export default function InvoiceCreateForm({
   }
 
   const handleLookupCompanyInfo = async () => {
-    if (mainFieldsDisabled || companyInfoLoading) return
+    if (companyInfoLoading || !validateRequiredField("taxCode")) return
 
     const taxCode = general.taxCode.trim()
-    const taxCodeError = getTaxCodeError(taxCode)
-
-    if (taxCodeError) {
-      setFieldErrors((prev) => ({
-        ...prev,
-        taxCode: taxCodeError,
-      }))
-      showErrorMessage(taxCodeError)
-      return
-    }
-
+    setCompanyInfoLoading(true)
     try {
-      setCompanyInfoLoading(true)
-
-      const companyInfo = await APIGetCompanyInfo(taxCode)
+      const { ma_so_thue, ten_cty, dia_chi } =
+        await APIGetMInvoiceReceiptPostCompanyInfo(taxCode)
 
       setGeneral((prev) => ({
         ...prev,
-        taxCode: companyInfo.ma_so_thue,
-        companyName: companyInfo.ten_cty,
-        address: companyInfo.dia_chi,
-      }))
-      setFieldErrors((prev) => ({
-        ...prev,
-        taxCode: undefined,
+        taxCode: ma_so_thue,
+        companyName: ten_cty,
+        address: dia_chi,
       }))
       showSuccessMessage("Tra cứu thông tin doanh nghiệp thành công.")
     } catch (error) {
@@ -2218,6 +2205,7 @@ export default function InvoiceCreateForm({
                     <MoneyInput
                       className={`${inputClass} text-right`}
                       value={item.unitPrice}
+                      allowDecimal
                       disabled={mainFieldsDisabled || item.type === "Tặng"}
                       onValueChange={(value) =>
                         updateItem(item.id, "unitPrice", value)
