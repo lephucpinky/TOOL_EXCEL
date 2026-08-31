@@ -432,9 +432,9 @@ export default function InvoiceCreateForm({
 
       setGeneral((prev) => ({
         ...prev,
-        taxCode: ma_so_thue,
-        companyName: ten_cty,
-        address: dia_chi,
+        taxCode: ma_so_thue || prev.taxCode || "",
+        companyName: ten_cty || prev.companyName || "",
+        address: dia_chi || prev.address || "",
       }))
       showSuccessMessage("Tra cứu thông tin doanh nghiệp thành công.")
     } catch (error) {
@@ -1281,9 +1281,10 @@ export default function InvoiceCreateForm({
       return null
     }
 
-    const buyerEmail = general.email.trim()
-
-    const buyerTaxCode = general.taxCode.trim()
+    const buyerEmail = (general.email || "").trim()
+    const buyerTaxCode = (general.taxCode || "").trim()
+    const buyerCompanyName = (general.companyName || "").trim()
+    const buyerAddress = (general.address || "").trim()
 
     if (!buyerTaxCode) {
       nextFieldErrors.taxCode = taxCodeRequiredMessage
@@ -1308,12 +1309,12 @@ export default function InvoiceCreateForm({
 
     setFieldErrors({})
 
-    if (!general.companyName.trim()) {
+    if (!buyerCompanyName) {
       showErrorMessage("Vui lòng nhập Tên công ty.")
       return null
     }
 
-    if (!general.address.trim()) {
+    if (!buyerAddress) {
       showErrorMessage("Vui lòng nhập Địa chỉ.")
       return null
     }
@@ -1341,11 +1342,11 @@ export default function InvoiceCreateForm({
       paidDate: general.paidDate || null,
 
       inv_buyerTaxCode: buyerTaxCode,
-      inv_buyerLegalName: general.companyName.trim(),
-      inv_buyerDisplayName: general.companyName.trim(),
+      inv_buyerLegalName: buyerCompanyName,
+      inv_buyerDisplayName: buyerCompanyName,
       inv_buyerEmail: buyerEmail,
-      inv_buyerAddressLine: general.address.trim(),
-      inv_note: general.note.trim(),
+      inv_buyerAddressLine: buyerAddress,
+      inv_note: (general.note || "").trim(),
       inv_buyerBankAccount: "",
       inv_buyerBankName: selectedBank?.inv_buyerBankName || "",
 

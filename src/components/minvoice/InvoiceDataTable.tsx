@@ -1284,7 +1284,7 @@ export default function InvoiceDataTable({
       sortable: true,
       sortValue: (invoice) => invoice.invoiceNumber || "",
       filter: renderColumnFilter("invoiceNumber", "Số hoá đơn"),
-      className: "whitespace-nowrap text-center min-w-[150px] ",
+      className: "whitespace-nowrap text-center max-w-[100px] ",
       headerClassName: "text-center",
       render: (invoice) => invoice.invoiceNumber || "-",
     },
@@ -1303,45 +1303,47 @@ export default function InvoiceDataTable({
         return formatDisplayDate(invoice.inv_invoiceIssuedDate)
       },
     },
-    {
-      key: "orderCreateStatus",
-      title: "Trạng thái tạo",
-      sortable: true,
-      sortValue: (invoice) => getInvoiceCreationStatus(invoice),
-      filter: renderColumnFilter("orderCreateStatus", "Trạng thái tạo", {
-        options: [
-          { value: "created", label: "Đã tạo" },
-          { value: "not_created", label: "Chưa tạo" },
-        ],
-      }),
-      className: "whitespace-nowrap text-center min-w-[150px]",
-      headerClassName: "text-center",
-      render: (invoice) => {
-        const creationStatus = getInvoiceCreationStatus(invoice)
-        const isCancelled = creationStatus === "cancelled"
-        const isCreated = creationStatus === "created"
+    // {
+    //   key: "orderCreateStatus",
+    //   title: "Trạng thái tạo",
+    //   sortable: true,
+    //   sortValue: (invoice) => getInvoiceCreationStatus(invoice),
+    //   filter: renderColumnFilter("orderCreateStatus", "Trạng thái tạo", {
+    //     options: [
+    //       { value: "created", label: "Đã tạo" },
+    //       { value: "not_created", label: "Chưa tạo" },
+    //     ],
+    //   }),
+    //   className: "whitespace-nowrap text-center min-w-[150px]",
+    //   headerClassName: "text-center",
+    //   render: (invoice) => {
+    //     const creationStatus = getInvoiceCreationStatus(invoice)
+    //     const isCancelled = creationStatus === "cancelled"
+    //     const isCreated = creationStatus === "created"
 
-        return (
-          <span
-            className={`inline-flex min-w-[90px] justify-center rounded-full border px-2.5 py-1 text-xs font-semibold ${
-              isCancelled
-                ? "border-red-200 bg-red-50 text-red-700"
-                : isCreated
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                  : "border-slate-200 bg-slate-50 text-slate-600"
-            }`}
-          >
-            {isCancelled ? "Đã huỷ" : isCreated ? "Đã tạo" : "Chưa tạo"}
-          </span>
-        )
-      },
-    },
+    //     return (
+    //       <span
+    //         className={`inline-flex min-w-[90px] justify-center rounded-full border px-2.5 py-1 text-xs font-semibold ${
+    //           isCancelled
+    //             ? "border-red-200 bg-red-50 text-red-700"
+    //             : isCreated
+    //               ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+    //               : "border-slate-200 bg-slate-50 text-slate-600"
+    //         }`}
+    //       >
+    //         {isCancelled ? "Đã huỷ" : isCreated ? "Đã tạo" : "Chưa tạo"}
+    //       </span>
+    //     )
+    //   },
+    // },
     {
       key: "exportInvoiceStatus",
       title: "Trạng thái xuất HĐ",
       sortable: true,
       sortValue: (invoice) =>
-        invoiceHelper.invoiceStatusLabel[invoiceHelper.getInvoiceStatus(invoice)],
+        invoiceHelper.invoiceStatusLabel[
+          invoiceHelper.getInvoiceStatus(invoice)
+        ],
       filter: renderColumnFilter("exportInvoiceStatus", "Trạng thái xuất HĐ", {
         options: [
           {
@@ -1398,7 +1400,7 @@ export default function InvoiceDataTable({
       sortable: true,
       sortValue: (invoice) => invoice.inv_buyerTaxCode || "",
       filter: renderColumnFilter("inv_buyerTaxCode", "MST"),
-      className: "whitespace-nowrap min-w-[140px]",
+      className: "whitespace-nowrap max-w-[140px]",
       render: (invoice) => invoice.inv_buyerTaxCode || "-",
     },
     {
@@ -1425,7 +1427,7 @@ export default function InvoiceDataTable({
       sortable: true,
       sortValue: (invoice) => invoice.orderNumber || "",
       filter: renderColumnFilter("orderNumber", "Số đơn hàng"),
-      className: "whitespace-nowrap text-center min-w-[160px]",
+      className: "whitespace-nowrap text-center max-w-[120px]",
       headerClassName: "text-center",
       render: (invoice) => invoice.orderNumber || "-",
     },
@@ -1445,7 +1447,7 @@ export default function InvoiceDataTable({
       sortable: true,
       sortValue: (invoice) => Number(invoice.inv_TotalAmount || 0),
       filter: renderMoneyFilter("totalAmount", "Tổng giá trị"),
-      className: "whitespace-nowrap min-w-[190px] text-right ",
+      className: "whitespace-nowrap max-w-[120px] text-right ",
       headerClassName: "text-center",
       render: (invoice) =>
         MONEY_FORMATTER.format(Number(invoice.inv_TotalAmount || 0)),
@@ -1456,7 +1458,7 @@ export default function InvoiceDataTable({
       sortable: true,
       sortValue: getInvoiceExportedAmount,
       filter: renderMoneyFilter("exportedAmount", "Tổng xuất HĐ"),
-      className: "whitespace-nowrap text-right min-w-[190px] ",
+      className: "whitespace-nowrap text-right max-w-[120px] ",
       headerClassName: "text-center",
       render: (invoice) =>
         MONEY_FORMATTER.format(getInvoiceExportedAmount(invoice)),
@@ -1516,7 +1518,7 @@ export default function InvoiceDataTable({
       sortable: true,
       sortValue: (invoice) => getInvoicePaymentState(invoice).paidAmount,
       filter: renderMoneyFilter("amountCollected", "Số tiền thu"),
-      className: "whitespace-nowrap text-right min-w-[190px] ",
+      className: "whitespace-nowrap text-right max-w-[120px] ",
       headerClassName: "text-center",
       render: (invoice) =>
         MONEY_FORMATTER.format(getInvoicePaymentState(invoice).paidAmount),
@@ -1527,7 +1529,7 @@ export default function InvoiceDataTable({
       sortable: true,
       sortValue: (invoice) => getInvoicePaymentState(invoice).remainingAmount,
       filter: renderMoneyFilter("remainingAmount", "Số tiền chênh lệch"),
-      className: "whitespace-nowrap text-right min-w-[190px] ",
+      className: "whitespace-nowrap text-right max-w-[130px] ",
       headerClassName: "text-center",
       render: (invoice) => {
         const remainingAmount = getInvoicePaymentState(invoice).remainingAmount
