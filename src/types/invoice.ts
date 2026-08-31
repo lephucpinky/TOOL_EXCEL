@@ -18,7 +18,13 @@ export enum InvoicePaymentStatus {
   PAID = "PAID",
 }
 
-export const INVOICE_ITEM_TYPES = ["Mới", "Gia hạn", "Tặng", "Khác"] as const
+export const INVOICE_ITEM_TYPES = [
+  "Mới",
+  "Gia hạn",
+  "Hằng năm",
+  "Tặng",
+  "Khác",
+] as const
 
 export type InvoiceItemType = (typeof INVOICE_ITEM_TYPES)[number]
 
