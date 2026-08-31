@@ -23,6 +23,8 @@ export const INVOICE_ITEM_TYPES = [
   "Gia hạn",
   "Hằng năm",
   "Tặng",
+  "Dự án",
+  "Hợp đồng gói",
   "Khác",
 ] as const
 
